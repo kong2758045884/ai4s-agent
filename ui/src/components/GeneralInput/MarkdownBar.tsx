@@ -44,7 +44,7 @@ function prefixLines(
 const btnClass =
   "inline-flex h-7 w-7 items-center justify-center rounded-md text-[#6b6b70] transition-colors hover:bg-black/[0.04] hover:text-[#1d1d1f] disabled:opacity-40";
 
-const MarkdownBar: ReactorType.FC<Props> = ({
+const MarkdownBar: AI4SType.FC<Props> = ({
   textareaRef,
   value,
   onChange,

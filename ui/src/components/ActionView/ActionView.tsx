@@ -42,7 +42,7 @@ import {
 import { isTextCopyableFileLike } from "@/utils/taskArtifacts";
 
 const iconBtnClass =
-  "reactor-action-icon flex h-7 w-7 items-center justify-center rounded-full text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-text)]";
+  "ai4s-action-icon flex h-7 w-7 items-center justify-center rounded-full text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-text)]";
 
 type ActionViewRef = PlanViewAction & {
   setFilePreview: (file?: CHAT.TFile) => void;
@@ -283,7 +283,7 @@ const ActionViewInner = forwardRef<ActionViewRef, ActionViewProps>((props, ref) 
   return (
     <motion.div
       className={classNames(
-        "reactor-workspace-content flex h-full w-full flex-col overflow-hidden bg-[var(--color-bg)]",
+        "ai4s-workspace-content flex h-full w-full flex-col overflow-hidden bg-[var(--color-bg)]",
         className
       )}
       initial={{ opacity: 0 }}
@@ -294,7 +294,7 @@ const ActionViewInner = forwardRef<ActionViewRef, ActionViewProps>((props, ref) 
       }}
     >
       {/* 顶栏：「动态」+ 已打开文件 pill；点工具回动态，点文件进文件预览 */}
-      <div className="reactor-workspace-toolbar flex shrink-0 flex-col gap-1 border-b border-[var(--color-line)] px-3 pt-2.5 pb-1.5">
+      <div className="ai4s-workspace-toolbar flex shrink-0 flex-col gap-1 border-b border-[var(--color-line)] px-3 pt-2.5 pb-1.5">
         <div className="flex items-center gap-2">
           {onBack ? (
             <button
@@ -310,7 +310,7 @@ const ActionViewInner = forwardRef<ActionViewRef, ActionViewProps>((props, ref) 
           {files.length > 0 ? (
             <div
               ref={tabsRef}
-              className="reactor-workspace-tabs flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-color:#c7c7cc_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#c7c7cc]"
+              className="ai4s-workspace-tabs flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-color:#c7c7cc_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#c7c7cc]"
             >
               <button
                 type="button"

@@ -22,7 +22,7 @@ describe("WorkspaceMRag utils", () => {
         })
       )
     ).toEqual({
-      toolBaseUrl: "http://127.0.0.1:1601",
+      toolBaseUrl: defaults.toolBaseUrl,
       selectedKnowledgeBaseId: "kb-1",
     });
   });

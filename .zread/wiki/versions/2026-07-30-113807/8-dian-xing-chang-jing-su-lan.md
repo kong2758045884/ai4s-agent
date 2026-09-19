@@ -1,6 +1,6 @@
 本页是 [首个复杂任务对话](7-shou-ge-fu-za-ren-wu-dui-hua) 之后的「场景地图」：用可复制的任务文案、推荐模式与能力组合，帮你在本地工作台快速验证 **研究决策、数据分析、内容生产、知识问答、流程自动化** 五类真实链路。内容只覆盖「跑什么场景、怎么配模式、会用到哪些工具/Skill、产物长什么样」，不展开 ReAct/Plan-Execute 内核与工具协议细节。
 
-前置建议：三端已联调（UI `:3000`、Java `:8100`、reactor-tool `:1601`），并完成至少一次成功的复杂任务发送。若尚未完成，请先回到 [首个复杂任务对话](7-shou-ge-fu-za-ren-wu-dui-hua)。
+前置建议：三端已联调（UI `:3000`、Java `:8100`、ai4s-tool `:1601`），并完成至少一次成功的复杂任务发送。若尚未完成，请先回到 [首个复杂任务对话](7-shou-ge-fu-za-ren-wu-dui-hua)。
 
 Sources: [README.md](README.md#L1-L63) · [constants.ts](ui/src/utils/constants.ts#L47-L126) · [7-shou-ge-fu-za-ren-wu-dui-hua.md](.zread/wiki/drafts/7-shou-ge-fu-za-ren-wu-dui-hua.md#L1-L20)
 
@@ -27,7 +27,7 @@ flowchart LR
 
 模式到请求字段的映射很简单：`research` 才会把 `deepThink` 置为 `true`；`chat` / `dataAgent` 强制关闭深度研究。交付物 `html` / `docs` / `ppt` / `table` 会原样进入 `outputStyle`，影响报告收口形态。
 
-Sources: [inputMode.ts](ui/src/components/GeneralInput/inputMode.ts#L5-L29) · [constants.ts](ui/src/utils/constants.ts#L72-L126) · [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L105-L160)
+Sources: [inputMode.ts](ui/src/components/GeneralInput/inputMode.ts#L5-L29) · [constants.ts](ui/src/utils/constants.ts#L72-L126) · [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L105-L160)
 
 ### 场景 × 模式速查
 
@@ -90,7 +90,7 @@ flowchart TB
 
 默认装配列表（配置可覆盖）大致包含：`search`、`web_fetch`、`web_search`、`code`、`report`、`docgen`、`docread`、`dataprep`、`canvas`、`multimodalagent`、`image_generation`、`data_analysis` 等；`dataAgent` 输出样式下则优先挂数据分析工具。
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L123-L160) · [README.md](README.md#L24-L63) · [SKILL.md](runtime/skills/github-deep-research/SKILL.md#L1-L20)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L123-L160) · [README.md](README.md#L24-L63) · [SKILL.md](runtime/skills/github-deep-research/SKILL.md#L1-L20)
 
 ## 场景一：研究与决策类
 
@@ -106,7 +106,7 @@ Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/or
 
 DeepSearch 在 Python 侧走「查询拆解 → 多引擎检索去重 → 推理是否继续 → 总结」；Java 侧 `DeepSearchTool` 以 SSE 调用 `/v1/tool/deepsearch`，超时保底约 20 分钟。Report 按 `file_type` 分发 markdown / html / ppt，并复用会话内已登记文件作素材。
 
-Sources: [README.md](README.md#L26-L32) · [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L8-L35) · [DeepSearchTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/DeepSearchTool.java#L38-L70) · [report.py](reactor-tool/reactor_tool/tool/report.py#L1-L45) · [ReportTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L31-L45)
+Sources: [README.md](README.md#L26-L32) · [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L8-L35) · [DeepSearchTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/DeepSearchTool.java#L38-L70) · [report.py](ai4s-tool/ai4s_tool/tool/report.py#L1-L45) · [ReportTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L31-L45)
 
 ### 可复制示例
 
@@ -147,7 +147,7 @@ Sources: [constants.ts](ui/src/utils/constants.ts#L47-L56) · [README.md](README
 
 `CodeInterpreterTool` 描述为：通过编写代码完成数据处理、分析、图表生成；请求会把当前会话 `productFiles` 文件名一并传给 Python `/v1/tool/code_interpreter`。Chart Skill 提供 26 类图表选型与 `generate.js` 出图脚本，适合在分析结论后补可视化。
 
-Sources: [README.md](README.md#L34-L38) · [CodeInterpreterTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/CodeInterpreterTool.java#L32-L67) · [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L129-L136) · [SKILL.md](runtime/skills/chart-visualization/SKILL.md#L1-L40) · [constants.ts](ui/src/utils/constants.ts#L58-L65)
+Sources: [README.md](README.md#L34-L38) · [CodeInterpreterTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/CodeInterpreterTool.java#L32-L67) · [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L129-L136) · [SKILL.md](runtime/skills/chart-visualization/SKILL.md#L1-L40) · [constants.ts](ui/src/utils/constants.ts#L58-L65)
 
 ### 可复制示例
 
@@ -190,7 +190,7 @@ Sources: [constants.ts](ui/src/utils/constants.ts#L58-L65) · [constants.ts](ui/
 
 `ImageGenerationTool` 支持 `images`（文生图）与 `edits`（图生图），可自动复用本轮上传图片；`gpt-image-2-style-library` 负责把意图收成可投产的工业级 prompt。`ppt-animation` 生成 16:9 单文件翻页 HTML；`csdn-blog-publisher` 区分「单篇全流程发布」与「系列只写稿」；`vercel-deploy` 打包上传并返回 Preview / Claim URL。
 
-Sources: [README.md](README.md#L40-L47) · [ImageGenerationTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ImageGenerationTool.java#L26-L55) · [SKILL.md](runtime/skills/gpt-image-2-style-library/SKILL.md#L1-L40) · [SKILL.md](runtime/skills/ppt-animation/SKILL.md#L1-L40) · [SKILL.md](runtime/skills/csdn-blog-publisher/SKILL.md#L1-L30) · [SKILL.md](runtime/skills/vercel-deploy-claimable/SKILL.md#L1-L45) · [SKILL.md](runtime/skills/flowchart/SKILL.md#L1-L30)
+Sources: [README.md](README.md#L40-L47) · [ImageGenerationTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ImageGenerationTool.java#L26-L55) · [SKILL.md](runtime/skills/gpt-image-2-style-library/SKILL.md#L1-L40) · [SKILL.md](runtime/skills/ppt-animation/SKILL.md#L1-L40) · [SKILL.md](runtime/skills/csdn-blog-publisher/SKILL.md#L1-L30) · [SKILL.md](runtime/skills/vercel-deploy-claimable/SKILL.md#L1-L45) · [SKILL.md](runtime/skills/flowchart/SKILL.md#L1-L30)
 
 ### 可复制示例
 
@@ -220,7 +220,7 @@ Sources: [README.md](README.md#L100-L160) · [SKILL.md](runtime/skills/flowchart
 
 公开网页补强仍可用 DeepSearch / WebFetch；私有库命中应优先看多模态工具与 MRAG 工作区。完整检索与重排机制见 [MRAG 混合检索与重排](24-mrag-hun-he-jian-suo-yu-zhong-pai)。
 
-Sources: [README.md](README.md#L49-L55) · [MultiModalAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L64-L96) · [MultiModalAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L148-L160)
+Sources: [README.md](README.md#L49-L55) · [MultiModalAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L64-L96) · [MultiModalAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L148-L160)
 
 ### 可复制示例
 
@@ -232,7 +232,7 @@ Sources: [README.md](README.md#L49-L55) · [MultiModalAgent.java](Reactor-agent-
 
 若未配置 `multimodalagent_url` 或知识库为空，工具会失败提示；此时可先用公网研究类场景验证主链路，再配置 MRAG。
 
-Sources: [MultiModalAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L100-L120)
+Sources: [MultiModalAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L100-L120)
 
 ## 场景五：流程自动化类
 
@@ -277,7 +277,7 @@ Sources: [constants.ts](ui/src/utils/constants.ts#L154-L165) · [README.md](READ
 
 Report 工厂键：`ppt` / `markdown` / `html`；HTML 还可带 `template_type`。图片、搜索结果、代码输出会先进入会话产物列表，再被报告工具下载截断后注入 prompt。
 
-Sources: [constants.ts](ui/src/utils/constants.ts#L72-L126) · [report.py](reactor-tool/reactor_tool/tool/report.py#L23-L45) · [ReportTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L67-L100)
+Sources: [constants.ts](ui/src/utils/constants.ts#L72-L126) · [report.py](ai4s-tool/ai4s_tool/tool/report.py#L23-L45) · [ReportTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L67-L100)
 
 ### 仓库已公开的样例产物（节选）
 
@@ -321,7 +321,7 @@ Sources: [constants.ts](ui/src/utils/constants.ts#L47-L71)
 | 5 | 格式正确 | html→可打开页面；docs→Markdown；ppt→翻页或 PPT HTML；图→图片芯片 |
 | 6 | 可复用 | 同会话追问能引用已有文件（工作区不丢产物） |
 
-Sources: [7-shou-ge-fu-za-ren-wu-dui-hua.md](.zread/wiki/drafts/7-shou-ge-fu-za-ren-wu-dui-hua.md#L180-L220) · [ReportTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L80-L100)
+Sources: [7-shou-ge-fu-za-ren-wu-dui-hua.md](.zread/wiki/drafts/7-shou-ge-fu-za-ren-wu-dui-hua.md#L180-L220) · [ReportTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L80-L100)
 
 ## 下一步阅读
 

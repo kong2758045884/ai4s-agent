@@ -84,12 +84,12 @@ export default function VisitorLoginGate(props: VisitorLoginGateProps) {
             className="mb-3 text-[38px] leading-[1.1] tracking-tight text-[var(--chat-text)] md:text-[44px]"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            你好，探索者
+            你好，欢迎体验AI原生的AI4S 研判系统
           </h1>
 
           {/* 副标题 */}
           <p className="mx-auto max-w-[320px] text-[15px] leading-relaxed text-[var(--chat-text-soft)]">
-            输入一个名字，开启与 AI 的协作之旅
+            开启与 AI 的协作之旅
           </p>
         </motion.div>
 
@@ -103,7 +103,7 @@ export default function VisitorLoginGate(props: VisitorLoginGateProps) {
               onKeyDown={handleKeyDown}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              placeholder="你的名字"
+              placeholder="输入你的名字，即可体验"
               disabled={props.loading}
               className="h-14 w-full rounded-2xl border bg-white/70 px-5 text-[16px] text-[var(--chat-text)] outline-none transition-[border-color,box-shadow,opacity] duration-200 placeholder:text-[var(--chat-text-muted)] disabled:opacity-60"
               style={{
@@ -138,7 +138,7 @@ export default function VisitorLoginGate(props: VisitorLoginGateProps) {
               </>
             ) : (
               <>
-                <span>进入工作台</span>
+                <span>进入AI原生研判系统</span>
                 <ArrowRight className="h-4 w-4" />
               </>
             )}

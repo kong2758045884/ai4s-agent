@@ -399,9 +399,9 @@ describe("ChatView layout", () => {
       );
 
       expect(html).toContain('data-workspace-open="false"');
-      expect(html).toContain("reactor-single-chat-shell");
-      expect(html).toMatch(/class="reactor-chat-panel-left[^"]*max-w-\[980px\]/);
-      expect(html).not.toContain("reactor-workspace-panel");
+      expect(html).toContain("ai4s-single-chat-shell");
+      expect(html).toMatch(/class="ai4s-chat-panel-left[^"]*max-w-\[980px\]/);
+      expect(html).not.toContain("ai4s-workspace-panel");
       expect(html).not.toContain('style="width:50%"');
     } finally {
       workspaceLayoutState.rightCollapsed = false;

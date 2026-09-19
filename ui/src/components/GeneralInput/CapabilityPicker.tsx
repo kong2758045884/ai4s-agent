@@ -19,7 +19,7 @@ type Props = {
   triggerClassName?: (active?: boolean, disabled?: boolean) => string;
 };
 
-const CapabilityPicker: ReactorType.FC<Props> = ({
+const CapabilityPicker: AI4SType.FC<Props> = ({
   sessionId,
   disabled,
   triggerClassName,

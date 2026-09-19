@@ -396,7 +396,7 @@ function estimateDurations(
       return Math.max(nextStart - start, 0);
     }
 
-    if (isTimelineToolActive(tool) || (options.loading && !isStepCompleted(tool))) {
+    if (options.loading && (isTimelineToolActive(tool) || !isStepCompleted(tool))) {
       return Math.max(options.nowMs - start, 0);
     }
 

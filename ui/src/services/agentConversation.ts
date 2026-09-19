@@ -93,4 +93,8 @@ export const conversationHistoryApi = {
     api.get<ConversationHistoryDetail>(
       `/api/agent/conversation/sessions/${sessionId}`
     ) as unknown as Promise<ConversationHistoryDetail>,
+  deleteSession: (sessionId: string) =>
+    api.delete<boolean>(
+      `/api/agent/conversation/sessions/${encodeURIComponent(sessionId)}`
+    ) as unknown as Promise<boolean>,
 };

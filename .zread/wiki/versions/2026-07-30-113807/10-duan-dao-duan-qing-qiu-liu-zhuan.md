@@ -2,9 +2,9 @@
 
 ## 总览：双入口与 loopback 主路径
 
-系统存在两条对外入口，但 **当前前端主聊天统一走增量查询入口**，再在进程内 loopback 到 `AutoAgent` 执行入口。`queryAgentStreamIncr` 负责「前端协议 ↔ 运行时协议」转换与事件投影；`AutoAgent` 负责真正的策略调度与领域内核执行。`ReactorController` 上的同源接口被标注为调试路径，生产前端请求以 `AiAgentController` 为准。
+系统存在两条对外入口，但 **当前前端主聊天统一走增量查询入口**，再在进程内 loopback 到 `AutoAgent` 执行入口。`queryAgentStreamIncr` 负责「前端协议 ↔ 运行时协议」转换与事件投影；`AutoAgent` 负责真正的策略调度与领域内核执行。`AI4SController` 上的同源接口被标注为调试路径，生产前端请求以 `AiAgentController` 为准。
 
-Sources: [querySSE.ts](ui/src/utils/querySSE.ts#L7-L11)、[AiAgentController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/AiAgentController.java#L85-L180)、[ReactorController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/reactor/ReactorController.java#L38-L41)、[AgentQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L187-L197)
+Sources: [querySSE.ts](ui/src/utils/querySSE.ts#L7-L11)、[AiAgentController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/AiAgentController.java#L85-L180)、[AI4SController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/ai4s/AI4SController.java#L38-L41)、[AgentQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L187-L197)
 
 ```mermaid
 flowchart LR
@@ -31,7 +31,7 @@ flowchart LR
 | 执行入口 | `POST /AutoAgent` | `AgentRequest` | 会话归属校验、策略调度、内核执行、上游 SSE |
 | 停止控制 | `POST /api/agent/run/stop` | `{sessionId?, requestId}` | 取消活跃 run，打断执行与流 |
 
-Sources: [GptQueryReq.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/model/req/GptQueryReq.java#L15-L31)、[AgentRequest.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/model/req/AgentRequest.java#L21-L52)、[AgentRunController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/agent/AgentRunController.java#L19-L48)
+Sources: [GptQueryReq.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/model/req/GptQueryReq.java#L15-L31)、[AgentRequest.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/model/req/AgentRequest.java#L21-L52)、[AgentRunController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/agent/AgentRunController.java#L19-L48)
 
 ## 阶段 1：前端组装请求并发起 SSE
 
@@ -70,17 +70,17 @@ sequenceDiagram
 | `sessionFiles` | 上传附件 | 供工作区物化与工具链消费 |
 | `aiAgentId` | 角色选择 | 仅 chat 模式透传固定角色 |
 
-Sources: [agentRequest.ts](ui/src/utils/agentRequest.ts#L14-L80)、[GptQueryReq.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/model/req/GptQueryReq.java#L15-L31)
+Sources: [agentRequest.ts](ui/src/utils/agentRequest.ts#L14-L80)、[GptQueryReq.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/model/req/GptQueryReq.java#L15-L31)
 
 ## 阶段 2：身份绑定与触发层接入
 
 请求进入后端前，`VisitorIdentityFilter` 对主聊天路径做匿名访客解析：从 cookie 读取 token，必要时创建访客并回写 `Set-Cookie`，再将 `visitorId` 绑定到 `VisitorRequestContext`。过滤器仅覆盖查询流、访客、会话列表与文件相关路径，避免无关接口被强制身份化。
 
-Sources: [VisitorIdentityFilter.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/visitor/VisitorIdentityFilter.java#L34-L61)
+Sources: [VisitorIdentityFilter.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/visitor/VisitorIdentityFilter.java#L34-L61)
 
 `AiAgentController.queryAgentStreamIncr` 创建长超时 `SseEmitter`，注册生命周期回调，然后把 `GptQueryReq` 与 `SseEmitterAgentSessionStream` 交给应用服务。`SseEmitterAgentSessionStream` 是触发层到应用层的 **流端口适配器**：`send/complete/completeWithError` 映射到 SSE，并在客户端断开时标记 `aborted` 且一次性广播 abort handler，供上游取消。
 
-Sources: [AiAgentController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/AiAgentController.java#L171-L179)、[SseEmitterAgentSessionStream.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/reactor/support/SseEmitterAgentSessionStream.java#L14-L122)、[GptQueryApplicationService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/query/GptQueryApplicationService.java#L14-L23)
+Sources: [AiAgentController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/AiAgentController.java#L171-L179)、[SseEmitterAgentSessionStream.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/ai4s/support/SseEmitterAgentSessionStream.java#L14-L122)、[GptQueryApplicationService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/query/GptQueryApplicationService.java#L14-L23)
 
 ## 阶段 3：查询服务翻译协议并 loopback 到 AutoAgent
 
@@ -94,7 +94,7 @@ Sources: [AiAgentController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai
 
 当下游浏览器已断开时，会主动 `cancel` 上游 AutoAgent 连接，避免空跑。
 
-Sources: [AgentQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L47-L197)、[ReactAgentResponseHandler.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/handler/ReactAgentResponseHandler.java#L16-L30)、[AgentQueryService.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryService.java#L7-L19)
+Sources: [AgentQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L47-L197)、[ReactAgentResponseHandler.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/handler/ReactAgentResponseHandler.java#L16-L30)、[AgentQueryService.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryService.java#L7-L19)
 
 ```mermaid
 flowchart TB
@@ -126,7 +126,7 @@ loopback 到达 `AiAgentController.AutoAgent` 后，流程固定为四步：
 
 `AgentRequest` 在此路径上 **不做 DTO 转换**，直接贯穿应用策略与领域执行树，降低协议漂移。
 
-Sources: [AiAgentController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/AiAgentController.java#L85-L152)、[AgentRequest.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/model/req/AgentRequest.java#L21-L52)
+Sources: [AiAgentController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/AiAgentController.java#L85-L152)、[AgentRequest.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/model/req/AgentRequest.java#L21-L52)
 
 ## 阶段 5：应用层策略调度
 
@@ -141,7 +141,7 @@ Sources: [AiAgentController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai
 
 策略选择后调用 `IExecuteStrategy.execute(request, stream)`。应用层负责 **记忆注入、输出端口适配、run 注册**；真正的循环逻辑仍在 domain。
 
-Sources: [AgentDispatchService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/dispatch/AgentDispatchService.java#L25-L49)、[IExecuteStrategy.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/execute/IExecuteStrategy.java#L7-L13)
+Sources: [AgentDispatchService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/dispatch/AgentDispatchService.java#L25-L49)、[IExecuteStrategy.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/execute/IExecuteStrategy.java#L7-L13)
 
 以 ReAct 为例，`ReactAgentExecuteStrategy` 在进入领域树前：
 
@@ -151,7 +151,7 @@ Sources: [AgentDispatchService.java](Reactor-agent-case/src/main/java/org/wwz/ai
 4. 调用 `DefaultReactAgentExecuteStrategyFactory.armoryStrategyHandler()` 启动树；
 5. finally 中 `end(requestId)`；取消/异常时写入执行账本终态。
 
-Sources: [ReactAgentExecuteStrategy.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/execute/react/ReactAgentExecuteStrategy.java#L51-L131)、[PlanSolveAgentExecuteStrategy.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/execute/planexecute/PlanSolveAgentExecuteStrategy.java#L43-L108)
+Sources: [ReactAgentExecuteStrategy.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/execute/react/ReactAgentExecuteStrategy.java#L51-L131)、[PlanSolveAgentExecuteStrategy.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/execute/planexecute/PlanSolveAgentExecuteStrategy.java#L43-L108)
 
 ## 阶段 6：领域执行树（以 ReAct 为例）
 
@@ -166,19 +166,19 @@ flowchart TD
 
 **Step1 RootNode**：构建 `AgentContext`（request/session、query、工作区根、工作记忆、recorder 等），物化 `sessionFiles`，hydrate 工作区读状态，初始化执行账本 run，装配 `ToolCollection`，并把 context 写入 `DynamicContext`。
 
-Sources: [RootNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RootNode.java#L63-L105)、[DefaultReactAgentExecuteStrategyFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/factory/DefaultReactAgentExecuteStrategyFactory.java#L18-L49)
+Sources: [RootNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RootNode.java#L63-L105)、[DefaultReactAgentExecuteStrategyFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/factory/DefaultReactAgentExecuteStrategyFactory.java#L18-L49)
 
 **Step2 RunReactNode**：实例化 `ReactImplAgent`，按需注入 Plan Mode 提示，执行 `executor.run(query)`。终答解析规则严格：**只接受无 tool_calls 的 assistant 纯文本**；不把中间 thought 或 tool observation 当作用户可见终答。
 
-Sources: [RunReactNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RunReactNode.java#L39-L78)
+Sources: [RunReactNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RunReactNode.java#L39-L78)
 
 **Step3 SummaryResultNode**：解析终答中的产物勾选协议，组装 `taskSummary` + `fileList`，经 `printer.send("result", …)` 发出；标记账本成功；把本轮 working memory delta 持久化。
 
-Sources: [SummaryResultNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/SummaryResultNode.java#L50-L107)
+Sources: [SummaryResultNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/SummaryResultNode.java#L50-L107)
 
 Plan-Execute 路径在应用层同样注入记忆与 run 注册，但领域树为 SOP 召回准备 + PlanExecute 节点（细节见专页），对外仍通过同一 `Printer → AgentResponse` 协议上行。
 
-Sources: [PlanSolveAgentExecuteStrategy.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/execute/planexecute/PlanSolveAgentExecuteStrategy.java#L43-L55)
+Sources: [PlanSolveAgentExecuteStrategy.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/execute/planexecute/PlanSolveAgentExecuteStrategy.java#L43-L55)
 
 ## 阶段 7：流式事件协议与回传
 
@@ -195,11 +195,11 @@ Sources: [PlanSolveAgentExecuteStrategy.java](Reactor-agent-case/src/main/java/o
 | `ask_user_question` / `plan_approval` | `resultMap` | 人机协同卡片 |
 | `result` | `result` + `resultMap.taskSummary/fileList` | 终答与交付物，`finish=true` |
 
-Sources: [AgentSessionPrinter.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/stream/AgentSessionPrinter.java#L37-L155)
+Sources: [AgentSessionPrinter.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/stream/AgentSessionPrinter.java#L37-L155)
 
 上游 `AgentResponse` 经 `AgentQueryServiceImpl` 的 handler 投影为下游 `GptProcessResult` 后，前端 `querySSE` 解析 JSON，`useConversationStream` 用节流更新 taskList、plan、action panel 与 run presence。停止按钮走 `agentRunApi.stop` → `/api/agent/run/stop`，与 `ActiveAgentRunRegistry` 联动打断本轮。
 
-Sources: [querySSE.ts](ui/src/utils/querySSE.ts#L45-L63)、[agentRun.ts](ui/src/services/agentRun.ts#L1-L8)、[AgentRunController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/agent/AgentRunController.java#L26-L41)
+Sources: [querySSE.ts](ui/src/utils/querySSE.ts#L45-L63)、[agentRun.ts](ui/src/services/agentRun.ts#L1-L8)、[AgentRunController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/agent/AgentRunController.java#L26-L41)
 
 ## 阶段 8：取消、断连与资源回收闭环
 
@@ -219,7 +219,7 @@ flowchart LR
 2. **被动断连**：SSE completion/timeout/error（非本地 complete）触发 `markAborted`，通知 abort handlers。
 3. **上游回收**：`AgentQueryServiceImpl` 在 abort 时取消 loopback 的 `RemoteStreamSession`；AutoAgent 侧 emitter 生命周期结束时停止心跳。
 
-Sources: [SseEmitterAgentSessionStream.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/reactor/support/SseEmitterAgentSessionStream.java#L82-L122)、[AgentQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L170-L185)、[ReactAgentExecuteStrategy.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/execute/react/ReactAgentExecuteStrategy.java#L67-L102)
+Sources: [SseEmitterAgentSessionStream.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/ai4s/support/SseEmitterAgentSessionStream.java#L82-L122)、[AgentQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L170-L185)、[ReactAgentExecuteStrategy.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/execute/react/ReactAgentExecuteStrategy.java#L67-L102)
 
 ## 关键对象在流转中的角色
 
@@ -234,7 +234,7 @@ Sources: [SseEmitterAgentSessionStream.java](Reactor-agent-trigger/src/main/java
 | `GptProcessResult` | 下游事件 | 面向前端增量渲染的投影结果 |
 | `ActiveAgentRunRegistry` | 运行时控制面 | requestId ↔ context/stream 绑定与停止 |
 
-Sources: [AgentRequest.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/model/req/AgentRequest.java#L17-L52)、[AgentSessionPrinter.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/stream/AgentSessionPrinter.java#L18-L34)、[RootNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RootNode.java#L69-L101)
+Sources: [AgentRequest.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/model/req/AgentRequest.java#L17-L52)、[AgentSessionPrinter.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/stream/AgentSessionPrinter.java#L18-L34)、[RootNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RootNode.java#L69-L101)
 
 ## 一次成功请求的时序浓缩
 

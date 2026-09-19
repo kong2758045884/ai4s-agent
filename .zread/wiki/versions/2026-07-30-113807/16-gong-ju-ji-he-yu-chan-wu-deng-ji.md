@@ -1,4 +1,4 @@
-工具集合与产物登记是 Reactor Agent 执行内核的能力底座：前者决定一次 run 里 **LLM 能看到并调用哪些动作**，后者保证 **工具产出的文件可追溯、可回放、可进入总结上下文**。两者通过 `AgentContext` 串成统一闭环——工具在集合中被装配与调度，产物在登记簿中按 `toolCallId` 绑定来源。
+工具集合与产物登记是 AI4S Agent 执行内核的能力底座：前者决定一次 run 里 **LLM 能看到并调用哪些动作**，后者保证 **工具产出的文件可追溯、可回放、可进入总结上下文**。两者通过 `AgentContext` 串成统一闭环——工具在集合中被装配与调度，产物在登记簿中按 `toolCallId` 绑定来源。
 
 本文聚焦 **装配策略、工具分类、执行入口、产物登记协议**；具体工具的深层实现（DeepSearch 链路、沙箱执行、Report 多格式生成、MCP/Skill 协议）分别见后续专页。
 
@@ -15,11 +15,11 @@
 
 `BaseTool` 是所有本地工具的最小契约：名称是集合内的唯一键，参数 schema 以 `Map` 形式交给 LLM function calling，`execute` 接收已解析的入参对象。
 
-Sources: [BaseTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/BaseTool.java#L1-L16)
+Sources: [BaseTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/BaseTool.java#L1-L16)
 
 `ToolCollection` 同时管理两类工具：**本地 BaseTool** 与 **远程 McpToolInfo**。执行时优先查本地 `toolMap`，未命中再走 `mcpToolMap` + `McpToolExecutor`；额外维护「工具名 → 数字员工」映射，用于前端展示归属。
 
-Sources: [ToolCollection.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L39-L175)
+Sources: [ToolCollection.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L39-L175)
 
 ## 工具集合装配流水线
 
@@ -29,7 +29,7 @@ ReAct 与 Plan-Execute 共用同一工厂，避免节点层重复拼装。入口
 - `buildForPlanSolve` — 规划执行路径
 - `buildForParallelTask` — 并行子任务：基于 PlanSolve 构建，并 **恢复父集合的任务级状态快照**
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L104-L120)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L104-L120)
 
 装配决策可概括为下图：
 
@@ -54,13 +54,13 @@ flowchart TD
   M --> H
 ```
 
-**默认能力开关** 来自 `ReactorConfig.multiAgentToolListMap["default"]`，缺省串为：
+**默认能力开关** 来自 `AI4SConfig.multiAgentToolListMap["default"]`，缺省串为：
 
 `search,web_fetch,web_search,code,code_execution,report,docgen,docread,dataprep,canvas,multimodalagent,image_generation,data_analysis`
 
 配置项是 **能力组别名**（如 `docgen` 一次挂载 8 个文档生成工具），而非单个工具名。
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L122-L148)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L122-L148)
 
 ## 工具分类总览
 
@@ -88,26 +88,26 @@ Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/or
 | MCP 发现 | 远端工具名 | 远程 MCP 协议工具 | 由执行器决定 |
 | 子智能体 | AgentDispatch | 同步派发子 Agent | 共享父级登记簿 |
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L129-L320)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L129-L320)
 
 ### Workspace 与 FileTool 互斥
 
 Workspace 启用时，Agent **面向 LLM 暴露 cwd 系工具**，`file_tool` 退化为内部适配（例如 DeepSearch 落盘仍可内部调用 `FileTool.uploadFile`），避免两套文件语义同时出现在 function schema 中。
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L134-L141)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L134-L141)
 
 ### Plan Mode 与 Brief
 
 非 `dataAgent` 场景固定挂载：`TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList` / `TodoWrite` / `TaskStop` / `EnterPlanMode` / `ExitPlanMode`，以及可选的 `AskUserQuestion` 与 `BriefTool`。这些工具管理的是 **任务列表与计划审批状态**，与文件产物登记簿正交，但 ExitPlanMode 仍可读取当前 `ToolArtifactSource` 以补齐事件关联字段。
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L305-L360)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L305-L360)
 
 ### Skill 与 MCP 的附加条件
 
 - **Skill**：`SkillRegistry` 启用且非空，并按 `SkillAttachScope` 检查 `reactEnabled` / `planSolveEnabled`；当前只挂载 `SkillTool`（路径浏览并入 workspace，不再单独挂 script_runner）。
 - **MCP**：`mcpToolExecutor.discoverConfiguredTools()` 结果批量 `addMcpTool`；失败只记日志，不阻断本地工具集合。
 
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L286-L490)
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L286-L490)
 
 ## 统一执行入口
 
@@ -136,7 +136,7 @@ sequenceDiagram
   TC-->>Agent: Object
 ```
 
-Sources: [ToolCollection.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L140-L175)
+Sources: [ToolCollection.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L140-L175)
 
 ## 产物登记：唯一事实源协议
 
@@ -144,7 +144,7 @@ Sources: [ToolCollection.java](Reactor-agent-domain/src/main/java/org/wwz/ai/dom
 
 历史上文件列表散落在 `productFiles`（会话级）与 `taskProductFiles`（任务级）。并发工具、子 Agent、异步 SSE 回调会让「谁产生了哪个文件」难以还原。`ToolArtifactRegistry` 明确：**binding 列表是唯一可信数据源**，两个 List 只是兼容视图。
 
-Sources: [ToolArtifactRegistry.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactRegistry.java#L11-L53)
+Sources: [ToolArtifactRegistry.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactRegistry.java#L11-L53)
 
 ### 三元组模型
 
@@ -181,7 +181,7 @@ classDiagram
 - **`File`**：运行时文件 DTO，`isInternalFile=true` 表示不对用户任务产物可见。
 - **`ToolArtifactBinding`**：source + file 的显式绑定。
 
-Sources: [ToolArtifactSource.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactSource.java#L1-L17) · [ToolArtifactBinding.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactBinding.java#L1-L19) · [File.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/File.java#L1-L22)
+Sources: [ToolArtifactSource.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactSource.java#L1-L17) · [ToolArtifactBinding.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactBinding.java#L1-L19) · [File.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/File.java#L1-L22)
 
 ### AgentContext 上的登记 API
 
@@ -195,13 +195,13 @@ Sources: [ToolArtifactSource.java](Reactor-agent-domain/src/main/java/org/wwz/ai
 | `getArtifactBindingsByToolCallId` | 按调用 ID 反查 |
 | `getVisibleArtifactBindings` / `getVisibleArtifactFiles` | 过滤 `isInternalFile` |
 
-Sources: [AgentContext.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java#L198-L400)
+Sources: [AgentContext.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java#L198-L400)
 
 ### 去重与可见性
 
 `registerGeneratedFile` 对 binding 按 **toolCallId + toolName + fileName + fileUrl + internal 标志** 去重；可见绑定过滤 `isInternalFile`。内部文件（如 DeepSearch 中间 search 结果）进入 `productFiles` 供后续工具引用，但 **不进入** `taskProductFiles`，避免污染任务级对外产物。
 
-Sources: [ToolArtifactRegistry.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactRegistry.java#L28-L120)
+Sources: [ToolArtifactRegistry.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactRegistry.java#L28-L120)
 
 ### 格式化与总结注入
 
@@ -212,7 +212,7 @@ Sources: [ToolArtifactRegistry.java](Reactor-agent-domain/src/main/java/org/wwz/
 
 URL 解析优先级：`originOssUrl` → `originDomainUrl` → `ossUrl` → `domainUrl`。
 
-Sources: [ToolArtifactFormatter.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactFormatter.java#L13-L110)
+Sources: [ToolArtifactFormatter.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactFormatter.java#L13-L110)
 
 ## 端到端：从工具调用到产物落账
 
@@ -246,7 +246,7 @@ sequenceDiagram
 - `FileTool`：upload 成功后登记；DeepSearch 等内部调用可指定 `isInternalFile`。
 - `AbstractDocGenTool` / `AbstractDocReadTool`：解析返回文件数组后批量 `registerFiles`。
 
-Sources: [ReportTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L99-L175) · [FileTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/FileTool.java#L85-L192) · [DeepSearchTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/DeepSearchTool.java#L114-L250)
+Sources: [ReportTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/ReportTool.java#L99-L175) · [FileTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/FileTool.java#L85-L192) · [DeepSearchTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/DeepSearchTool.java#L114-L250)
 
 ## 并发、子 Agent 与兼容视图
 
@@ -256,13 +256,13 @@ Sources: [ReportTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/
 | 子 Agent `SubAgentContextFactory` | 继承父级 `toolArtifactRegistry`，保证子调用产物归入同一请求登记簿 |
 | 并行 Task 工具集合 | `buildForParallelTask` 恢复父 `ToolCollection` 的任务级快照（数字员工等） |
 
-Sources: [AgentContext.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java#L420-L460) · [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L112-L120)
+Sources: [AgentContext.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java#L420-L460) · [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L112-L120)
 
 ## 与执行账本的衔接（边界说明）
 
 运行期登记簿解决 **一次 request 内** 的归属；持久化侧由 ledger 的 `ArtifactRecord` 承接（`runId` / `toolCallId` / `artifactRole` / `visibility` / `sourceType` 等）。工具结构化输出（`ReportToolOutput`、`FileToolOutput` 等）经 `ToolResultPayload` 进入账本，供历史回放 projector 使用。详细读写与回放见 [执行账本与历史回放](26-zhi-xing-zhang-ben-yu-li-shi-hui-fang)。
 
-Sources: [ArtifactRecord.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/ArtifactRecord.java#L10-L74)
+Sources: [ArtifactRecord.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/ArtifactRecord.java#L10-L74)
 
 ## 设计要点小结
 

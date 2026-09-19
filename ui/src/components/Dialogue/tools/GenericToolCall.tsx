@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, type ReactNode } from "react";
 import {
   AppWindowIcon,
+  BookOpenIcon,
   BotIcon,
   FilePenLineIcon,
   FilePlusIcon,
@@ -37,6 +38,29 @@ import {
   shouldShowToolArgStream,
 } from "./toolStreamPreview";
 import { ToolJsonBlock, parseToolJson } from "./ToolJsonBlock";
+import { Ai4sDailySourceCard } from "./Ai4sDailySourceCard";
+import { resolveAi4sDailyResult } from "@/utils/ai4sDaily";
+
+function flattenTaskTree(tasks: CHAT.Task[]): CHAT.Task[] {
+  return tasks.flatMap((task) => [
+    task,
+    ...(task.children ? flattenTaskTree(task.children) : []),
+  ]);
+}
+
+function sameTask(left: CHAT.Task, right: CHAT.Task): boolean {
+  if (left === right) return true;
+  if (left.id && right.id && left.id === right.id) return true;
+  if (left.messageId && right.messageId && left.messageId === right.messageId) return true;
+  return false;
+}
+
+function hasFollowUpDeepSearch(tool: CHAT.Task, chat: CHAT.ChatItem): boolean {
+  const tasks = flattenTaskTree((chat.tasks || []).flat());
+  const currentIndex = tasks.findIndex((candidate) => sameTask(candidate, tool));
+  const following = currentIndex >= 0 ? tasks.slice(currentIndex + 1) : tasks;
+  return following.some((candidate) => candidate.messageType === "deep_search");
+}
 
 function toolGlyph(name: string): ReactNode {
   const key = normalizeToolName(name);
@@ -58,6 +82,8 @@ function toolGlyph(name: string): ReactNode {
       return <SearchIcon className={cls} />;
     case "ls":
       return <FolderIcon className={cls} />;
+    case "ai4s_daily":
+      return <BookOpenIcon className={cls} />;
     case "web_fetch":
       return <GlobeIcon className={cls} />;
     case "todo":
@@ -111,9 +137,16 @@ export const GenericToolCall = memo(function GenericToolCall({
   changeFile,
 }: GenericToolCallProps) {
   const name = resolveTaskToolName(tool);
+  const normalizedName = normalizeToolName(name);
   const arg = resolveTaskToolArg(tool);
   const status = resolveTaskToolStatus(tool);
   const output = resolveTaskToolOutput(tool);
+  const ai4sDailyResult = normalizedName === "ai4s_daily"
+    ? resolveAi4sDailyResult(tool)
+    : undefined;
+  const followUpDeepSearch = ai4sDailyResult
+    ? hasFollowUpDeepSearch(tool, chat)
+    : false;
   const timing = durationLabel || formatDurationLabel(durationMs);
   const argStreaming = isToolArgStreaming(tool);
   const showArgStream = shouldShowToolArgStream(tool);
@@ -137,9 +170,14 @@ export const GenericToolCall = memo(function GenericToolCall({
     status === "running" && normalizeToolName(name) === "bash";
   const hasOutput = output.length > 0;
   const canExpand =
-    hasOutput || isRunningBash || Boolean(summaryFull) || Boolean(inputJson) || showArgStream;
+    hasOutput ||
+    isRunningBash ||
+    Boolean(summaryFull) ||
+    Boolean(inputJson) ||
+    showArgStream ||
+    Boolean(ai4sDailyResult);
   const [open, setOpen] = useState(
-    () => Boolean(defaultExpanded) || showArgStream
+    () => Boolean(defaultExpanded) || showArgStream || Boolean(ai4sDailyResult)
   );
   const [userToggled, setUserToggled] = useState(false);
 
@@ -151,10 +189,14 @@ export const GenericToolCall = memo(function GenericToolCall({
       setOpen(true);
       return;
     }
+    if (ai4sDailyResult) {
+      setOpen(true);
+      return;
+    }
     if (defaultExpanded && canExpand) {
       setOpen(true);
     }
-  }, [showArgStream, canExpand, defaultExpanded, userToggled]);
+  }, [showArgStream, ai4sDailyResult?.matched, canExpand, defaultExpanded, userToggled]);
 
   const stacked = stackPosition !== "single";
 
@@ -227,7 +269,13 @@ export const GenericToolCall = memo(function GenericToolCall({
           {inputJson ? <ToolJsonBlock data={inputJson} /> : summaryFull}
         </div>
       ) : null}
-      <ToolOutputBlock
+      {ai4sDailyResult ? (
+        <Ai4sDailySourceCard
+          data={ai4sDailyResult}
+          followUpDeepSearch={followUpDeepSearch}
+        />
+      ) : null}
+      {!ai4sDailyResult?.matched ? <ToolOutputBlock
         lines={output}
         tone={status === "error" ? "error" : "default"}
         emptyText={
@@ -237,7 +285,7 @@ export const GenericToolCall = memo(function GenericToolCall({
               ? "等待输出…"
               : "暂无输出"
         }
-      />
+      /> : null}
     </ToolRow>
   );
 });

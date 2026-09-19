@@ -1,4 +1,4 @@
-本文面向初学者，说明 monorepo 中 **`ui/`** 前端如何安装依赖、配置环境、启动开发服务器，并与 Java 后端、`reactor-tool` 完成本地联调。前端基于 **React 19 + TypeScript + Vite**，默认监听 **`0.0.0.0:3000`**，通过开发态代理分别访问 Java（会话 / SSE）与 Python 工具（文件预览 / MRAG 等）。
+本文面向初学者，说明 monorepo 中 **`ui/`** 前端如何安装依赖、配置环境、启动开发服务器，并与 Java 后端、`ai4s-tool` 完成本地联调。前端基于 **React 19 + TypeScript + Vite**，默认监听 **`0.0.0.0:3000`**，通过开发态代理分别访问 Java（会话 / SSE）与 Python 工具（文件预览 / MRAG 等）。
 
 建议按目录顺序先完成 [Java 后端启动与配置](4-java-hou-duan-qi-dong-yu-pei-zhi) 与 [Python 工具运行时启动](5-python-gong-ju-yun-xing-shi-qi-dong)，再回到本页拉起 UI。更深入的 SSE 渲染与工作区交互见 [SSE 流式对话与结果渲染](27-sse-liu-shi-dui-hua-yu-jie-guo-xuan-ran)、[工作区页面与产物预览](28-gong-zuo-qu-ye-mian-yu-chan-wu-yu-lan)。
 
@@ -6,7 +6,7 @@ Sources: [README.md](ui/README.md#L1-L28) · [vite.config.ts](ui/vite.config.ts#
 
 ## 在整体部署中的位置
 
-本地联调由三块组成：**前端 UI（本页）**、**Java 后端 :8100**、**Python 工具运行时 :1601**。浏览器只直接访问前端；开发服务器把 `/web` 转发到 Java，把 `/tool` 转发到 reactor-tool，避免跨域与 Cookie 主机名不一致。
+本地联调由三块组成：**前端 UI（本页）**、**Java 后端 :8100**、**Python 工具运行时 :1601**。浏览器只直接访问前端；开发服务器把 `/web` 转发到 Java，把 `/tool` 转发到 ai4s-tool，避免跨域与 Cookie 主机名不一致。
 
 ```mermaid
 flowchart LR
@@ -21,7 +21,7 @@ flowchart LR
   subgraph Java["Java 后端 :8100"]
     SSE["SSE / REST API"]
   end
-  subgraph Py["reactor-tool :1601"]
+  subgraph Py["ai4s-tool :1601"]
     File["/v1/file_tool/*"]
     Mrag["MRAG / 工具 API"]
   end
@@ -38,7 +38,7 @@ flowchart LR
 |--------|----------|--------------|
 | 前端 UI | **3000** | 浏览器直接打开 |
 | Java 后端 | **8100** | `SERVICE_BASE_URL` + 开发态 `/web` 代理；axios / SSE 也会直连解析后的基址 |
-| reactor-tool | **1601** | 开发态 `/tool/*` 代理；预览链接会被改写到当前前端 origin 下的 `/tool` |
+| ai4s-tool | **1601** | 开发态 `/tool/*` 代理；预览链接会被改写到当前前端 origin 下的 `/tool` |
 
 Sources: [vite.config.ts](ui/vite.config.ts#L38-L55) · [toolProxy.ts](ui/toolProxy.ts#L11-L52) · [fileUrl.ts](ui/src/utils/fileUrl.ts#L3-L44)
 
@@ -106,7 +106,7 @@ Sources: [start.sh](ui/start.sh#L4-L25) · [README.md](ui/README.md#L15-L28) · 
 | 变量 | 本地默认 / 示例 | 作用 |
 |------|-----------------|------|
 | `SERVICE_BASE_URL` | `http://127.0.0.1:8100` | Java 后端基址；代理 `/web` 的 target，并作为 `define` 常量给 axios / SSE |
-| `REACTOR_TOOL_BASE_URL` | 可空 | 为空时 `/tool` 默认代理到 `http://127.0.0.1:1601` |
+| `AI4S_TOOL_BASE_URL` | 可空 | 为空时 `/tool` 默认代理到 `http://127.0.0.1:1601` |
 | `VITE_Mrag_TOOL_URL` | 生产示例见 `.env.production` | 生产侧 MRAG 工具基址；本地通常依赖 `/tool` 同源代理 |
 
 ```bash
@@ -123,11 +123,11 @@ Sources: [.env](ui/.env#L1-L2) · [.env.production](ui/.env.production#L1-L6) ·
 完整对话链路需要：
 
 1. **Java** 已在 **8100** 监听（访客 Cookie 白名单含 `http://localhost:3000` / `http://127.0.0.1:3000`）。
-2. **reactor-tool** 已在 **1601** 监听（预览、下载、MRAG 工作区依赖 `/tool` 代理）。
+2. **ai4s-tool** 已在 **1601** 监听（预览、下载、MRAG 工作区依赖 `/tool` 代理）。
 
 仅打开欢迎页可以先起 UI；发送任务、上传文件、预览产物则必须三端齐全。
 
-Sources: [application.yml](Reactor-agent-app/src/main/resources/application.yml#L17-L28) · [toolProxy.ts](ui/toolProxy.ts#L11-L21)
+Sources: [application.yml](AI4S-agent-app/src/main/resources/application.yml#L17-L28) · [toolProxy.ts](ui/toolProxy.ts#L11-L21)
 
 ## 推荐启动流程
 
@@ -141,7 +141,7 @@ flowchart TD
   F --> G[浏览器打开 localhost:3000]
   G --> H{Java :8100 与 tool :1601?}
   H -->|是| I[访客命名 / 发送首条消息联调]
-  H -->|否| J[先启动后端与 reactor-tool]
+  H -->|否| J[先启动后端与 ai4s-tool]
 ```
 
 ### 方式一：手动（跨平台，推荐理解）
@@ -189,9 +189,9 @@ Sources: [package.json](ui/package.json#L6-L12) · [CONTRIBUTING.md](ui/CONTRIBU
 | 前端路径 | 目标 | 行为 |
 |----------|------|------|
 | `/web` | `env.SERVICE_BASE_URL`（如 `http://127.0.0.1:8100`） | `changeOrigin: true`，原样转发 |
-| `/tool` | `createToolProxyConfig(REACTOR_TOOL_BASE_URL)` | 默认 target `http://127.0.0.1:1601`，去掉 `/tool` 前缀再转发；若配置了带 path 的基址则保留该 path |
+| `/tool` | `createToolProxyConfig(AI4S_TOOL_BASE_URL)` | 默认 target `http://127.0.0.1:1601`，去掉 `/tool` 前缀再转发；若配置了带 path 的基址则保留该 path |
 
-`define` 会把 `SERVICE_BASE_URL`、`REACTOR_TOOL_BASE_URL` 序列化进前端代码，供运行时读取（不是 `import.meta.env.VITE_*` 形式）。
+`define` 会把 `SERVICE_BASE_URL`、`AI4S_TOOL_BASE_URL` 序列化进前端代码，供运行时读取（不是 `import.meta.env.VITE_*` 形式）。
 
 Sources: [vite.config.ts](ui/vite.config.ts#L43-L55) · [toolProxy.ts](ui/toolProxy.ts#L38-L52) · [toolProxy.test.ts](ui/toolProxy.test.ts#L5-L22)
 
@@ -213,7 +213,7 @@ Agent 返回的文件地址经常是 `http://127.0.0.1:1601/v1/file_tool/...`。
 http://localhost:3000/tool/v1/file_tool/preview/req/demo.html
 ```
 
-再由 `/tool` 代理到 reactor-tool。
+再由 `/tool` 代理到 ai4s-tool。
 
 Sources: [fileUrl.ts](ui/src/utils/fileUrl.ts#L18-L120) · [fileUrl.test.ts](ui/src/utils/fileUrl.test.ts#L10-L22)
 
@@ -235,7 +235,7 @@ Sources: [fileUrl.ts](ui/src/utils/fileUrl.ts#L18-L120) · [fileUrl.test.ts](ui/
 
 Sources: [index.html](ui/index.html#L1-L12) · [main.tsx](ui/src/main.tsx#L1-L15) · [App.tsx](ui/src/App.tsx#L8-L14) · [routes.ts](ui/src/router/routes.ts#L1-L11) · [router/index.tsx](ui/src/router/index.tsx#L22-L102)
 
-会话 ID 存在 `sessionStorage` 键 `reactor.sessionId`；设备标识当前为轻量常量 `device-default`，供上传与 SSE 兼容头使用。
+会话 ID 存在 `sessionStorage` 键 `ai4s.sessionId`；设备标识当前为轻量常量 `device-default`，供上传与 SSE 兼容头使用。
 
 Sources: [utils.ts](ui/src/utils/utils.ts#L138-L182) · [agentConversation.ts](ui/src/services/agentConversation.ts#L3-L20)
 
@@ -248,7 +248,7 @@ sequenceDiagram
   participant B as 浏览器 :3000
   participant V as Vite
   participant J as Java :8100
-  participant P as reactor-tool :1601
+  participant P as ai4s-tool :1601
 
   B->>V: 打开 /
   B->>J: GET /api/agent/visitor/bootstrap<br/>(credentials + Cookie)
@@ -266,7 +266,7 @@ sequenceDiagram
 | 打开 `http://localhost:3000` | 欢迎页 / 访客引导渲染 | 端口占用、`pnpm dev` 是否在跑 |
 | 访客 bootstrap / 命名 | 可进入工作区，Cookie 保留 | `SERVICE_BASE_URL`、Java 是否 8100、是否混用 localhost 与 127.0.0.1 |
 | 发送一条简单消息 | SSE 持续推送，对话区更新 | Java 日志、SSE URL、网络面板是否 4xx/5xx |
-| 触发工具并出现文件 | 工作区可预览，URL 形如 `...:3000/tool/...` | reactor-tool 1601、`/tool` 代理、FILE_SERVER_URL |
+| 触发工具并出现文件 | 工作区可预览，URL 形如 `...:3000/tool/...` | ai4s-tool 1601、`/tool` 代理、FILE_SERVER_URL |
 | 打开 MRAG / 图像 / SOP 页 | 页面加载且接口走工具或 Java | 对应后端能力与路由懒加载报错 |
 
 关键 API 示例（经 axios baseURL）：
@@ -286,7 +286,7 @@ Sources: [agentConversation.ts](ui/src/services/agentConversation.ts#L90-L111) �
 | 页面空白 / Root not found | `index.html` 未加载 `main.tsx` | 确认用 Vite 开发服而非直接打开文件 |
 | 接口全部失败、CORS 或未登录 | 后端未起、基址错误、Cookie 主机不一致 | 对齐 `localhost` 与 `127.0.0.1`；确认 Java `allowed-origins` 含前端 origin |
 | SSE 立刻断开 | 8100 不可达或路径错误 | 检查 Network 中 SSE 请求 URL 与后端日志 |
-| 预览 404 / 打不开 | 仍指向 `:1601` 或 tool 未启动 | 确认链接被改写到 `/tool`，且 reactor-tool 正常 |
+| 预览 404 / 打不开 | 仍指向 `:1601` 或 tool 未启动 | 确认链接被改写到 `/tool`，且 ai4s-tool 正常 |
 | 改 `.env` 不生效 | Vite 未重启 | 修改 env 后重新 `pnpm dev` |
 | Windows 上 `start.sh` 不便 | Shell 差异 | 直接使用 `pnpm install` + `pnpm run dev` |
 | 端口 3000 被占用 | 其它进程占用 | 结束占用进程或临时改 `vite.config.ts` 的 `server.port` |
@@ -300,7 +300,7 @@ autobots.execution.visitor-cookie:
     - http://127.0.0.1:3000
 ```
 
-Sources: [application.yml](Reactor-agent-app/src/main/resources/application.yml#L17-L28) · [origin.ts](ui/src/utils/origin.ts#L1-L29) · [request.ts](ui/src/utils/request.ts#L56-L84)
+Sources: [application.yml](AI4S-agent-app/src/main/resources/application.yml#L17-L28) · [origin.ts](ui/src/utils/origin.ts#L1-L29) · [request.ts](ui/src/utils/request.ts#L56-L84)
 
 ## 生产构建提示（可选）
 
@@ -314,7 +314,7 @@ pnpm preview  # 本地预览构建结果
 生产环境通常：
 
 - `SERVICE_BASE_URL` 为空 → 浏览器走**当前站点同源**；
-- 工具走网关反代的 `/tool`（见 `.env.production` 中的 `REACTOR_TOOL_BASE_URL`）。
+- 工具走网关反代的 `/tool`（见 `.env.production` 中的 `AI4S_TOOL_BASE_URL`）。
 
 这与开发态「Vite 代理到 127.0.0.1」不同，部署时需由 Nginx / 网关完成等价转发。
 

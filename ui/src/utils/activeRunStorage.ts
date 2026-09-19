@@ -1,4 +1,4 @@
-const ACTIVE_RUN_STORAGE_KEY = "reactor.activeRun";
+const ACTIVE_RUN_STORAGE_KEY = "ai4s.activeRun";
 
 export type ActiveRunCheckpoint = {
   sessionId: string;

@@ -1,4 +1,4 @@
-Reactor-agent 在一次 ReAct 步骤里若拿到 **多个 tool_calls**，不会串行排队，而是在受控线程池上 **批量并发执行**，并在账本、SSE 与记忆回流上保持 **可复现的顺序语义**。本页聚焦两层并发：步内工具批并发（主路径）与 Plan-Solve 遗留的任务级并行（分批限流），以及它们如何与 `parallel_tool_calls`、执行器池、ThreadLocal 产物上下文协同。
+AI4S-agent 在一次 ReAct 步骤里若拿到 **多个 tool_calls**，不会串行排队，而是在受控线程池上 **批量并发执行**，并在账本、SSE 与记忆回流上保持 **可复现的顺序语义**。本页聚焦两层并发：步内工具批并发（主路径）与 Plan-Solve 遗留的任务级并行（分批限流），以及它们如何与 `parallel_tool_calls`、执行器池、ThreadLocal 产物上下文协同。
 
 ## 问题边界：模型并行 vs 运行时并行
 
@@ -12,9 +12,9 @@ Reactor-agent 在一次 ReAct 步骤里若拿到 **多个 tool_calls**，不会�
 
 模型侧只决定「这一步要不要同时给出多个工具调用」；真正的吞吐与隔离由运行时 `executeToolOutcomes` 与专用线程池完成。Spring AI 仅负责产出 tool calls，`internalToolExecutionEnabled(false)` 强制执行权回到 Agent。
 
-Sources: [OpenAiChatOptionsFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/llm/OpenAiChatOptionsFactory.java#L37-L57)
-Sources: [OpenAiChatOptionsFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/llm/OpenAiChatOptionsFactory.java#L107-L110)
-Sources: [OpenAiChatOptionsFactoryTest.java](Reactor-agent-app/src/test/java/org/wwz/ai/test/spring/ai/OpenAiChatOptionsFactoryTest.java#L26-L46)
+Sources: [OpenAiChatOptionsFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/llm/OpenAiChatOptionsFactory.java#L37-L57)
+Sources: [OpenAiChatOptionsFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/llm/OpenAiChatOptionsFactory.java#L107-L110)
+Sources: [OpenAiChatOptionsFactoryTest.java](AI4S-agent-app/src/test/java/org/wwz/ai/test/spring/ai/OpenAiChatOptionsFactoryTest.java#L26-L46)
 
 ## 架构总览：两层并发与四池执行器
 
@@ -52,12 +52,12 @@ flowchart TB
   L -.-> P4
 ```
 
-主链路命名执行器由 `AgentExecutorConfiguration` 装配：`agentDispatchExecutor`、`agentLlmExecutor`、`agentTaskExecutor`、`agentToolExecutor`。工具批并发绑定 **tool** 池；任务级并行绑定 **task** 池。`ReactorRuntimeDependencies` 以 typed bundle 注入，domain 不直接碰 Spring 容器。
+主链路命名执行器由 `AgentExecutorConfiguration` 装配：`agentDispatchExecutor`、`agentLlmExecutor`、`agentTaskExecutor`、`agentToolExecutor`。工具批并发绑定 **tool** 池；任务级并行绑定 **task** 池。`AI4SRuntimeDependencies` 以 typed bundle 注入，domain 不直接碰 Spring 容器。
 
-Sources: [AgentExecutorNames.java](Reactor-agent-types/src/main/java/org/wwz/ai/types/agent/config/AgentExecutorNames.java#L6-L12)
-Sources: [AgentExecutorConfiguration.java](Reactor-agent-app/src/main/java/org/wwz/ai/config/AgentExecutorConfiguration.java#L24-L42)
-Sources: [AgentExecutorProperties.java](Reactor-agent-types/src/main/java/org/wwz/ai/types/agent/config/AgentExecutorProperties.java#L16-L79)
-Sources: [ReactorRuntimeDependencies.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/ReactorRuntimeDependencies.java#L45-L95)
+Sources: [AgentExecutorNames.java](AI4S-agent-types/src/main/java/org/wwz/ai/types/agent/config/AgentExecutorNames.java#L6-L12)
+Sources: [AgentExecutorConfiguration.java](AI4S-agent-app/src/main/java/org/wwz/ai/config/AgentExecutorConfiguration.java#L24-L42)
+Sources: [AgentExecutorProperties.java](AI4S-agent-types/src/main/java/org/wwz/ai/types/agent/config/AgentExecutorProperties.java#L16-L79)
+Sources: [AI4SRuntimeDependencies.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AI4SRuntimeDependencies.java#L45-L95)
 
 ## 主路径：步内多 tool_call 批并发
 
@@ -88,8 +88,8 @@ sequenceDiagram
   Act->>Act: writeToolObservationToMemory 按序
 ```
 
-Sources: [ReactImplAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/ReactImplAgent.java#L188-L220)
-Sources: [ExecutorAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/ExecutorAgent.java#L121-L155)
+Sources: [ReactImplAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/ReactImplAgent.java#L188-L220)
+Sources: [ExecutorAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/ExecutorAgent.java#L121-L155)
 
 ### executeToolOutcomes：并行执行 + 顺序回流
 
@@ -110,8 +110,8 @@ Sources: [ExecutorAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/doma
 | 拒绝策略 | `AgentExecutorSupport` 捕获 `RejectedExecutionException` | 统一为「系统繁忙」语义 |
 | 缺省执行器 | `resolveToolExecutor()` 回退 `Runnable::run` | 无依赖时退化为同步，便于测试 |
 
-Sources: [BaseAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/BaseAgent.java)（`executeToolOutcomes` / `buildDispatchIndexMapping` / `resolveToolExecutor`）
-Sources: [AgentExecutorSupport.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/executor/AgentExecutorSupport.java#L21-L43)
+Sources: [BaseAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/BaseAgent.java)（`executeToolOutcomes` / `buildDispatchIndexMapping` / `resolveToolExecutor`）
+Sources: [AgentExecutorSupport.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/executor/AgentExecutorSupport.java#L21-L43)
 
 ### 单工具内部：取消、Plan 门禁与产物 ThreadLocal
 
@@ -124,9 +124,9 @@ Sources: [AgentExecutorSupport.java](Reactor-agent-domain/src/main/java/org/wwz/
 
 `ToolCollection.execute` 本身仍是同步路由（本地 `BaseTool` 或 MCP），并发粒度在 **调用次数** 上，而不是工具实现内部再开池（除非工具自身异步）。
 
-Sources: [BaseAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/BaseAgent.java)（`executeToolInternal`）
-Sources: [ToolCollection.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L141-L175)
-Sources: [AgentContext.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java)（`bindCurrentToolArtifactSource` / `requireCurrentToolArtifactSource`）
+Sources: [BaseAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/BaseAgent.java)（`executeToolInternal`）
+Sources: [ToolCollection.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L141-L175)
+Sources: [AgentContext.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java)（`bindCurrentToolArtifactSource` / `requireCurrentToolArtifactSource`）
 
 ## 顺序与可观测：dispatchIndex · 账本 · SSE
 
@@ -160,9 +160,9 @@ flowchart LR
 
 并行只负责产出 `Map<toolCallId, ToolExecutionOutcome>`；`act()` 再按 **原始 toolCalls 顺序** 调用 `writeToolObservationToMemory`。function_call 模式追加 `tool` 角色消息；struct_parse 则拼到最后一条 assistant 内容。这样 LLM 下一轮看到的 tool 结果顺序与模型发出的 call 顺序一致。
 
-Sources: [ToolInvocationBatchStartRecord.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationBatchStartRecord.java#L18-L52)
-Sources: [ToolInvocationFinishRecord.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationFinishRecord.java#L15-L38)
-Sources: [BaseAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/BaseAgent.java)（`emitToolCallEvent` / `preRegisterToolInvocations` / `writeToolObservationToMemory`）
+Sources: [ToolInvocationBatchStartRecord.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationBatchStartRecord.java#L18-L52)
+Sources: [ToolInvocationFinishRecord.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationFinishRecord.java#L15-L38)
+Sources: [BaseAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/BaseAgent.java)（`emitToolCallEvent` / `preRegisterToolInvocations` / `writeToolObservationToMemory`）
 
 ## 并发安全：共享上下文如何不互相踩踏
 
@@ -178,9 +178,9 @@ Sources: [BaseAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/a
 
 `AgentRunState` 注释明确：需兼容 PlanSolve 并发 executor，因此 agent / step / llm invocation 采用线程内视图；toolCallId 映射则用全局 `ConcurrentHashMap`，供同 run 下所有线程解析账本 ID。
 
-Sources: [AgentRunState.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/AgentRunState.java#L12-L99)
-Sources: [ToolArtifactRegistry.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactRegistry.java#L15-L76)
-Sources: [ToolCollection.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L76-L81)
+Sources: [AgentRunState.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/AgentRunState.java#L12-L99)
+Sources: [ToolArtifactRegistry.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/artifact/ToolArtifactRegistry.java#L15-L76)
+Sources: [ToolCollection.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/ToolCollection.java#L76-L81)
 
 ## 线程池与背压
 
@@ -197,15 +197,15 @@ Sources: [ToolCollection.java](Reactor-agent-domain/src/main/java/org/wwz/ai/dom
 
 `AgentExecutorConfiguration` 还将 tool 池的 `ThreadPoolExecutor` 暴露为 legacy armory 使用的 `threadPoolExecutor` Bean，避免匿名线程池漂移。
 
-Sources: [AgentExecutorProperties.java](Reactor-agent-types/src/main/java/org/wwz/ai/types/agent/config/AgentExecutorProperties.java#L29-L79)
-Sources: [AgentExecutorConfiguration.java](Reactor-agent-app/src/main/java/org/wwz/ai/config/AgentExecutorConfiguration.java#L39-L88)
-Sources: [AgentExecutorSupport.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/executor/AgentExecutorSupport.java#L16-L53)
+Sources: [AgentExecutorProperties.java](AI4S-agent-types/src/main/java/org/wwz/ai/types/agent/config/AgentExecutorProperties.java#L29-L79)
+Sources: [AgentExecutorConfiguration.java](AI4S-agent-app/src/main/java/org/wwz/ai/config/AgentExecutorConfiguration.java#L39-L88)
+Sources: [AgentExecutorSupport.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/executor/AgentExecutorSupport.java#L16-L53)
 
 ### 与 ThreadUtil 的关系
 
-`ThreadUtil` 是历史通用池（SynchronousQueue + 静默拒绝），**主链路多工具并发不走它**。生产路径应只依赖 `ReactorRuntimeDependencies.toolExecutor` / `taskExecutor`。
+`ThreadUtil` 是历史通用池（SynchronousQueue + 静默拒绝），**主链路多工具并发不走它**。生产路径应只依赖 `AI4SRuntimeDependencies.toolExecutor` / `taskExecutor`。
 
-Sources: [ThreadUtil.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/util/ThreadUtil.java#L7-L30)
+Sources: [ThreadUtil.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/util/ThreadUtil.java#L7-L30)
 
 ## 第二层：Plan-Solve 任务级并行（遗留编排能力）
 
@@ -225,22 +225,22 @@ flowchart TB
   F2 --> ORD[按原 tasks 顺序组装 SubTaskExecutionResult]
 ```
 
-- 默认 `DEFAULT_PLANNER_MAX_PARALLEL_TASKS = 2`；可被 `ReactorConfig.plannerMaxParallelTasks` 覆盖（≤0 时回退默认）。
+- 默认 `DEFAULT_PLANNER_MAX_PARALLEL_TASKS = 2`；可被 `AI4SConfig.plannerMaxParallelTasks` 覆盖（≤0 时回退默认）。
 - 每一批内用 `AgentExecutorSupport.supplyAsync(..., "planSolveExecutorTask", ...)`。
 - 子任务：`parentContext.forkForParallelTask(task)` → `buildForParallelTask` 重建工具集并恢复 task-scoped 状态 → 新 `ExecutorAgent` 拷贝父 memory 后 `run(task)`。
 - 回流：`memoryIncrementMessages` 合并进父 memory；`reduceParentState` 聚合 ERROR / IDLE / FINISHED。
 
 `forkForParallelTask` 共享：`requestId/sessionId`、`printer`、`runtimeDependencies`、`toolArtifactRegistry`、`executionRecorder`、`agentRunState`；**隔离**：`task` 文本、**新的** `ThreadLocal` 产物 holder、文件列表拷贝。这使嵌套「任务并行 × 工具批并行」时，账本 run 仍是同一条，而工具源绑定不串线。
 
-Sources: [Step2PlanExecuteNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step2PlanExecuteNode.java#L55-L56)
-Sources: [Step2PlanExecuteNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step2PlanExecuteNode.java)（`executeParallelTasks` / `executeSingleParallelTask` / `partitionTasks`）
-Sources: [AgentContext.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java)（`forkForParallelTask`）
-Sources: [AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java)（`buildForParallelTask`）
-Sources: [SubTaskExecutionResult.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/SubTaskExecutionResult.java#L12-L41)
+Sources: [Step2PlanExecuteNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step2PlanExecuteNode.java#L55-L56)
+Sources: [Step2PlanExecuteNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step2PlanExecuteNode.java)（`executeParallelTasks` / `executeSingleParallelTask` / `partitionTasks`）
+Sources: [AgentContext.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/AgentContext.java)（`forkForParallelTask`）
+Sources: [AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java)（`buildForParallelTask`）
+Sources: [SubTaskExecutionResult.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/SubTaskExecutionResult.java#L12-L41)
 
 集成测试用 `parallel_artifact_tool`（可 sleep / fail）验证：同一步多 tool 并发、产物按 toolCallId 绑定、嵌套任务并行下账本一致。
 
-Sources: [PlanSolveExecutionLedgerIntegrationTest.java](Reactor-agent-app/src/test/java/org/wwz/ai/test/domain/PlanSolveExecutionLedgerIntegrationTest.java)（`parallel_artifact_tool` / `executeTools` 双 tool 场景）
+Sources: [PlanSolveExecutionLedgerIntegrationTest.java](AI4S-agent-app/src/test/java/org/wwz/ai/test/domain/PlanSolveExecutionLedgerIntegrationTest.java)（`parallel_artifact_tool` / `executeTools` 双 tool 场景）
 
 ## 模式对比与工程取舍
 
@@ -268,7 +268,7 @@ Sources: [PlanSolveExecutionLedgerIntegrationTest.java](Reactor-agent-app/src/te
 | `llm.*.extParams.parallel_tool_calls` | 请求模型允许/禁止并行 tool calls | 网关不支持时关掉，避免协议错误 |
 | `autobots.execution.tool.*` | 步内批并发容量 | I/O 型工具可略增 max；CPU/沙箱型保持保守 |
 | `autobots.execution.task.*` | 任务级并行容量 | 与 `plannerMaxParallelTasks` 联动，避免任务×工具双重放大 |
-| `reactorConfig.plannerMaxParallelTasks` | 每批并行子任务数 | 默认 2；嵌套工具并发时更忌过大 |
+| `ai4sConfig.plannerMaxParallelTasks` | 每批并行子任务数 | 默认 2；嵌套工具并发时更忌过大 |
 | 拒绝策略 | 默认 Abort | 可改 CallerRuns（回压到调用线程，延迟升高） |
 
 **常见风险**：同一批工具若共享非线程安全状态（例如未隔离的工作区写路径、全局可变 `currentTask`），会在并发下出现竞态——产物与账本层已加固，业务工具实现仍需无状态或按 `toolCallId` / session 隔离。

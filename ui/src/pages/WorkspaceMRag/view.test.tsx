@@ -136,7 +136,7 @@ describe("WorkspaceMRagView", () => {
       </MemoryRouter>
     );
 
-    expect(html).toContain("MRAG 智能问答工作台");
+    expect(html).toContain("MRAG 智能问答AI4S 研判系统");
     expect(html).toContain("产品资料库");
     expect(html).toContain("知识源");
     expect(html).toContain("证据");

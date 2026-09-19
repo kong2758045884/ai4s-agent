@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/brand/logo.svg" alt="Reactor logo" width="104" height="104">
+  <img src="assets/brand/logo.svg" alt="AI4S 研判系统 logo" width="104" height="104">
 </p>
 
-<h1 align="center">Reactor</h1>
+<h1 align="center">AI4S 研判系统</h1>
 
 <p align="center">
   <strong>让世界的变化进入你的工作流</strong>
@@ -32,7 +32,7 @@
 
 <p align="center"><em>工作台主页</em></p>
 <p align="center">
-  <img src="assets/readme/主页.png" alt="Reactor 工作台主页" width="960">
+  <img src="assets/readme/主页.png" alt="AI4S 研判系统工作台主页" width="960">
 </p>
 
 <p align="center"><em>多 Agent 协作</em></p>
@@ -63,13 +63,13 @@
 | Claude | 原生不支持上述任一平台的实时检索 |
 | Grok | 原生深度打通 X 平台实时数据，却无法原生覆盖 Reddit 等更多平台生态 |
 
-而 Reactor 支持导入用户自定义密钥与浏览器会话凭证，打通全部平台数据源。它不止于跨平台全域检索，更能对多源信息进行交叉权重评分，过滤噪音与重复信息，精准提炼真正有价值的核心情报。
+而 AI4S 支持导入用户自定义密钥与浏览器会话凭证，打通全部平台数据源。它不止于跨平台全域检索，更能对多源信息进行交叉权重评分，过滤噪音与重复信息，精准提炼真正有价值的核心情报。
 
 ### 为何存在
 
-Reactor 最初诞生于程序员群体的信息焦虑：在技术迭代日新月异的当下，Reddit、X 平台的极客社区始终站在行业最前沿，第一时间涌现最新的技术实践、工具拆解与方向讨论。但各大平台彼此割裂、各自形成封闭的围墙花园，零散的一手经验与技术动态散落在一座座信息孤岛上，没有单一入口可以高效聚合全域信息，我们很难及时、完整地捕捉全社区的原生技术情报，同步跟进最前沿的技术方向。
+AI4S 最初诞生于程序员群体的信息焦虑：在技术迭代日新月异的当下，Reddit、X 平台的极客社区始终站在行业最前沿，第一时间涌现最新的技术实践、工具拆解与方向讨论。但各大平台彼此割裂、各自形成封闭的围墙花园，零散的一手经验与技术动态散落在一座座信息孤岛上，没有单一入口可以高效聚合全域信息，我们很难及时、完整地捕捉全社区的原生技术情报，同步跟进最前沿的技术方向。
 
-从解决自身的技术信息痛点出发，Reactor 逐步进化为一款通用全域情报工具，覆盖更多高价值决策场景：
+从解决自身的技术信息痛点出发，AI4S 逐步进化为一款通用全域情报工具，覆盖更多高价值决策场景：
 
 1. **行业会议前**  
    一键梳理发言嘉宾的近期观点、公开言论与项目动态，一键聚合目标人物全平台真实动态：
@@ -92,7 +92,7 @@ Reactor 最初诞生于程序员群体的信息焦虑：在技术迭代日新月
    > 对提名内容做名称校验、垃圾信息过滤与内容价值判断，并撰写小红书/ X 平台文章的切入点。随后输出 5–10 个按热度排序的话题；每个结果都包含跨平台数据、热度标签，以及可直接执行的内容切入点。
 
 当你和一位 企业CEO 对坐会谈时，你是否读完了他近 30 天的所有公开推文、播客实录与社区讨论？  
-**Reactor 已经帮你读完了。**
+**AI4S 已经帮你读完了。**
 
 ### 信息来源
 
@@ -252,7 +252,7 @@ flowchart LR
 
 ### 1. Observe：深度研究、NL2SQL 与 RAG
 
-Reactor 将“搜索”视为一个可以继续执行的研究过程，而不是一次关键词查询。
+AI4S 将“搜索”视为一个可以继续执行的研究过程，而不是一次关键词查询。
 
 - **DeepResearch公域信息检索**：查询拆解、多轮 `extend/search/report` 阶段、并发检索、正文抓取、去重、摘要和 SSE 流式进度，支持 DuckDuckGo、Exa、Tavily、Brave、Grok/OpenAI-compatible 等搜索引擎。
 - **私域媒体检索**：接入 RSS、GitHub、Reddit、Hacker News、Stack Exchange、V2EX、Twitter、Telegram、YouTube、B站、小红书、微博、雪球等授权或公开渠道，补齐搜索引擎拿不到的社区原生内容。
@@ -290,12 +290,12 @@ Reactor 将“搜索”视为一个可以继续执行的研究过程，而不是
   - **内置工具**：检索（`deepsearch`、`web_fetch`、`web_search`、Reddit/X/雪球）、知识库（`mragQuery`）、问数（`table_rag`、`nl2sql`）、代码与分析（`code_interpreter`、`data_analysis`、`dataprep`）、产物（`document_generate`、`slides_generate`、`chart_generator`、`image_generation`、`canvas`）、工作区（`workspace_*`）、记忆（`memory`、`session_search`）、协作（`Agent`、Task / Plan Mode、`AskUserQuestion`）。
   - **Skill Runtime**：从 `runtime/skills/<skill-name>/` 加载 `SKILL.md`、参考资料和脚本；支持目录扫描、脚本发现、会话物化、路径防护和超时控制。内置架构图、报告页、学霸笔记、PPT、前端设计等 skill，也可自行安装。
   - **MCP**：通过 Server Descriptor、Registry 和 Executor 发现外部工具，支持 SSE、STDIO 和 Streamable HTTP
-  - **远程工具运行时**：`reactor-tool` 基于 FastAPI 承载搜索、RAG、数据处理、文件服务、文档生成和代码执行等重型能力。
+  - **远程工具运行时**：`ai4s-tool` 基于 FastAPI 承载搜索、RAG、数据处理、文件服务、文档生成和代码执行等重型能力。
 
 
 ### 6. 协作与控制 Multi-Agent
 
-Reactor 支持把一个复杂目标拆给多个职责明确的 Agent，并让主 Agent 继续推进。
+AI4S 支持把一个复杂目标拆给多个职责明确的 Agent，并让主 Agent 继续推进。
 
 - **同步子 Agent**：默认等待子任务结果，适合需要即时汇总的检索、分析和验证步骤。
 - **异步后台 Agent**：设置 `run_in_background=true` 后，长任务在后台运行，主对话可以继续处理其他工作。
@@ -305,7 +305,7 @@ Reactor 支持把一个复杂目标拆给多个职责明确的 Agent，并让主
 
 ### 7. Human-in-the-loop
 
-Agent 不必在所有步骤上自动做决定。Reactor 在执行链路中提供可恢复的人机协作节点：
+Agent 不必在所有步骤上自动做决定。AI4S 在执行链路中提供可恢复的人机协作节点：
 
 ```text
 生成计划 -> 等待审批 -> 执行任务 -> 遇到不确定性 -> 向用户提问 -> 继续执行
@@ -357,7 +357,7 @@ Agent 不必在所有步骤上自动做决定。Reactor 在执行链路中提供
 
 ### 异构多服务
 
-Reactor 把实时 Agent 编排和重型工具执行拆开：Java 负责运行时、策略、会话、HITL 和执行账本；Python 负责搜索、RAG、数据处理、文档生成和代码沙箱；React 负责流式工作台、产物预览和 GenUI 渲染。三者通过 HTTP、SSE、MCP 和文件服务协作。
+AI4S 把实时 Agent 编排和重型工具执行拆开：Java 负责运行时、策略、会话、HITL 和执行账本；Python 负责搜索、RAG、数据处理、文档生成和代码沙箱；React 负责流式工作台、产物预览和 GenUI 渲染。三者通过 HTTP、SSE、MCP 和文件服务协作。
 
 ```mermaid
 flowchart LR
@@ -370,7 +370,7 @@ flowchart LR
 
     Domain --> LLM["LLM<br/>Spring AI / OpenAI-compatible"]
     Domain --> MCP["MCP<br/>SSE / STDIO / HTTP"]
-    Domain --> Tools["reactor-tool<br/>FastAPI Tool Runtime"]
+    Domain --> Tools["ai4s-tool<br/>FastAPI Tool Runtime"]
 
     Infra --> Ledger[("MySQL<br/>Execution Ledger")]
     Infra --> Files[("Artifact / File Store")]
@@ -416,23 +416,23 @@ cd ai-agent
 
 ```bash
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS \`ai-agent-station\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-mysql -u root -p ai-agent-station < Reactor-agent-app/src/main/resources/db/schema.sql
-mysql -u root -p ai-agent-station < Reactor-agent-app/src/main/resources/db/data.sql
+mysql -u root -p ai-agent-station < AI4S-agent-app/src/main/resources/db/schema.sql
+mysql -u root -p ai-agent-station < AI4S-agent-app/src/main/resources/db/data.sql
 ```
 
 ### 3. 启动 Python Tool Runtime
 
-`reactor-tool` 默认监听 `1601` 端口，负责远程工具、文件服务和部分 RAG 能力。
+`ai4s-tool` 默认监听 `1601` 端口，负责远程工具、文件服务和部分 RAG 能力。
 
 ```bash
-cd reactor-tool
+cd ai4s-tool
 uv sync
 cp .env_template .env
 # 编辑 .env，至少配置 OPENAI_API_KEY 与 OPENAI_BASE_URL
 
 # 首次启动初始化文件服务 SQLite 元数据（只需执行一次）
-# 默认创建 reactor-tool/autobots.db，并建立 FileInfo 表
-uv run python -m reactor_tool.db.db_engine
+# 默认创建 ai4s-tool/autobots.db，并建立 FileInfo 表
+uv run python -m ai4s_tool.db.db_engine
 
 ./start.sh
 ```
@@ -440,25 +440,25 @@ uv run python -m reactor_tool.db.db_engine
 Windows PowerShell：
 
 ```powershell
-cd reactor-tool
+cd ai4s-tool
 uv sync
 Copy-Item .env_template .env
 # 编辑 .env 后执行
 # 首次启动初始化文件服务 SQLite 元数据（只需执行一次）
-# 默认创建 reactor-tool\autobots.db，并建立 FileInfo 表
-uv run python -m reactor_tool.db.db_engine
+# 默认创建 ai4s-tool\autobots.db，并建立 FileInfo 表
+uv run python -m ai4s_tool.db.db_engine
 .\start.ps1
 ```
 
-`SQLITE_DB_PATH` 控制文件服务元数据库位置。默认值为 `autobots.db`，相对路径相对于 `reactor-tool` 目录。该初始化命令使用 SQLModel 的 `FileInfo` 元数据幂等建表；修改路径后，请先在当前终端设置同名环境变量再执行命令。MRAG 使用的 `SQLITE_PATH` 由对应 Store 在首次使用时自动创建表。
+`SQLITE_DB_PATH` 控制文件服务元数据库位置。默认值为 `autobots.db`，相对路径相对于 `ai4s-tool` 目录。该初始化命令使用 SQLModel 的 `FileInfo` 元数据幂等建表；修改路径后，请先在当前终端设置同名环境变量再执行命令。MRAG 使用的 `SQLITE_PATH` 由对应 Store 在首次使用时自动创建表。
 
 ### 4. 启动 Java Backend
 
 在新的终端回到仓库根目录：
 
 ```bash
-mvn -pl Reactor-agent-app -am package '-Dmaven.test.skip=true'
-java -jar Reactor-agent-app/target/Reactor-agent-app.jar
+mvn -pl AI4S-agent-app -am package '-Dmaven.test.skip=true'
+java -jar AI4S-agent-app/target/AI4S-agent-app.jar
 ```
 
 Backend 默认监听 `http://127.0.0.1:8100`。健康检查：
@@ -479,33 +479,33 @@ pnpm dev
 
 ### Docker Compose 部署
 
-仓库根目录的 `Dockerfile` 与 `docker-compose.yml` 是当前唯一的容器部署入口，包含 MySQL、Java Backend、`reactor-tool` API/sandbox 进程和 Nginx 前端反代。
+仓库根目录的 `Dockerfile` 与 `docker-compose.yml` 是当前唯一的容器部署入口，包含 MySQL、Java Backend、`ai4s-tool` API/sandbox 进程和 Nginx 前端反代。
 
 ```bash
-cp reactor-tool/.env_template reactor-tool/.env
-# 编辑 reactor-tool/.env，至少填写 MySQL 密码、OPENAI_BASE_URL 和 OPENAI_API_KEY
+cp ai4s-tool/.env_template ai4s-tool/.env
+# 编辑 ai4s-tool/.env，至少填写 MySQL 密码、OPENAI_BASE_URL 和 OPENAI_API_KEY
 
-docker compose --env-file reactor-tool/.env build
+docker compose --env-file ai4s-tool/.env build
 
-# 首次创建 reactor-data 卷后初始化文件服务 SQLite 元数据
+# 首次创建 ai4s-data 卷后初始化文件服务 SQLite 元数据
 # Compose 会将 SQLITE_DB_PATH 设置为 /data/autobots.db，并写入持久化卷
-docker compose --env-file reactor-tool/.env run --rm --no-deps --entrypoint python reactor-tool -m reactor_tool.db.db_engine
+docker compose --env-file ai4s-tool/.env run --rm --no-deps --entrypoint python ai4s-tool -m ai4s_tool.db.db_engine
 
-docker compose --env-file reactor-tool/.env up -d
+docker compose --env-file ai4s-tool/.env up -d
 ```
 
-启动后访问 [http://localhost:3000](http://localhost:3000)，探活接口为 [http://localhost:3000/web/health](http://localhost:3000/web/health)。也可以从 `Reactor-agent-app` 目录执行 `./build.sh` 构建全部镜像。
+启动后访问 [http://localhost:3000](http://localhost:3000)，探活接口为 [http://localhost:3000/web/health](http://localhost:3000/web/health)。也可以从 `AI4S-agent-app` 目录执行 `./build.sh` 构建全部镜像。
 
-Java 生产配置模板是 [`application-prod.yml`](Reactor-agent-app/src/main/resources/application-prod.yml)，以静态配置为主，已清除真实密钥和密码；部署者需要按实际环境填写空缺凭证和地址。MySQL 初始化脚本只会在首次创建 `mysql-data` 卷时执行；修改 `schema.sql` 或 `data.sql` 后需要按实际情况迁移已有数据库。
+Java 生产配置模板是 [`application-prod.yml`](AI4S-agent-app/src/main/resources/application-prod.yml)，以静态配置为主，已清除真实密钥和密码；部署者需要按实际环境填写空缺凭证和地址。MySQL 初始化脚本只会在首次创建 `mysql-data` 卷时执行；修改 `schema.sql` 或 `data.sql` 后需要按实际情况迁移已有数据库。
 
-Compose 部署时，`WORKSPACE_ROOT` 应保持为 `/data/skilloutput`，Backend 与 `reactor-tool` 会通过 `reactor-data` 卷共享会话工作区和文件产物。
+Compose 部署时，`WORKSPACE_ROOT` 应保持为 `/data/skilloutput`，Backend 与 `ai4s-tool` 会通过 `ai4s-data` 卷共享会话工作区和文件产物。
 
-`reactor-data` 卷保存 Python 文件服务的 `autobots.db`、MRAG SQLite 元数据和文件产物。
+`ai4s-data` 卷保存 Python 文件服务的 `autobots.db`、MRAG SQLite 元数据和文件产物。
 
 ### 给 Coding Agent 的部署 Prompt
 
 ```text
-你是本仓库的部署代理。请先阅读 README.md、CLAUDE.md 以及相关模块说明，默认使用源码部署，不要默认使用 Docker Compose；只有用户明确要求容器部署时才切换到 Docker。开始前检查 JDK 21、Maven 3.8+、MySQL 8、Python 3.11+、uv、Node.js 18+ 和 pnpm，检查 Git 工作区并保留用户已有改动，禁止 reset、checkout 或覆盖未提交文件。按照 README 的顺序配置并启动 MySQL、reactor-tool、Reactor-agent-app 和 ui：没有 reactor-tool/.env 时从 reactor-tool/.env_template 创建，但不要覆盖已有 .env；首次启动执行 `uv run python -m reactor_tool.db.db_engine` 初始化 autobots.db；创建或确认 MySQL 数据库后导入 db/schema.sql 和 db/data.sql；使用 application-prod.yml 作为无真实凭证的部署配置，保留源码部署所需的 127.0.0.1 服务地址，不要把 application-dev.yml 中的真实密钥复制到生产配置。只使用用户明确提供的 LLM、搜索、E2B、Qdrant、ES、OCR、对象存储和登录态凭证，绝不能猜测、生成或输出这些凭证；如果缺少 MySQL 密码、LLM_BASE_URL/OPENAI_BASE_URL、OPENAI_API_KEY、模型名或其他必需配置，停止启动并列出变量名、用途和示例格式。先启动 reactor-tool，再用 `mvn -pl Reactor-agent-app -am package '-Dmaven.test.skip=true'` 构建并启动 Java Backend，最后在 ui 执行 `pnpm install` 和 `pnpm dev`。启动后检查 reactor-tool、`http://127.0.0.1:8100/web/health` 和 `http://localhost:3000`，失败时读取日志并修复配置后重试。只有健康检查通过、SQLite 初始化完成且没有把敏感信息写入 README、日志或 Git 跟踪文件时，才报告部署成功；最后列出实际执行命令、访问地址、数据库和 SQLite 文件位置、仍未配置的可选能力以及需要用户后续处理的事项。不要修改业务代码或删除数据，除非用户明确授权。
+你是本仓库的部署代理。请先阅读 README.md、CLAUDE.md 以及相关模块说明，默认使用源码部署，不要默认使用 Docker Compose；只有用户明确要求容器部署时才切换到 Docker。开始前检查 JDK 21、Maven 3.8+、MySQL 8、Python 3.11+、uv、Node.js 18+ 和 pnpm，检查 Git 工作区并保留用户已有改动，禁止 reset、checkout 或覆盖未提交文件。按照 README 的顺序配置并启动 MySQL、ai4s-tool、AI4S-agent-app 和 ui：没有 ai4s-tool/.env 时从 ai4s-tool/.env_template 创建，但不要覆盖已有 .env；首次启动执行 `uv run python -m ai4s_tool.db.db_engine` 初始化 autobots.db；创建或确认 MySQL 数据库后导入 db/schema.sql 和 db/data.sql；使用 application-prod.yml 作为无真实凭证的部署配置，保留源码部署所需的 127.0.0.1 服务地址，不要把 application-dev.yml 中的真实密钥复制到生产配置。只使用用户明确提供的 LLM、搜索、E2B、Qdrant、ES、OCR、对象存储和登录态凭证，绝不能猜测、生成或输出这些凭证；如果缺少 MySQL 密码、LLM_BASE_URL/OPENAI_BASE_URL、OPENAI_API_KEY、模型名或其他必需配置，停止启动并列出变量名、用途和示例格式。先启动 ai4s-tool，再用 `mvn -pl AI4S-agent-app -am package '-Dmaven.test.skip=true'` 构建并启动 Java Backend，最后在 ui 执行 `pnpm install` 和 `pnpm dev`。启动后检查 ai4s-tool、`http://127.0.0.1:8100/web/health` 和 `http://localhost:3000`，失败时读取日志并修复配置后重试。只有健康检查通过、SQLite 初始化完成且没有把敏感信息写入 README、日志或 Git 跟踪文件时，才报告部署成功；最后列出实际执行命令、访问地址、数据库和 SQLite 文件位置、仍未配置的可选能力以及需要用户后续处理的事项。不要修改业务代码或删除数据，除非用户明确授权。
 ```
 
 

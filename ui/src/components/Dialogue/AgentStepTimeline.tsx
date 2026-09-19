@@ -31,6 +31,11 @@ import MarkdownRenderer from "@/components/ActionPanel/MarkdownRenderer";
 import { resolveTaskSummaryText } from "./contentHelpers";
 import { ThinkingBlock } from "./ThinkingBlock";
 import {
+  resolveAi4sDailyResult,
+  type Ai4sDailyResult,
+} from "@/utils/ai4sDaily";
+import { Ai4sDailySourceCard } from "./tools/Ai4sDailySourceCard";
+import {
   isAgentDispatchTask,
   isRunInBackgroundAgent,
 } from "@/utils/chat/subagent";
@@ -356,15 +361,28 @@ const StepGroupBlock: FC<{
 }> = memo(({ group, defaultOpen, forceOpen, ctx }) => {
   const [open, setOpen] = useState(defaultOpen);
   const canCollapse = group.collapsible !== false && group.stepCount > 0;
-  const wasForcedRef = useRef(false);
+  const userToggledRef = useRef(false);
+  const wasActiveRef = useRef(group.active);
 
   useEffect(() => {
-    const shouldForce = forceOpen || group.active;
-    if (shouldForce && !wasForcedRef.current) {
+    const wasActive = wasActiveRef.current;
+    const isActive = forceOpen || group.active;
+
+    if (isActive) {
+      // 执行期间始终展示实时步骤；下一次完成时允许自动收起。
       setOpen(true);
+      userToggledRef.current = false;
+    } else if (
+      wasActive &&
+      group.completed &&
+      !userToggledRef.current
+    ) {
+      // 只在 active → completed 的边沿自动收起，避免覆盖用户之后的手动展开。
+      setOpen(false);
     }
-    wasForcedRef.current = shouldForce;
-  }, [forceOpen, group.active]);
+
+    wasActiveRef.current = group.active;
+  }, [forceOpen, group.active, group.completed]);
 
   const toolCardSteps = group.steps.filter(
     (step) =>
@@ -375,6 +393,25 @@ const StepGroupBlock: FC<{
   );
   const allToolCards =
     toolCardSteps.length > 0 && toolCardSteps.length === group.steps.length;
+  const ai4sDailyEvidence = group.steps.reduce<Ai4sDailyResult | undefined>(
+    (result, step) => result || resolveAi4sDailyResult(step.tool),
+    undefined
+  );
+  const ai4sDailyFollowUpDeepSearch = group.steps.some(
+    (step, index) =>
+      Boolean(resolveAi4sDailyResult(step.tool)) &&
+      group.steps
+        .slice(index + 1)
+        .some((nextStep) => nextStep.tool.messageType === "deep_search")
+  );
+
+  const evidence =
+    ai4sDailyEvidence && !open ? (
+      <Ai4sDailySourceCard
+        data={ai4sDailyEvidence}
+        followUpDeepSearch={ai4sDailyFollowUpDeepSearch}
+      />
+    ) : null;
 
   if (allToolCards) {
     const tools = toolCardSteps.map((step) => step.tool);
@@ -383,7 +420,11 @@ const StepGroupBlock: FC<{
         <ToolGroup
           count={toolCardSteps.length}
           aggregateStatus={aggregateToolStatuses(tools)}
-          defaultOpen={forceOpen || open || group.active || !group.completed}
+          open={open}
+          onOpenChange={(nextOpen) => {
+            userToggledRef.current = true;
+            setOpen(nextOpen);
+          }}
         >
           {toolCardSteps.map((step, index) => (
             <ToolCallView
@@ -402,6 +443,7 @@ const StepGroupBlock: FC<{
             />
           ))}
         </ToolGroup>
+        {evidence}
       </div>
     );
   }
@@ -440,7 +482,10 @@ const StepGroupBlock: FC<{
   return (
     <Collapsible
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(nextOpen) => {
+        userToggledRef.current = true;
+        setOpen(nextOpen);
+      }}
       className="timeline-segment-enter w-full"
     >
       <CollapsibleTrigger
@@ -476,6 +521,7 @@ const StepGroupBlock: FC<{
       </CollapsibleTrigger>
 
       <CollapsibleContent>{stepsBody}</CollapsibleContent>
+      {evidence}
     </Collapsible>
   );
 });
@@ -602,13 +648,11 @@ const ProcessSegmentView: FC<{
     active: visibleSteps.some((step) => step.active),
     completed: visibleSteps.every((step) => step.completed) && !visibleSteps.some((step) => step.active),
   };
-
   const hasDeepSearch = visibleGroup.steps.some(
     (step) => step.tool.messageType === "deep_search"
   );
 
   // 单步且已完成：直接展示工具行；进行中/多步走可折叠组。
-  // deep_search 查询卡始终展开，避免 URL / 章节总结被折叠吞掉。
   if (visibleGroup.stepCount <= 1 && visibleGroup.completed && !hasDeepSearch) {
     return (
       <div className="w-full">
@@ -621,9 +665,7 @@ const ProcessSegmentView: FC<{
   return (
     <StepGroupBlock
       group={visibleGroup}
-      defaultOpen={
-        visibleGroup.active || !visibleGroup.completed || hasDeepSearch
-      }
+      defaultOpen={visibleGroup.active || !visibleGroup.completed}
       forceOpen={visibleGroup.active}
       ctx={ctx}
     />
@@ -659,6 +701,22 @@ const AgentStepTimelineComponent: FC<AgentStepTimelineProps> = (props) => {
     onOpenAgent,
   } = props;
 
+  // 过程时间显示不能依赖 SSE 事件频率。运行中每秒刷新一次，结束后只取
+  // 最终时刻并停止定时器；deriveAgentProcessModel 负责用这个时刻冻结耗时。
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const updateNow = () => setNowMs(Date.now());
+    updateNow();
+
+    if (!chat.loading) {
+      return;
+    }
+
+    const timer = window.setInterval(updateNow, 1000);
+    return () => window.clearInterval(timer);
+  }, [chat.loading]);
+
   const model = useMemo(
     () =>
       deriveAgentProcessModel({
@@ -669,6 +727,7 @@ const AgentStepTimelineComponent: FC<AgentStepTimelineProps> = (props) => {
         thoughtVersionLabel,
         thoughtVersionIndex,
         thoughtVersionTotal,
+        nowMs,
       }),
     [
       chat,
@@ -678,6 +737,7 @@ const AgentStepTimelineComponent: FC<AgentStepTimelineProps> = (props) => {
       thoughtVersionLabel,
       thoughtVersionIndex,
       thoughtVersionTotal,
+      nowMs,
     ]
   );
 

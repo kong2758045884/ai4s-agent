@@ -34,7 +34,7 @@ import { showMessage } from "@/utils";
 
 type Props = { embedded?: boolean };
 
-const CapabilityLibrary: ReactorType.FC<Props> = ({ embedded }) => {
+const CapabilityLibrary: AI4SType.FC<Props> = ({ embedded }) => {
   const [tab, setTab] = useState("skills");
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [mcps, setMcps] = useState<McpRecord[]>([]);

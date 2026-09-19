@@ -1,10 +1,10 @@
-执行账本（Execution Ledger）是 Reactor-agent 的**可观测事实层**：它把一次对话执行拆成 Session → Run → LLM 调用 → 工具调用 → 产物 五层结构化记录，并在历史恢复时通过 **ReplayProjector** 把这些事实投影成与实时 SSE **同构**的 `GptProcessResult` 帧。本页聚焦账本写入契约、持久化模型、查询聚合与历史回放投影，不涉及工作记忆压缩、SSE 前端渲染或工具本身的业务语义（这些分别见相邻目录页）。
+执行账本（Execution Ledger）是 AI4S-agent 的**可观测事实层**：它把一次对话执行拆成 Session → Run → LLM 调用 → 工具调用 → 产物 五层结构化记录，并在历史恢复时通过 **ReplayProjector** 把这些事实投影成与实时 SSE **同构**的 `GptProcessResult` 帧。本页聚焦账本写入契约、持久化模型、查询聚合与历史回放投影，不涉及工作记忆压缩、SSE 前端渲染或工具本身的业务语义（这些分别见相邻目录页）。
 
 ## 子域定位与设计原则
 
 `org.wwz.ai.domain.agent.ledger` 被明确声明为 Agent ledger 子域：负责执行账本、历史回放与 tool-output 聚合语义，**不直接暴露 DAO 细节**。领域层通过读写仓储端口（`IExecutionLedgerWriteRepository` / `IExecutionLedgerReadRepository`）与基础设施解耦，写入入口统一收敛到 `AgentExecutionRecorder`，查询入口收敛到 `ExecutionLedgerQueryService`，回放入口收敛到 `ConversationHistoryReplayService` + `ReplayProjector`。
 
-Sources: [package-info.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/package-info.java#L1-L5)
+Sources: [package-info.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/package-info.java#L1-L5)
 
 设计上有三条贯穿始终的原则：
 
@@ -12,7 +12,7 @@ Sources: [package-info.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domai
 2. **事实与投影分离**：账本只存可验证事实（run / llm / tool / artifact / structured output）；UI 事件形态由 `ReplayProjector` 与工具专用 projector 生成。
 3. **实时与历史同构**：`ReplayProjector.projectFrame` 注释明确——实时与历史共用同一套 frame 组装逻辑，前端只消费一种 `eventData` 协议。
 
-Sources: [AgentExecutionRecorderImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/AgentExecutionRecorderImpl.java#L37-L44) · [ReplayProjector.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ReplayProjector.java#L23-L86)
+Sources: [AgentExecutionRecorderImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/AgentExecutionRecorderImpl.java#L37-L44) · [ReplayProjector.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ReplayProjector.java#L23-L86)
 
 ## 账本层级模型
 
@@ -75,13 +75,13 @@ erDiagram
 
 `DialogueSession` 是会话级执行摘要，维护标题、最新 request、最新摘要、run 计数与活跃时间。它不是事件流，而是 **session 头表**，由 `createRun` / `finishRun` 通过 `upsertSession` 增量维护。
 
-Sources: [DialogueSession.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/DialogueSession.java#L10-L50)
+Sources: [DialogueSession.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/DialogueSession.java#L10-L50)
 
 ### Run：单次请求总账
 
 `DialogueRun` 是最小回放单元。`runUid` 首期直接复用 `requestId`；`entryAgent` 区分入口链（`react` / `plan_solve`）；结束时汇总 LLM/工具/产物计数与 token 总量。
 
-Sources: [DialogueRun.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/DialogueRun.java#L10-L83)
+Sources: [DialogueRun.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/DialogueRun.java#L10-L83)
 
 ### LLM / Tool / Artifact：细粒度事实
 
@@ -91,7 +91,7 @@ Sources: [DialogueRun.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain
 | `ToolInvocation` | `toolCallId`, `llmInvocationId`, `dispatchIndex`, `inputJson`, `llmObservation` | 单次工具调用；可挂回来源 LLM |
 | `ArtifactRecord` | `artifactRole`, `visibility`, `sourceType`, `storageKey` | 输入/输出文件归属；可挂 toolInvocation |
 
-Sources: [LlmInvocation.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/LlmInvocation.java#L10-L130) · [ToolInvocation.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/ToolInvocation.java#L10-L71) · [ArtifactRecord.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/ArtifactRecord.java#L10-L74)
+Sources: [LlmInvocation.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/LlmInvocation.java#L10-L130) · [ToolInvocation.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/ToolInvocation.java#L10-L71) · [ArtifactRecord.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/entity/ArtifactRecord.java#L10-L74)
 
 ### 状态与分类常量
 
@@ -105,7 +105,7 @@ Sources: [LlmInvocation.java](Reactor-agent-domain/src/main/java/org/wwz/ai/doma
 | 产物 | `input`/`output` · `visible`/`internal` · `user_upload`/`tool_output` | 归属与可见性过滤 |
 | 工具提供方 | `local` / `mcp` | 工具来源标记 |
 
-Sources: [ExecutionLedgerConstants.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ExecutionLedgerConstants.java#L8-L48)
+Sources: [ExecutionLedgerConstants.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ExecutionLedgerConstants.java#L8-L48)
 
 ## 写入契约与生命周期
 
@@ -121,7 +121,7 @@ createRun → createLlmInvocation → createToolInvocations
          → finishRun
 ```
 
-Sources: [AgentExecutionRecorder.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/AgentExecutionRecorder.java#L14-L34)
+Sources: [AgentExecutionRecorder.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/AgentExecutionRecorder.java#L14-L34)
 
 ### Run 启动与结束收口
 
@@ -130,7 +130,7 @@ Sources: [AgentExecutionRecorder.java](Reactor-agent-domain/src/main/java/org/ww
 - **`initializeRun`**：`createRun` → `agentContext.activateLedgerRun(runId, requestId)` → 登记用户上传输入产物（`artifactRole=input`, `sourceType=user_upload`）。
 - **`finishRun`**：在存在 active ledger run 时写入终态；成功态带 `finalSummaryText`，失败态带 `errorCode` / `errorMsg`。
 
-Sources: [ExecutionLedgerRunSupport.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/ExecutionLedgerRunSupport.java#L18-L69)
+Sources: [ExecutionLedgerRunSupport.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/ExecutionLedgerRunSupport.java#L18-L69)
 
 ### 执行链路挂载点
 
@@ -169,7 +169,7 @@ sequenceDiagram
 | 产物登记 | `BaseAgent` · `ExecutionLedgerRunSupport` · 图片生成持久化服务 | 输入/输出 artifact |
 | Run 结束 | `react/step/SummaryResultNode` · `planexecute/step/Step2PlanExecuteNode` | success / failed / timeout 等 |
 
-Sources: [RootNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RootNode.java#L93-L98) · [SummaryResultNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/SummaryResultNode.java#L80-L87) · [AgentExecutionRecorderImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/AgentExecutionRecorderImpl.java#L54-L147)
+Sources: [RootNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/RootNode.java#L93-L98) · [SummaryResultNode.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/react/step/SummaryResultNode.java#L80-L87) · [AgentExecutionRecorderImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/AgentExecutionRecorderImpl.java#L54-L147)
 
 ### createRun / finishRun 内部语义
 
@@ -177,7 +177,7 @@ Sources: [RootNode.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/ag
 
 `finishRun` 不信任调用方上报的计数：它按 `requestId` 回查 run，再查询该 run 下全部 llm / tool / artifact，**重算** `llmCallCount`、`toolCallCount`、`artifactCount` 与 token 汇总，再 `updateRunFinish` 并刷新 session 头。这保证账本终态与事实表一致。
 
-Sources: [AgentExecutionRecorderImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/AgentExecutionRecorderImpl.java#L54-L147)
+Sources: [AgentExecutionRecorderImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/AgentExecutionRecorderImpl.java#L54-L147)
 
 ### 工具完成与 rich output
 
@@ -185,7 +185,7 @@ Sources: [AgentExecutionRecorderImpl.java](Reactor-agent-domain/src/main/java/or
 
 `ToolOutputWriterImpl` 按 toolName switch 到对应 DAO；默认 fail-open，`writeOrThrow` 供需要强一致的场景；`DuplicateKeyException` 在非 strict 模式下被忽略，保证幂等重试安全。
 
-Sources: [ToolOutputNames.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/tooloutput/ToolOutputNames.java#L9-L48) · [ToolOutputWriterImpl.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/tooloutput/ToolOutputWriterImpl.java#L43-L112) · [ToolInvocationFinishRecord.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationFinishRecord.java#L14-L41)
+Sources: [ToolOutputNames.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/tooloutput/ToolOutputNames.java#L9-L48) · [ToolOutputWriterImpl.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/tooloutput/ToolOutputWriterImpl.java#L43-L112) · [ToolInvocationFinishRecord.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationFinishRecord.java#L14-L41)
 
 ## 持久化适配
 
@@ -206,7 +206,7 @@ Run 查询约定：
 - 会话全量：`queryBySessionId` 按 `create_time ASC`（历史时间线）
 - 最近 N 条：`queryRecentBySessionId` 按 `create_time DESC`（摘要列表）
 
-Sources: [ExecutionLedgerWriteRepository.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/adapter/repository/ExecutionLedgerWriteRepository.java#L21-L103) · [ExecutionLedgerReadRepository.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/adapter/repository/ExecutionLedgerReadRepository.java#L22-L98) · [dialogue_run_ledger_mapper.xml](Reactor-agent-app/src/main/resources/mybatis/mapper/dialogue_run_ledger_mapper.xml#L55-L113) · [dialogue_session_ledger_mapper.xml](Reactor-agent-app/src/main/resources/mybatis/mapper/dialogue_session_ledger_mapper.xml#L41-L109)
+Sources: [ExecutionLedgerWriteRepository.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/adapter/repository/ExecutionLedgerWriteRepository.java#L21-L103) · [ExecutionLedgerReadRepository.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/adapter/repository/ExecutionLedgerReadRepository.java#L22-L98) · [dialogue_run_ledger_mapper.xml](AI4S-agent-app/src/main/resources/mybatis/mapper/dialogue_run_ledger_mapper.xml#L55-L113) · [dialogue_session_ledger_mapper.xml](AI4S-agent-app/src/main/resources/mybatis/mapper/dialogue_session_ledger_mapper.xml#L41-L109)
 
 ## 查询聚合
 
@@ -221,7 +221,7 @@ Sources: [ExecutionLedgerWriteRepository.java](Reactor-agent-infrastructure/src/
 
 **会话列表路径**额外做了性能优化：`attachArtifactSummaries` 用 `queryArtifactsByRunIds` 批量补齐 run 视图上的 `artifactSummaries`，避免 controller / UI 二次扫表。limit 统一归一：默认 20、上限 100。
 
-Sources: [ExecutionLedgerQueryService.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/ExecutionLedgerQueryService.java#L10-L30) · [ExecutionLedgerQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/ExecutionLedgerQueryServiceImpl.java#L28-L143) · [ExecutionRunDetail.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ExecutionRunDetail.java#L10-L26) · [ToolInvocationView.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationView.java#L14-L66)
+Sources: [ExecutionLedgerQueryService.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/ExecutionLedgerQueryService.java#L10-L30) · [ExecutionLedgerQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/impl/ExecutionLedgerQueryServiceImpl.java#L28-L143) · [ExecutionRunDetail.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ExecutionRunDetail.java#L10-L26) · [ToolInvocationView.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ToolInvocationView.java#L14-L66)
 
 ## 历史回放投影
 
@@ -251,13 +251,13 @@ flowchart TD
     Q --> R["ConversationHistoryDetail.runs[].replayFrames"]
 ```
 
-Sources: [ConversationHistoryReplayService.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ConversationHistoryReplayService.java#L25-L92) · [ReplayProjector.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ReplayProjector.java#L23-L75)
+Sources: [ConversationHistoryReplayService.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ConversationHistoryReplayService.java#L25-L92) · [ReplayProjector.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ReplayProjector.java#L23-L75)
 
 ### ReplayFactBundle：最小事实包
 
 回放只依赖四类视图：`DialogueRunView` + `LlmInvocationView[]` + `ToolInvocationView[]` + `ArtifactView[]`。这使 projector 与存储解耦，也便于测试用 fixture 直接驱动投影。
 
-Sources: [ReplayFactBundle.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/replay/ReplayFactBundle.java#L16-L36)
+Sources: [ReplayFactBundle.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/replay/ReplayFactBundle.java#L16-L36)
 
 ### ReplayProjector：顺序与归组
 
@@ -270,7 +270,7 @@ Sources: [ReplayFactBundle.java](Reactor-agent-domain/src/main/java/org/wwz/ai/d
 
 `ProjectedReplayEvent` 是投影中间态：`taskId` / `taskOrder` / `messageId` / `messageType` / `messageOrder` / `resultMap` / `artifactRefs`，再由 `toFrame` 包成前端可消费的 `GptProcessResult`。
 
-Sources: [ReplayProjector.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ReplayProjector.java#L32-L170) · [ProjectedReplayEvent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/replay/ProjectedReplayEvent.java#L12-L29)
+Sources: [ReplayProjector.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ReplayProjector.java#L32-L170) · [ProjectedReplayEvent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/replay/ProjectedReplayEvent.java#L12-L29)
 
 ### 工具专用 Projector 注册表
 
@@ -290,7 +290,7 @@ Sources: [ReplayProjector.java](Reactor-agent-domain/src/main/java/org/wwz/ai/do
 
 `AbstractToolInvocationProjector` 提供公共能力：解析 inputJson、构建 artifactRefs、把 typed `fileRefs` 与 artifact 账本稳定链接合并（补 download/preview，标记 missing）。
 
-Sources: [ToolInvocationProjectorRegistry.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/projector/ToolInvocationProjectorRegistry.java#L11-L51) · [ReplayProjectorAutoConfiguration.java](Reactor-agent-app/src/main/java/org/wwz/ai/config/reactor/ReplayProjectorAutoConfiguration.java#L27-L125) · [AbstractToolInvocationProjector.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/projector/impl/AbstractToolInvocationProjector.java#L19-L176)
+Sources: [ToolInvocationProjectorRegistry.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/projector/ToolInvocationProjectorRegistry.java#L11-L51) · [ReplayProjectorAutoConfiguration.java](AI4S-agent-app/src/main/java/org/wwz/ai/config/ai4s/ReplayProjectorAutoConfiguration.java#L27-L125) · [AbstractToolInvocationProjector.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/projector/impl/AbstractToolInvocationProjector.java#L19-L176)
 
 ### 结论可读性与总结协议
 
@@ -303,7 +303,7 @@ Sources: [ToolInvocationProjectorRegistry.java](Reactor-agent-domain/src/main/ja
 
 可见产物过滤条件：`artifactRole=output` 且 `visibility=visible` 且具备 `toolCallId` + `fileName`。
 
-Sources: [HistoryReplayPrinter.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/HistoryReplayPrinter.java#L14-L88) · [SummaryReplayResultResolver.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/SummaryReplayResultResolver.java#L17-L74)
+Sources: [HistoryReplayPrinter.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/HistoryReplayPrinter.java#L14-L88) · [SummaryReplayResultResolver.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/SummaryReplayResultResolver.java#L17-L74)
 
 ### 历史模式快照（前端输入栏恢复）
 
@@ -313,7 +313,7 @@ Sources: [HistoryReplayPrinter.java](Reactor-agent-domain/src/main/java/org/wwz/
 2. 结构化输出样式优先级：**rich tool 强类型（尤其 ReportToolOutput.fileType） → replay frame 的 messageType → 产物文件后缀**
 3. 拿不到细粒度信息时至少回落为 `docs`，**禁止错误回落成 chat**，避免前端输入栏切回聊天态
 
-Sources: [ConversationHistoryReplayService.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ConversationHistoryReplayService.java#L94-L148)
+Sources: [ConversationHistoryReplayService.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/replay/ConversationHistoryReplayService.java#L94-L148)
 
 ## 对外 HTTP 契约
 
@@ -326,7 +326,7 @@ Sources: [ConversationHistoryReplayService.java](Reactor-agent-domain/src/main/j
 
 状态对外统一映射为可读标签：`SUCCESS / FAILED / TIMEOUT / STOPPED / RUNNING`，避免前端与调试工具各自维护枚举。详情 VO 直接携带 `GptProcessResult` 列表作为 `replayFrames`，前端可按实时流同一套渲染器消费。
 
-Sources: [AgentConversationHistoryController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/agent/AgentConversationHistoryController.java#L27-L155) · [ConversationHistoryDetail.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ConversationHistoryDetail.java#L14-L69)
+Sources: [AgentConversationHistoryController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/agent/AgentConversationHistoryController.java#L27-L155) · [ConversationHistoryDetail.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ledger/model/ConversationHistoryDetail.java#L14-L69)
 
 ## 组件协作总览
 
@@ -378,6 +378,6 @@ flowchart LR
 
 ## 阅读建议
 
-若要沿「写 → 存 → 读 → 投影」完整走通一次：从 `ExecutionLedgerRunSupport.initializeRun` 进入，对照 `AgentExecutionRecorderImpl` 的 create/finish 族，再看 `ExecutionLedgerQueryServiceImpl.queryRunDetail`，最后用 `ReplayProjector.projectMixedHistory` + 某个 rich tool projector 验证 frames 是否与实时 `eventData` 同构。集成测试集中在 `Reactor-agent-app` 的 `*ExecutionLedger*`、`ReplayProjector*`、`ConversationHistory*` 测试类，可作回归锚点。
+若要沿「写 → 存 → 读 → 投影」完整走通一次：从 `ExecutionLedgerRunSupport.initializeRun` 进入，对照 `AgentExecutionRecorderImpl` 的 create/finish 族，再看 `ExecutionLedgerQueryServiceImpl.queryRunDetail`，最后用 `ReplayProjector.projectMixedHistory` + 某个 rich tool projector 验证 frames 是否与实时 `eventData` 同构。集成测试集中在 `AI4S-agent-app` 的 `*ExecutionLedger*`、`ReplayProjector*`、`ConversationHistory*` 测试类，可作回归锚点。
 
 下一页可接 [SSE 流式对话与结果渲染](27-sse-liu-shi-dui-hua-yu-jie-guo-xuan-ran)，对照实时推送与历史回放如何共享同一帧协议。

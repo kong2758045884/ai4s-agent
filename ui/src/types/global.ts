@@ -1,7 +1,7 @@
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
-  namespace ReactorType {
+  namespace AI4SType {
     type FCProps = {
       children?: React.ReactNode;
       /** 类名 */
@@ -33,5 +33,5 @@ declare global {
   }
 
   const SERVICE_BASE_URL: string;
-  const REACTOR_TOOL_BASE_URL: string;
+  const AI4S_TOOL_BASE_URL: string;
 }

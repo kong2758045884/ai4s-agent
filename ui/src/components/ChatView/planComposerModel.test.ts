@@ -13,7 +13,7 @@ describe("planComposerModel", () => {
         resultMap: {
           approvalId: "a1",
           planContent: "## Steps\n1. A",
-          planFilePath: ".reactor/plan.md",
+          planFilePath: ".ai4s/plan.md",
           status: "pending",
         },
       },
@@ -22,14 +22,14 @@ describe("planComposerModel", () => {
     expect(pickPlanApprovalFields(task)).toMatchObject({
       approvalId: "a1",
       planContent: "## Steps\n1. A",
-      planFilePath: ".reactor/plan.md",
+      planFilePath: ".ai4s/plan.md",
       status: "pending",
     });
   });
 
   it("reads absolute planFilePath through live SSE extra resultMap wrapping", () => {
     const planFilePath =
-      "D:\\Java Code\\ai-agent\\Reactor-agent\\reactor-tool\\skilloutput\\session-1788672643180-455\\.reactor\\plan.md";
+      "D:\\Java Code\\ai-agent\\AI4S-agent\\ai4s-tool\\skilloutput\\session-1788672643180-455\\.ai4s\\plan.md";
     const task = {
       messageType: "plan_approval",
       resultMap: {

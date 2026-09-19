@@ -30,7 +30,6 @@ describe("WelcomeView featured cards", () => {
       videoModalOpen: undefined,
       onSelectionChange: () => {},
       onSend: () => {},
-      onSendQuestion: () => {},
       onOpenVideo: () => {},
       onCloseVideo: () => {},
     };

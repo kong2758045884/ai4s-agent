@@ -48,10 +48,10 @@ export default function VisitorBootstrapScreen() {
           className="mb-2 text-[28px] font-normal leading-[1.15] tracking-tight text-[var(--chat-text)]"
           style={{ fontFamily: "var(--font-display)" }}
         >
-          正在进入工作台
+          正在进入AI原生研判系统
         </h1>
         <p className="text-[14px] text-[var(--chat-text-soft)]">
-          准备你的 AI 协作环境...
+          准备 AI4S 研判环境...
         </p>
       </motion.div>
     </div>

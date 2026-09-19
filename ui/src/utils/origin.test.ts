@@ -36,4 +36,15 @@ describe("resolveServiceBaseUrl", () => {
 
     expect(resolveServiceBaseUrl("http://127.0.0.1:8100")).toBe("http://127.0.0.1:8100");
   });
+
+  it("should use the Vite same-origin proxy during local development", () => {
+    vi.stubGlobal("window", {
+      location: {
+        hostname: "127.0.0.1",
+        port: "3000",
+      },
+    });
+
+    expect(resolveServiceBaseUrl("http://127.0.0.1:8100")).toBe("");
+  });
 });

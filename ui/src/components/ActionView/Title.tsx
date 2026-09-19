@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 
-const Title: ReactorType.FC<{
+const Title: AI4SType.FC<{
   onClose?: () => void;
 }> = (props) => {
   const { children, onClose } = props;

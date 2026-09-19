@@ -4,9 +4,9 @@ SOP 语义召回是 Plan-Execute 执行链路中步骤1的核心机制，通过�
 
 SOP 语义召回采用双向量存储（name + sop_string）+ Qdrant 向量库 + rerank 重排的混合方案，确保高精度与低延迟。
 
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L116-L119](reactor-tool/reactor_tool/tool/plan_sop.py#L116-L119)
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L149-L163](reactor-tool/reactor_tool/tool/plan_sop.py#L149-L163)
-Sources: [reactor-tool/reactor_tool/tool/sop_workspace.py#L129-L130](reactor-tool/reactor_tool/tool/sop_workspace.py#L129-L130)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L116-L119](ai4s-tool/ai4s_tool/tool/plan_sop.py#L116-L119)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L149-L163](ai4s-tool/ai4s_tool/tool/plan_sop.py#L149-L163)
+Sources: [ai4s-tool/ai4s_tool/tool/sop_workspace.py#L129-L130](ai4s-tool/ai4s_tool/tool/sop_workspace.py#L129-L130)
 
 ## 召回流程
 
@@ -19,9 +19,9 @@ Sources: [reactor-tool/reactor_tool/tool/sop_workspace.py#L129-L130](reactor-too
    - NO_SOP_MODE：score < 0.2，使用兜底提示
 5. **提示注入**：将选中的 SOP 文本注入 `sopPrompt` 模板
 
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L172-L173](reactor-tool/reactor_tool/tool/plan_sop.py#L172-L173)
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L178-L184](reactor-tool/reactor_tool/tool/plan_sop.py#L178-L184)
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L176-L177](reactor-tool/reactor_tool/tool/plan_sop.py#L176-L177)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L172-L173](ai4s-tool/ai4s_tool/tool/plan_sop.py#L172-L173)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L178-L184](ai4s-tool/ai4s_tool/tool/plan_sop.py#L178-L184)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L176-L177](ai4s-tool/ai4s_tool/tool/plan_sop.py#L176-L177)
 
 ## 模式定义
 
@@ -38,12 +38,12 @@ graph TD
     G -->|注入模板| H
 ```
 
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L148](reactor-tool/reactor_tool/tool/plan_sop.py#L148)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L148](ai4s-tool/ai4s_tool/tool/plan_sop.py#L148)
 
 ## 提示模板
 
 ```yaml
-# reactor-tool/reactor_tool/prompt/plan_sop.yaml
+# ai4s-tool/ai4s_tool/prompt/plan_sop.yaml
 high_mode_prompt: |
   以下是提供给你的标准作业程序SOP...你必须调用工具，严格生成如SOP所示的计划列表...
 common_mode_prompt: |
@@ -52,23 +52,23 @@ no_sop_mode_prompt: |
   你有丰富的世界知识...必须生成一个计划...
 ```
 
-Sources: [reactor-tool/reactor_tool/prompt/plan_sop.yaml](reactor-tool/reactor_tool/prompt/plan_sop.yaml)
+Sources: [ai4s-tool/ai4s_tool/prompt/plan_sop.yaml](ai4s-tool/ai4s_tool/prompt/plan_sop.yaml)
 
 ## Java 侧集成
 
 Java 侧通过 `SopRecallService` 调用 `/v1/tool/sopRecall` 端点，接收 `SopRecallResponse` 并注入 `agentContext.sopPrompt`。
 
-Sources: [Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/rag/SopRecallService.java#L34-L69](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/rag/SopRecallService.java#L34-L69)
-Sources: [Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/SopRecallResponse.java#L16-L28](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/SopRecallResponse.java#L16-L28)
-Sources: [Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step1SopRecallAndPrepareNode.java#L159-L170](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step1SopRecallAndPrepareNode.java#L159-L170)
+Sources: [AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/rag/SopRecallService.java#L34-L69](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/rag/SopRecallService.java#L34-L69)
+Sources: [AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/SopRecallResponse.java#L16-L28](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/dto/SopRecallResponse.java#L16-L28)
+Sources: [AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step1SopRecallAndPrepareNode.java#L159-L170](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/planexecute/step/Step1SopRecallAndPrepareNode.java#L159-L170)
 
 ## 工作台 API
 
 SOP 工作台提供 `/list` `/get` `/upsert` `/delete` `/status` `/recall_test` 等 CRUD 接口，底层依赖 `SopWorkspaceService` 与 Qdrant。
 
-Sources: [reactor-tool/reactor_tool/api/sop.py#L80-L154](reactor-tool/reactor_tool/api/sop.py#L80-L154)
-Sources: [reactor-tool/reactor_tool/tool/sop_workspace.py#L130-L131](reactor-tool/reactor_tool/tool/sop_workspace.py#L130-L131)
-Sources: [reactor-tool/reactor_tool/tool/sop_workspace.py#L178-L191](reactor-tool/reactor_tool/tool/sop_workspace.py#L178-L191)
+Sources: [ai4s-tool/ai4s_tool/api/sop.py#L80-L154](ai4s-tool/ai4s_tool/api/sop.py#L80-L154)
+Sources: [ai4s-tool/ai4s_tool/tool/sop_workspace.py#L130-L131](ai4s-tool/ai4s_tool/tool/sop_workspace.py#L130-L131)
+Sources: [ai4s-tool/ai4s_tool/tool/sop_workspace.py#L178-L191](ai4s-tool/ai4s_tool/tool/sop_workspace.py#L178-L191)
 
 ## 前端工作台
 
@@ -88,8 +88,8 @@ Sources: [ui/src/services/sopWorkspace.ts#L146-L152](ui/src/services/sopWorkspac
 | MAX_RECALL_SOP_NUMBER   | 5               | 单次召回数量上限                 |
 | DEFAULT_HIGH...         | 0.9             | 高相关模式阈值                   |
 
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L32-L42](reactor-tool/reactor_tool/tool/plan_sop.py#L32-L42)
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L129-L130](reactor-tool/reactor_tool/tool/plan_sop.py#L129-L130)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L32-L42](ai4s-tool/ai4s_tool/tool/plan_sop.py#L32-L42)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L129-L130](ai4s-tool/ai4s_tool/tool/plan_sop.py#L129-L130)
 
 ## 最佳实践
 
@@ -98,9 +98,9 @@ Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L129-L130](reactor-tool/rea
 3. **Plan 注入**：注入后，PlanSolve 步骤可严格遵循选中的 SOP 执行
 4. **测试**：使用 `/recall_test` 端点验证召回效果
 
-Sources: [reactor-tool/reactor_tool/tool/plan_sop.py#L148](reactor-tool/reactor_tool/tool/plan_sop.py#L148)
-Sources: [reactor-tool/reactor_tool/tool/sop_workspace.py#L130](reactor-tool/reactor_tool/tool/sop_workspace.py#L130)
-Sources: [reactor-tool/reactor_tool/api/sop.py#L146-L154](reactor-tool/reactor_tool/api/sop.py#L146-L154)
+Sources: [ai4s-tool/ai4s_tool/tool/plan_sop.py#L148](ai4s-tool/ai4s_tool/tool/plan_sop.py#L148)
+Sources: [ai4s-tool/ai4s_tool/tool/sop_workspace.py#L130](ai4s-tool/ai4s_tool/tool/sop_workspace.py#L130)
+Sources: [ai4s-tool/ai4s_tool/api/sop.py#L146-L154](ai4s-tool/ai4s_tool/api/sop.py#L146-L154)
 
 ## 下一步
 

@@ -20,14 +20,20 @@ export function ToolGroup({
   count,
   aggregateStatus,
   defaultOpen = true,
+  open: controlledOpen,
+  onOpenChange,
   children,
 }: {
   count: number;
   aggregateStatus: AggregateStatus;
   defaultOpen?: boolean;
+  /** Optional controlled state for a parent execution group. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? uncontrolledOpen;
   const headRef = useRef<HTMLButtonElement | null>(null);
 
   const pinScroll = useCallback(() => {
@@ -56,7 +62,11 @@ export function ToolGroup({
         className="kimi-tool-group-head"
         aria-expanded={open}
         onClick={() => {
-          setOpen((v) => !v);
+          const nextOpen = !open;
+          if (controlledOpen == null) {
+            setUncontrolledOpen(nextOpen);
+          }
+          onOpenChange?.(nextOpen);
           pinScroll();
         }}
       >

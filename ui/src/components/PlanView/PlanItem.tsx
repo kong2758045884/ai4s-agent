@@ -4,7 +4,7 @@ import classNames from "classnames";
 import { useEffect, useRef } from "react";
 import { getStatusIcon } from "./config";
 
-const PlanItem: ReactorType.FC<{
+const PlanItem: AI4SType.FC<{
   title?: React.ReactNode;
   status?: CHAT.PlanStatus;
 }> = (props) => {

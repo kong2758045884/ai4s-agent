@@ -20,7 +20,7 @@ interface HTMLRendererProps {
   className?: string;
 }
 
-const HTMLRenderer: ReactorType.FC<HTMLRendererProps> = memo((props) => {
+const HTMLRenderer: AI4SType.FC<HTMLRendererProps> = memo((props) => {
   const {
     htmlUrl,
     className,

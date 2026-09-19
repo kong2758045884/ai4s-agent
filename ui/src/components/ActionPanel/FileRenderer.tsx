@@ -173,7 +173,7 @@ const SourceCodeView: React.FC<{
   );
 };
 
-const FileRenderer: ReactorType.FC<FileRendererProps> = React.memo((props) => {
+const FileRenderer: AI4SType.FC<FileRendererProps> = React.memo((props) => {
   const {
     fileUrl,
     fileName,

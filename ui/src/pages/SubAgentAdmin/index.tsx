@@ -48,7 +48,7 @@ type SubAgentAdminProps = {
   embedded?: boolean;
 };
 
-const SubAgentAdmin: ReactorType.FC<SubAgentAdminProps> = ({ embedded }) => {
+const SubAgentAdmin: AI4SType.FC<SubAgentAdminProps> = ({ embedded }) => {
   const [items, setItems] = useState<SubAgentDefinitionRecord[]>([]);
   const [catalog, setCatalog] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);

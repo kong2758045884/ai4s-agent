@@ -8,11 +8,13 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Menu } from "lucide-react";
+import classNames from "classnames";
 import ChatView from "@/components/ChatView";
 import { DURATION, EASE_OUT, useMotionConfig } from "@/lib/motion";
 import WorkspaceMRag from "@/pages/WorkspaceMRag";
 import WorkspaceImageGeneration from "@/pages/WorkspaceImageGeneration";
 import WorkspaceSop from "@/pages/WorkspaceSop";
+import StrategicMap from "@/pages/StrategicMap";
 import SubAgentAdmin from "@/pages/SubAgentAdmin";
 import ModelAdmin from "@/pages/ModelAdmin";
 import CapabilityLibrary from "@/pages/CapabilityLibrary";
@@ -20,7 +22,6 @@ import FeaturedConversations from "@/pages/FeaturedConversations";
 import {
   GENERIC_TASK_PRODUCT,
   getProductByType,
-  type SuggestedQuestion,
 } from "@/utils/constants";
 import {
   createSessionId,
@@ -68,6 +69,10 @@ import {
 import VisitorBootstrapScreen from "./VisitorBootstrapScreen";
 import VisitorLoginGate from "./VisitorLoginGate";
 import WelcomeView from "./WelcomeView";
+import {
+  buildAi4sDailyResearchPrompt,
+  type Ai4sDailyHomeHotspot,
+} from "@/utils/ai4sDailyHome";
 import ConversationSidebar from "./ConversationSidebar";
 import type { PanelItemType } from "@/components/ActionPanel";
 import {
@@ -86,6 +91,7 @@ type HomeProps = Record<string, never>;
 
 type SidebarView =
   | "chat"
+  | "strategic-map"
   | "mrag"
   | "image-generation"
   | "sop"
@@ -168,7 +174,7 @@ const createInitialState = (): InitialState => {
   return {productType: GENERIC_TASK_PRODUCT.type,};
 };
 
-const Home: ReactorType.FC<HomeProps> = memo(() => {
+const Home: AI4SType.FC<HomeProps> = memo(() => {
   // Home 持有跨页面的会话壳状态：当前 conversation 负责聊天，侧栏/工作区
   // 状态负责视图切换，访客 bootstrap 则决定哪些受保护数据可以开始加载。
   const initialRef = useRef<InitialState>(createInitialState());
@@ -189,6 +195,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     "sessions"
   );
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
   const [workspaceImmersive, setWorkspaceImmersive] = useState(false);
   const [workspaceTaskList, setWorkspaceTaskList] = useState<PanelItemType[]>(
     []
@@ -234,6 +241,10 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
 
   const closeMobileSidebar = useCallback(() => {
     setMobileSidebarOpen(false);
+  }, []);
+
+  const toggleDesktopSidebar = useCallback(() => {
+    setDesktopSidebarCollapsed((previous) => !previous);
   }, []);
 
   useEffect(() => {
@@ -287,7 +298,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
           activeView === "capabilities" ||
           activeView === "featured"
         ? "min-h-0 flex-1 overflow-hidden"
-        : "min-h-0 flex-1 overflow-auto";
+        : "min-h-0 flex-1 overflow-hidden";
 
   const loadFeaturedCards = useCallback(async () => {
     // 精品对话属于首页附属内容，单独维护失败边界，不影响当前会话主链路。
@@ -528,6 +539,36 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     [resetInput]
   );
 
+  const handleDeleteSession = useCallback(
+    async (session: ConversationSessionItem) => {
+      try {
+        await conversationHistoryApi.deleteSession(session.sessionId);
+
+        localRecentConversationsRef.current =
+          localRecentConversationsRef.current.filter(
+            (item) => item.sessionId !== session.sessionId
+          );
+        localRecentSummaryRef.current.delete(session.sessionId);
+        setLocalRecentConversations(localRecentConversationsRef.current);
+
+        if (currentConversation.sessionId === session.sessionId) {
+          // 清空当前视图，但不要把一个空白的“新对话”重新塞回任务列表；
+          // 用户下一次真正输入时，updateConversation 会再把它加入本地列表。
+          setActiveView("chat");
+          setCurrentConversation(createConversation({ productType: product.type }));
+          resetInput();
+        }
+
+        await refreshRecentSessions(true);
+        showMessage()?.success("会话已删除");
+      } catch (error) {
+        console.error("删除会话失败", error);
+        showMessage()?.error("删除会话失败，请稍后重试");
+      }
+    },
+    [currentConversation.sessionId, product.type, refreshRecentSessions, resetInput]
+  );
+
   useEffect(() => {
     if (
       conversationBootstrapLoading ||
@@ -589,14 +630,22 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     [updateCurrentConversationMeta]
   );
 
-  const toSendMessage = useCallback(
-    (query: SuggestedQuestion) => {
-      changeInputInfo({
-        message: query.label,
-        deepThink: Boolean(query.deepThink),
+  const startAi4sDailyResearch = useCallback(
+    (hotspot: Ai4sDailyHomeHotspot) => {
+      const message = buildAi4sDailyResearchPrompt(hotspot);
+      // Daily 热点是通用 Agent 的研究入口。先创建一个独立会话，再把
+      // Prompt 写入输入状态，让 ChatView 沿用原有 SSE/Tool 启动逻辑。
+      createNewChat({
+        productType: GENERIC_TASK_PRODUCT.type,
+        deepThink: true,
+      });
+      setProduct(GENERIC_TASK_PRODUCT);
+      setInputInfo({
+        message,
+        deepThink: true,
       });
     },
-    [changeInputInfo, product.type]
+    [createNewChat]
   );
 
   const syncFeaturedAdminRecord = useCallback(
@@ -818,6 +867,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     setActiveView("chat");
     setWorkspaceImmersive(false);
     setSidebarPanel("task-files");
+    setDesktopSidebarCollapsed(false);
   }, []);
 
   const handleSidebarCloseTaskFiles = useCallback(() => {
@@ -849,12 +899,15 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       selectedTaskFileKey,
       onNewChat: handleSidebarNewChat,
       onSelectSession: handleSidebarSelectSession,
+      onDeleteSession: handleDeleteSession,
       onChangeView: handleSidebarChangeView,
       onManageFeaturedConversation: handleOpenFeaturedAdmin,
       onOpenTaskFiles: handleSidebarOpenTaskFiles,
       onCloseTaskFiles: handleSidebarCloseTaskFiles,
       onSelectTaskFile: handleSidebarSelectTaskFile,
       onRefreshTaskFiles: handleSidebarRefreshTaskFiles,
+      isCollapsed: desktopSidebarCollapsed,
+      onToggleCollapse: toggleDesktopSidebar,
     }),
     [
       activeView,
@@ -867,10 +920,13 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
       handleSidebarOpenTaskFiles,
       handleSidebarRefreshTaskFiles,
       handleSidebarSelectSession,
+      handleDeleteSession,
       handleSidebarSelectTaskFile,
       recentSessionsLoading,
       selectedTaskFileKey,
       sidebarPanel,
+      desktopSidebarCollapsed,
+      toggleDesktopSidebar,
       visitorBootstrap?.username,
       workspaceTaskList,
     ]
@@ -897,11 +953,16 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
     <div className="h-full w-full bg-[var(--page-gradient)] text-foreground">
       <div className="flex h-full w-full">
         <div
-          className={
+          className={classNames(
+            // Keep the compact rail above the workspace while its header
+            // controls overflow the narrow icon-only width.
+            "relative z-30 hidden h-full shrink-0 transition-[width,opacity] duration-300 lg:block",
             workspaceImmersive
-              ? "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none transition-[width,opacity] duration-300"
-              : "hidden h-full w-[var(--chat-sidebar-width)] shrink-0 transition-[width,opacity] duration-300 lg:block"
-          }
+              ? "w-0 min-w-0 overflow-hidden opacity-0 pointer-events-none"
+              : desktopSidebarCollapsed
+                ? "w-[72px]"
+                : "w-[var(--chat-sidebar-width)]"
+          )}
         >
           <ConversationSidebar {...sidebarSharedProps} />
         </div>
@@ -917,6 +978,8 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
             <div className="absolute inset-y-0 left-0 flex w-[min(86vw,var(--chat-sidebar-width))] max-w-full shadow-2xl">
               <ConversationSidebar
                 {...sidebarSharedProps}
+                isCollapsed={false}
+                onToggleCollapse={undefined}
                 onRequestClose={closeMobileSidebar}
               />
             </div>
@@ -935,7 +998,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
                 <Menu className="h-5 w-5" />
               </button>
               <div className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em] text-[var(--chat-text)]">
-                Reactor
+                AI4S 研判系统
               </div>
               <button
                 type="button"
@@ -952,7 +1015,9 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
             </div>
           ) : null}
           <div className={contentContainerClassName}>
-            {activeView === "mrag" ? (
+            {activeView === "strategic-map" ? (
+              <StrategicMap />
+            ) : activeView === "mrag" ? (
               <WorkspaceMRag embedded />
             ) : activeView === "image-generation" ? (
               <WorkspaceImageGeneration embedded />
@@ -1020,7 +1085,7 @@ const Home: ReactorType.FC<HomeProps> = memo(() => {
                       videoModalOpen={videoModalOpen}
                       onSelectionChange={handleInputSelectionChange}
                       onSend={changeInputInfo}
-                      onSendQuestion={toSendMessage}
+                      onResearchHotspot={startAi4sDailyResearch}
                       onOpenVideo={setVideoModalOpen}
                       onCloseVideo={() => setVideoModalOpen(undefined)}
                       featuredCards={featuredCards}

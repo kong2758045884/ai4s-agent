@@ -1,17 +1,17 @@
-本页详细说明 Reactor-agent 中 CodeInterpreter 工具与 Python 沙箱执行机制的设计原理、权限策略、流式执行流程、产物管理以及安全防护实现。内容针对中级开发者，帮助理解如何安全地在代码解释器中执行用户提交的 Python 代码，同时支持文件 I/O 操作、产物上传和流式结果推送。
+本页详细说明 AI4S-agent 中 CodeInterpreter 工具与 Python 沙箱执行机制的设计原理、权限策略、流式执行流程、产物管理以及安全防护实现。内容针对中级开发者，帮助理解如何安全地在代码解释器中执行用户提交的 Python 代码，同时支持文件 I/O 操作、产物上传和流式结果推送。
 
 ## 整体架构与执行链路
 
 CodeInterpreter 作为核心工具，负责将用户任务转换为 Python 代码执行，并将结果以 Markdown 形式返回给前端。执行流程分为 Java 端调用（CodeInterpreterTool）与 Python 端（code_interpreter.py + CIAgent + PythonSandboxExecutor）两个阶段。
 
-Java 端通过 ReactorConfig 注入的 `/v1/tool/code_interpreter` SSE 端点发起流式请求，Python 端通过 CIRequest 接收参数（含 permission_profile、stream_mode 等），驱动 smolagents CodeAgent + PythonInterpreterTool 执行。
+Java 端通过 AI4SConfig 注入的 `/v1/tool/code_interpreter` SSE 端点发起流式请求，Python 端通过 CIRequest 接收参数（含 permission_profile、stream_mode 等），驱动 smolagents CodeAgent + PythonInterpreterTool 执行。
 
 Mermaid 流程图如下：
 
 ```mermaid
 sequenceDiagram
     participant Java as Java CodeInterpreterTool
-    participant Python as reactor-tool Python Service
+    participant Python as ai4s-tool Python Service
     participant Agent as CIAgent + Sandbox
     participant UI as Frontend
 
@@ -34,9 +34,9 @@ sequenceDiagram
 
 运行时 I/O 守卫（runtime guard）对 open/pandas/read_csv 等调用进行二次路径校验，防止静态分析遗漏的路径逃逸。沙箱通过 PythonSandboxExecutor 启动隔离进程（python_sandbox_runner.py），使用 CREATE_NEW_PROCESS_GROUP（Windows）或 start_new_session（Linux）隔离子进程。
 
-Sources: [reactor-tool/reactor_tool/tool/code_interpreter_policy.py](reactor-tool/reactor_tool/tool/code_interpreter_policy.py#L1-L761)
-Sources: [reactor-tool/reactor_tool/tool/python_sandbox_executor.py](reactor-tool/reactor_tool/tool/python_sandbox_executor.py#L1-L183)
-Sources: [reactor-tool/reactor_tool/tool/code_interpreter_runtime_guard.py](reactor-tool/reactor_tool/tool/code_interpreter_runtime_guard.py#L1-L393)
+Sources: [ai4s-tool/ai4s_tool/tool/code_interpreter_policy.py](ai4s-tool/ai4s_tool/tool/code_interpreter_policy.py#L1-L761)
+Sources: [ai4s-tool/ai4s_tool/tool/python_sandbox_executor.py](ai4s-tool/ai4s_tool/tool/python_sandbox_executor.py#L1-L183)
+Sources: [ai4s-tool/ai4s_tool/tool/code_interpreter_runtime_guard.py](ai4s-tool/ai4s_tool/tool/code_interpreter_runtime_guard.py#L1-L393)
 
 ## 流式执行与产物管理
 
@@ -50,13 +50,13 @@ CIAgent 集成 smolagents CodeAgent，执行 ReAct 循环（Thought/Code/Observa
 
 流式模式下通过 ServerSentEvent 推送增量 data/code/fileInfo，UI 实时渲染。
 
-Sources: [reactor-tool/reactor_tool/tool/code_interpreter.py](reactor-tool/reactor_tool/tool/code_interpreter.py#L1-L527)
-Sources: [reactor-tool/reactor_tool/tool/ci_agent.py](reactor-tool/reactor_tool/tool/ci_agent.py#L1-L458)
-Sources: [reactor-tool/reactor_tool/model/protocal.py](reactor-tool/reactor_tool/model/protocal.py#L1-L120)
+Sources: [ai4s-tool/ai4s_tool/tool/code_interpreter.py](ai4s-tool/ai4s_tool/tool/code_interpreter.py#L1-L527)
+Sources: [ai4s-tool/ai4s_tool/tool/ci_agent.py](ai4s-tool/ai4s_tool/tool/ci_agent.py#L1-L458)
+Sources: [ai4s-tool/ai4s_tool/model/protocal.py](ai4s-tool/ai4s_tool/model/protocal.py#L1-L120)
 
 ## 配置与集成
 
-Java 侧通过 ReactorConfig 配置 codeInterpreterUrl（默认为 http://reactor-tool）以及 codeAgentDesc/codeAgentParams。Python 侧通过 .env_template 配置 CODE_INTEPRETER_MODEL、OPENAI_BASE_URL 等 LLM 接入信息。
+Java 侧通过 AI4SConfig 配置 codeInterpreterUrl（默认为 http://ai4s-tool）以及 codeAgentDesc/codeAgentParams。Python 侧通过 .env_template 配置 CODE_INTEPRETER_MODEL、OPENAI_BASE_URL 等 LLM 接入信息。
 
 前端调用示例：
 ```json
@@ -70,9 +70,9 @@ Java 侧通过 ReactorConfig 配置 codeInterpreterUrl（默认为 http://reacto
 }
 ```
 
-Sources: [Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/config/ReactorConfig.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/reactor/config/ReactorConfig.java)
-Sources: [reactor-tool/reactor_tool/tool/code_interpreter.py](reactor-tool/reactor_tool/tool/code_interpreter.py#L47-L72)
-Sources: [reactor-tool/.env_template](reactor-tool/.env_template)
+Sources: [AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/config/AI4SConfig.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/ai4s/config/AI4SConfig.java)
+Sources: [ai4s-tool/ai4s_tool/tool/code_interpreter.py](ai4s-tool/ai4s_tool/tool/code_interpreter.py#L47-L72)
+Sources: [ai4s-tool/.env_template](ai4s-tool/.env_template)
 
 ## 常见问题与故障排除
 

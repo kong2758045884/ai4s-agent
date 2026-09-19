@@ -1,16 +1,16 @@
-本文梳理 **Reactor-agent** 仓库的运行时组成、核心技术选型，以及 Java 多模块之间的依赖方向。阅读后你能回答三个问题：系统由哪几块构成、每块用了什么技术、模块之间谁依赖谁。更细的启动步骤请见后续环境文档；分层职责见 [分层架构与模块职责](9-fen-ceng-jia-gou-yu-mo-kuai-zhi-ze)。
+本文梳理 **AI4S-agent** 仓库的运行时组成、核心技术选型，以及 Java 多模块之间的依赖方向。阅读后你能回答三个问题：系统由哪几块构成、每块用了什么技术、模块之间谁依赖谁。更细的启动步骤请见后续环境文档；分层职责见 [分层架构与模块职责](9-fen-ceng-jia-gou-yu-mo-kuai-zhi-ze)。
 
 ## 一、仓库全景：三端一体
 
-Reactor-agent 是一个 **monorepo**。本地同时存在三条可独立启动的运行时，再通过 HTTP / SSE 协作：
+AI4S-agent 是一个 **monorepo**。本地同时存在三条可独立启动的运行时，再通过 HTTP / SSE 协作：
 
 | 运行时 | 目录 | 默认端口 | 角色 |
 |--------|------|----------|------|
-| Java 后端 | `Reactor-agent-*` + 根 `pom.xml` | **8100** | Agent 编排、会话、账本、MCP、领域逻辑 |
-| Python 工具运行时 | `reactor-tool/` | **1601** | DeepSearch、CodeInterpreter、MRAG、Report 等重工具 |
+| Java 后端 | `AI4S-agent-*` + 根 `pom.xml` | **8100** | Agent 编排、会话、账本、MCP、领域逻辑 |
+| Python 工具运行时 | `ai4s-tool/` | **1601** | DeepSearch、CodeInterpreter、MRAG、Report 等重工具 |
 | 前端 UI | `ui/` | **3000** | 对话界面、SSE 消费、工作区预览 |
 
-Sources: [application-dev.yml](Reactor-agent-app/src/main/resources/application-dev.yml)（`server.port: 8100` 与 `*_url: http://127.0.0.1:1601`）、[server.py](reactor-tool/server.py)（默认 `--port 1601`）、[vite.config.ts](ui/vite.config.ts)（`port: 3000`）
+Sources: [application-dev.yml](AI4S-agent-app/src/main/resources/application-dev.yml)（`server.port: 8100` 与 `*_url: http://127.0.0.1:1601`）、[server.py](ai4s-tool/server.py)（默认 `--port 1601`）、[vite.config.ts](ui/vite.config.ts)（`port: 3000`）
 
 三端协作关系可用下图理解（关注依赖与协议，不展开执行细节）：
 
@@ -21,13 +21,13 @@ flowchart TB
   end
 
   subgraph Java["Java 后端 monorepo"]
-    APP["Reactor-agent-app<br/>Spring Boot 启动 :8100"]
+    APP["AI4S-agent-app<br/>Spring Boot 启动 :8100"]
     MOD["api / trigger / case<br/>domain / infrastructure / types"]
     APP --> MOD
   end
 
   subgraph Py["Python 工具运行时"]
-    RT["reactor-tool<br/>FastAPI + Uvicorn :1601"]
+    RT["ai4s-tool<br/>FastAPI + Uvicorn :1601"]
   end
 
   subgraph Data["数据与检索"]
@@ -45,7 +45,7 @@ flowchart TB
   RT --> ES
 ```
 
-Sources: [README.md](README.md)（技术栈与架构说明）、[vite.config.ts](ui/vite.config.ts)（`/web` 与 `/tool` 代理）、[application-dev.yml](Reactor-agent-app/src/main/resources/application-dev.yml)（`code_interpreter_url` / `deep_search_url` 等指向 `1601`）
+Sources: [README.md](README.md)（技术栈与架构说明）、[vite.config.ts](ui/vite.config.ts)（`/web` 与 `/tool` 代理）、[application-dev.yml](AI4S-agent-app/src/main/resources/application-dev.yml)（`code_interpreter_url` / `deep_search_url` 等指向 `1601`）
 
 ## 二、核心技术栈一览
 
@@ -70,9 +70,9 @@ Sources: [README.md](README.md)
 | 设计框架 | xfg-wrench-bom | **3.0.0** | 通用设计模式 starter |
 | PDF 导出 | OpenPDF | **1.3.39**（domain） | GenUI 等 PDF 产物 |
 
-Sources: [pom.xml](pom.xml#L34-L138)、[Reactor-agent-app/pom.xml](Reactor-agent-app/pom.xml)、[Reactor-agent-domain/pom.xml](Reactor-agent-domain/pom.xml)
+Sources: [pom.xml](pom.xml#L34-L138)、[AI4S-agent-app/pom.xml](AI4S-agent-app/pom.xml)、[AI4S-agent-domain/pom.xml](AI4S-agent-domain/pom.xml)
 
-### 2.2 Python 工具运行时（reactor-tool）
+### 2.2 Python 工具运行时（ai4s-tool）
 
 | 类别 | 技术 | 说明 |
 |------|------|------|
@@ -84,7 +84,7 @@ Sources: [pom.xml](pom.xml#L34-L138)、[Reactor-agent-app/pom.xml](Reactor-agent
 | 抓取 | crawl4ai、trafilatura、beautifulsoup4、ddgs | 网页与搜索 |
 | 可视化 | matplotlib、plotly、altair、seaborn | 图表与分析产物 |
 
-Sources: [pyproject.toml](reactor-tool/pyproject.toml)、[reactor-tool/.python-version](reactor-tool/.python-version)、[server.py](reactor-tool/server.py)
+Sources: [pyproject.toml](ai4s-tool/pyproject.toml)、[ai4s-tool/.python-version](ai4s-tool/.python-version)、[server.py](ai4s-tool/server.py)
 
 ### 2.3 前端 UI
 
@@ -107,9 +107,9 @@ Sources: [ui/package.json](ui/package.json)、[ui/vite.config.ts](ui/vite.config
 - **Qdrant**：向量检索（`data-agent.qdrantConfig`）
 - **Elasticsearch**：检索相关（`data-agent.es-config`）
 - **OpenAI 兼容 / Ollama**：模型与 embedding 端点
-- **reactor-tool HTTP**：`code_interpreter_url`、`deep_search_url`、`web_fetch_url`、`knowledge_url`、`data_analysis_url` 等统一指向工具运行时
+- **ai4s-tool HTTP**：`code_interpreter_url`、`deep_search_url`、`web_fetch_url`、`knowledge_url`、`data_analysis_url` 等统一指向工具运行时
 
-Sources: [application-dev.yml](Reactor-agent-app/src/main/resources/application-dev.yml)、[application.yml](Reactor-agent-app/src/main/resources/application.yml)
+Sources: [application-dev.yml](AI4S-agent-app/src/main/resources/application-dev.yml)、[application.yml](AI4S-agent-app/src/main/resources/application.yml)
 
 > 具体密钥、云实例地址属于部署环境，不应写进文档正文；本地启动时按 [Java 后端启动与配置](4-java-hou-duan-qi-dong-yu-pei-zhi) 与 [Python 工具运行时启动](5-python-gong-ju-yun-xing-shi-qi-dong) 配置即可。
 
@@ -117,15 +117,15 @@ Sources: [application-dev.yml](Reactor-agent-app/src/main/resources/application-
 
 根 `pom.xml` 以 `packaging=pom` 聚合 **7 个模块**（可选 profile 还可纳入 MCP 子工程，源码存在时才激活）：
 
-```text
-Reactor-agent/                         # 根聚合
-├── Reactor-agent-types                # 基础类型 / 异常 / 配置名
-├── Reactor-agent-api                  # 对外 API 契约与 DTO
-├── Reactor-agent-domain               # Agent 运行时、账本、工具、RAG 等领域核心
-├── Reactor-agent-case                 # 应用编排（策略、任务、装配）
-├── Reactor-agent-infrastructure       # DAO、Gateway、远端适配
-├── Reactor-agent-trigger              # HTTP / SSE / Job 入口
-└── Reactor-agent-app                  # Spring Boot 启动与自动配置
+```tex
+AI4S-agent/                         # 根聚合
+├── AI4S-agent-types                # 基础类型 / 异常 / 配置名
+├── AI4S-agent-api                  # 对外 API 契约与 DTO
+├── AI4S-agent-domain               # Agent 运行时、账本、工具、RAG 等领域核心
+├── AI4S-agent-case                 # 应用编排（策略、任务、装配）
+├── AI4S-agent-infrastructure       # DAO、Gateway、远端适配
+├── AI4S-agent-trigger              # HTTP / SSE / Job 入口
+└── AI4S-agent-app                  # Spring Boot 启动与自动配置
 ```
 
 Sources: [pom.xml](pom.xml#L10-L18)、[README.md](README.md)（项目结构说明）
@@ -142,7 +142,7 @@ Sources: [pom.xml](pom.xml#L10-L18)、[README.md](README.md)（项目结构说�
 | **trigger** | api、case、types、infrastructure | Controller / SSE / Job，把外部协议转成应用调用 |
 | **app** | case、trigger、infrastructure | 唯一可执行 JAR 入口与 Spring 配置装配 |
 
-Sources: [Reactor-agent-types/pom.xml](Reactor-agent-types/pom.xml)、[Reactor-agent-api/pom.xml](Reactor-agent-api/pom.xml)、[Reactor-agent-domain/pom.xml](Reactor-agent-domain/pom.xml)、[Reactor-agent-case/pom.xml](Reactor-agent-case/pom.xml)、[Reactor-agent-infrastructure/pom.xml](Reactor-agent-infrastructure/pom.xml)、[Reactor-agent-trigger/pom.xml](Reactor-agent-trigger/pom.xml)、[Reactor-agent-app/pom.xml](Reactor-agent-app/pom.xml)
+Sources: [AI4S-agent-types/pom.xml](AI4S-agent-types/pom.xml)、[AI4S-agent-api/pom.xml](AI4S-agent-api/pom.xml)、[AI4S-agent-domain/pom.xml](AI4S-agent-domain/pom.xml)、[AI4S-agent-case/pom.xml](AI4S-agent-case/pom.xml)、[AI4S-agent-infrastructure/pom.xml](AI4S-agent-infrastructure/pom.xml)、[AI4S-agent-trigger/pom.xml](AI4S-agent-trigger/pom.xml)、[AI4S-agent-app/pom.xml](AI4S-agent-app/pom.xml)
 
 ### 3.2 模块依赖图（Maven 声明）
 
@@ -150,13 +150,13 @@ Sources: [Reactor-agent-types/pom.xml](Reactor-agent-types/pom.xml)、[Reactor-a
 
 ```mermaid
 flowchart BT
-  types["Reactor-agent-types"]
-  api["Reactor-agent-api"]
-  domain["Reactor-agent-domain"]
-  case["Reactor-agent-case"]
-  infra["Reactor-agent-infrastructure"]
-  trigger["Reactor-agent-trigger"]
-  app["Reactor-agent-app"]
+  types["AI4S-agent-types"]
+  api["AI4S-agent-api"]
+  domain["AI4S-agent-domain"]
+  case["AI4S-agent-case"]
+  infra["AI4S-agent-infrastructure"]
+  trigger["AI4S-agent-trigger"]
+  app["AI4S-agent-app"]
 
   domain --> types
   case --> api
@@ -173,7 +173,7 @@ flowchart BT
   app --> infra
 ```
 
-Sources: 各模块 [pom.xml](Reactor-agent-case/pom.xml) 中的 `cn.bugstack.ai` 依赖声明；app 注释写明「启动依赖 trigger→domain, infrastructure」见 [Reactor-agent-app/pom.xml](Reactor-agent-app/pom.xml)
+Sources: 各模块 [pom.xml](AI4S-agent-case/pom.xml) 中的 `cn.bugstack.ai` 依赖声明；app 注释写明「启动依赖 trigger→domain, infrastructure」见 [AI4S-agent-app/pom.xml](AI4S-agent-app/pom.xml)
 
 ### 3.3 关键第三方依赖落点（谁“带进来”）
 
@@ -187,34 +187,34 @@ Sources: 各模块 [pom.xml](Reactor-agent-case/pom.xml) 中的 `cn.bugstack.ai`
 | xfg-wrench design-framework | **domain** | 设计模式框架 |
 | jakarta.validation / spring-webmvc | **api** | 契约层校验与 MVC 注解类型 |
 
-Sources: [Reactor-agent-domain/pom.xml](Reactor-agent-domain/pom.xml)、[Reactor-agent-app/pom.xml](Reactor-agent-app/pom.xml)、[Reactor-agent-infrastructure/pom.xml](Reactor-agent-infrastructure/pom.xml)、[Reactor-agent-api/pom.xml](Reactor-agent-api/pom.xml)
+Sources: [AI4S-agent-domain/pom.xml](AI4S-agent-domain/pom.xml)、[AI4S-agent-app/pom.xml](AI4S-agent-app/pom.xml)、[AI4S-agent-infrastructure/pom.xml](AI4S-agent-infrastructure/pom.xml)、[AI4S-agent-api/pom.xml](AI4S-agent-api/pom.xml)
 
 ## 四、非 Java 目录如何接入依赖关系
 
 这三块 **不在** 根 Maven `modules` 中，但运行时与 Java 强耦合：
 
-```text
-Reactor-agent/
-├── reactor-tool/          # Python FastAPI 工具服务（被 Java autobots.autoagent.*_url 调用）
-├── ui/                    # 前端；开发态代理 /web → Java、/tool → reactor-tool
+```tex
+AI4S-agent/
+├── ai4s-tool/          # Python FastAPI 工具服务（被 Java autobots.autoagent.*_url 调用）
+├── ui/                    # 前端；开发态代理 /web → Java、/tool → ai4s-tool
 ├── runtime/skills/        # Skill 脚本与资源（Java skill.directories 指向）
 └── assets/                # 文档与展示资源（不参与运行时依赖图）
 ```
 
 **依赖方向（运行时）：**
 
-1. **UI → Java**：业务 API、SSE 对话  
-2. **UI → reactor-tool**：部分工具代理（Vite `/tool`）  
-3. **Java → reactor-tool**：CodeInterpreter、DeepSearch、WebFetch、MRAG、数据分析等  
-4. **Java → runtime/skills**：Skill 发现与脚本执行（配置项 `autobots.autoagent.skill.directories`）  
+1. **UI → Java**：业务 API、SSE 对话
+2. **UI → ai4s-tool**：部分工具代理（Vite `/tool`）
+3. **Java → ai4s-tool**：CodeInterpreter、DeepSearch、WebFetch、MRAG、数据分析等
+4. **Java → runtime/skills**：Skill 发现与脚本执行（配置项 `autobots.autoagent.skill.directories`）
 5. **两端 → MySQL / Qdrant / ES**：持久化与检索（Java 为主配置入口；Python 侧亦持有检索客户端库）
 
-Sources: [pom.xml](pom.xml#L10-L18)（仅列 7 个 Java 模块）、[application.yml](Reactor-agent-app/src/main/resources/application.yml)（`web_fetch_url`、`workspace.root-template`、`skill.directories`）、[vite.config.ts](ui/vite.config.ts)、[application-dev.yml](Reactor-agent-app/src/main/resources/application-dev.yml)
+Sources: [pom.xml](pom.xml#L10-L18)（仅列 7 个 Java 模块）、[application.yml](AI4S-agent-app/src/main/resources/application.yml)（`web_fetch_url`、`workspace.root-template`、`skill.directories`）、[vite.config.ts](ui/vite.config.ts)、[application-dev.yml](AI4S-agent-app/src/main/resources/application-dev.yml)
 
 ```mermaid
 flowchart LR
-  UI[ui] -->|HTTP /web| JAVA[Reactor-agent-app]
-  UI -->|HTTP /tool 代理| PY[reactor-tool]
+  UI[ui] -->|HTTP /web| JAVA[AI4S-agent-app]
+  UI -->|HTTP /tool 代理| PY[ai4s-tool]
   JAVA -->|HTTP 工具 URL| PY
   JAVA --> SK[runtime/skills]
   JAVA --> DB[(MySQL / Qdrant / ES)]
@@ -229,35 +229,35 @@ flowchart LR
 | 父工程 | `spring-boot-starter-parent` **3.4.3** |
 | BOM 导入 | `spring-ai-bom` **1.1.4**、`xfg-wrench-bom` **3.0.0** |
 | 编译 | `maven.compiler.source/target=17` |
-| 可执行入口 | `Reactor-agent-app`，`mainClass=org.wwz.ai.Application` |
+| 可执行入口 | `AI4S-agent-app`，`mainClass=org.wwz.ai.Application` |
 | Maven Profile | 默认 `dev`；另有 `test` / `prod`；`with-mcp-server-csdn` 在 MCP 子模块存在时可选纳入 |
 | 前端脚本 | `pnpm`/`npm`：`dev` / `build` / `test`（见 `ui/package.json`） |
 | Python 管理 | `uv` + `pyproject.toml` / `uv.lock` |
 
-Sources: [pom.xml](pom.xml)、[Reactor-agent-app/pom.xml](Reactor-agent-app/pom.xml)、[ui/package.json](ui/package.json)、[reactor-tool/pyproject.toml](reactor-tool/pyproject.toml)
+Sources: [pom.xml](pom.xml)、[AI4S-agent-app/pom.xml](AI4S-agent-app/pom.xml)、[ui/package.json](ui/package.json)、[ai4s-tool/pyproject.toml](ai4s-tool/pyproject.toml)
 
 ## 六、如何读懂依赖：给初学者的三条原则
 
-**1. 先找“入口模块”**  
-- 后端从 **app** 看起：它把 trigger、case、infrastructure 打成一个可运行 JAR。  
-- 前端从 **ui/package.json + vite.config.ts** 看代理目标。  
-- 工具从 **reactor-tool/server.py + pyproject.toml** 看端口与库。
+**1. 先找“入口模块”**
+- 后端从 **app** 看起：它把 trigger、case、infrastructure 打成一个可运行 JAR。
+- 前端从 **ui/package.json + vite.config.ts** 看代理目标。
+- 工具从 **ai4s-tool/server.py + pyproject.toml** 看端口与库。
 
-**2. 再画“内部依赖箭头”**  
+**2. 再画“内部依赖箭头”**
 Java 内部只允许 **trigger/case → domain → types** 与 **infra → domain** 这类向下依赖；改领域逻辑优先落在 `domain`，改表结构与外部 HTTP 适配优先落在 `infrastructure`。
 
-**3. 最后对照“运行时 URL”**  
+**3. 最后对照“运行时 URL”**
 Java 配置里大量 `*_url: http://127.0.0.1:1601` 表示：**领域工具能力在进程外**。本地若只起 Java 不起 Python，搜索/代码解释/MRAG 等会失败——这是架构选择，不是偶然配置。
 
-Sources: [Reactor-agent-app/pom.xml](Reactor-agent-app/pom.xml)、[application-dev.yml](Reactor-agent-app/src/main/resources/application-dev.yml)、[server.py](reactor-tool/server.py)
+Sources: [AI4S-agent-app/pom.xml](AI4S-agent-app/pom.xml)、[application-dev.yml](AI4S-agent-app/src/main/resources/application-dev.yml)、[server.py](ai4s-tool/server.py)
 
 ## 七、下一步阅读
 
 按「先能跑起来、再理解分层」建议：
 
-1. [Java 后端启动与配置](4-java-hou-duan-qi-dong-yu-pei-zhi) — 端口、数据源、模型与 profile  
-2. [Python 工具运行时启动](5-python-gong-ju-yun-xing-shi-qi-dong) — reactor-tool 依赖安装与 1601 服务  
-3. [前端 UI 启动与联调](6-qian-duan-ui-qi-dong-yu-lian-diao) — Vite 代理与三端联调  
-4. [分层架构与模块职责](9-fen-ceng-jia-gou-yu-mo-kuai-zhi-ze) — 在依赖图之上深入包结构与职责边界  
+1. [Java 后端启动与配置](4-java-hou-duan-qi-dong-yu-pei-zhi) — 端口、数据源、模型与 profile
+2. [Python 工具运行时启动](5-python-gong-ju-yun-xing-shi-qi-dong) — ai4s-tool 依赖安装与 1601 服务
+3. [前端 UI 启动与联调](6-qian-duan-ui-qi-dong-yu-lian-diao) — Vite 代理与三端联调
+4. [分层架构与模块职责](9-fen-ceng-jia-gou-yu-mo-kuai-zhi-ze) — 在依赖图之上深入包结构与职责边界
 
 若你已完成环境搭建，可直接进入 [首个复杂任务对话](7-shou-ge-fu-za-ren-wu-dui-hua) 验证整条依赖链是否打通。

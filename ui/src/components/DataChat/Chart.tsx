@@ -13,7 +13,7 @@ interface ChartProps {
   };
 }
 
-const Chart: ReactorType.FC<ChartProps> = memo(({ data }) => {
+const Chart: AI4SType.FC<ChartProps> = memo(({ data }) => {
   const { option } = data;
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.EChartsType | null>(null);

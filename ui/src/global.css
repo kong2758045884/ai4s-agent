@@ -909,13 +909,13 @@ ol {
   will-change: opacity;
 }
 
-.reactor-spinner {
+.ai4s-spinner {
   border: 1.5px solid color-mix(in srgb, currentColor 20%, transparent);
   border-top-color: currentColor;
-  animation: reactorSpinner 700ms linear infinite;
+  animation: ai4sSpinner 700ms linear infinite;
 }
 
-@keyframes reactorSpinner {
+@keyframes ai4sSpinner {
   to { transform: rotate(360deg); }
 }
 
@@ -1059,7 +1059,7 @@ ol {
   }
 
   .ai-stream-cursor,
-  .reactor-spinner,
+  .ai4s-spinner,
   .thinking-shimmer,
   .animate-marquee,
   .animate-blink,
@@ -1144,7 +1144,7 @@ ol {
   opacity: 0.92;
 }
 
-.reactor-send-btn:active:not(:disabled) {
+.ai4s-send-btn:active:not(:disabled) {
   transform: scale(0.97);
 }
 
@@ -1156,8 +1156,8 @@ ol {
   transform: none !important;
 }
 
-.reactor-send-btn[data-slot="prompt-input-submit"],
-.reactor-input-flat [data-slot="prompt-input-submit"] {
+.ai4s-send-btn[data-slot="prompt-input-submit"],
+.ai4s-input-flat [data-slot="prompt-input-submit"] {
   width: 32px !important;
   height: 32px !important;
   min-width: 32px !important;
@@ -1173,7 +1173,7 @@ ol {
 }
 
 /* Composer shell — Kimi-style raised card with a quiet focus ring */
-.reactor-input-flat {
+.ai4s-input-flat {
   background: var(--color-bg) !important;
   border: 1px solid var(--color-line) !important;
   border-radius: var(--radius-2xl) !important;
@@ -1182,14 +1182,14 @@ ol {
   transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out) !important;
 }
 
-.reactor-input-flat:focus-within {
+.ai4s-input-flat:focus-within {
   border-color: var(--color-accent) !important;
   box-shadow: var(--shadow-md), var(--p-focus-ring) !important;
 }
 
-.reactor-input-flat [data-slot="input-group"],
-.reactor-input-flat [data-slot="input-group"]:hover,
-.reactor-input-flat [data-slot="input-group"]:focus-within {
+.ai4s-input-flat [data-slot="input-group"],
+.ai4s-input-flat [data-slot="input-group"]:hover,
+.ai4s-input-flat [data-slot="input-group"]:focus-within {
   background: transparent !important;
   background-color: transparent !important;
   border: none !important;
@@ -1199,8 +1199,8 @@ ol {
   -webkit-backdrop-filter: none !important;
 }
 
-.reactor-input-flat [data-slot="prompt-input-body"],
-.reactor-input-flat [data-slot="prompt-input-body"]:focus-within {
+.ai4s-input-flat [data-slot="prompt-input-body"],
+.ai4s-input-flat [data-slot="prompt-input-body"]:focus-within {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
@@ -1208,29 +1208,29 @@ ol {
   padding: 0 !important;
 }
 
-.reactor-input-flat [data-slot="prompt-input-textarea"] {
+.ai4s-input-flat [data-slot="prompt-input-textarea"] {
   font-size: 14.5px !important;
   line-height: 1.5 !important;
   min-height: 48px !important;
 }
 
-.reactor-input-flat [data-slot="prompt-input-textarea"]::placeholder {
+.ai4s-input-flat [data-slot="prompt-input-textarea"]::placeholder {
   color: color-mix(in oklab, var(--chat-text-muted) 50%, transparent) !important;
 }
 
-.reactor-status-dot {
+.ai4s-status-dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: var(--color-line-strong);
 }
 
-.reactor-status-dot.is-running {
+.ai4s-status-dot.is-running {
   background: var(--color-accent);
-  animation: reactorStatusPulse 1.5s var(--ease-out) infinite;
+  animation: ai4sStatusPulse 1.5s var(--ease-out) infinite;
 }
 
-@keyframes reactorStatusPulse {
+@keyframes ai4sStatusPulse {
   0%,
   100% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 34%, transparent);
@@ -1241,7 +1241,7 @@ ol {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reactor-status-dot.is-running {
+  .ai4s-status-dot.is-running {
     animation: none;
   }
 }
@@ -1882,65 +1882,65 @@ ol {
 
 /* Keep split-pane layout and paint work local to each side of the workspace. */
 @media (min-width: 1024px) {
-  .reactor-chat-workspace-layout {
+  .ai4s-chat-workspace-layout {
     contain: layout style;
     isolation: isolate;
   }
 
-  .reactor-chat-panel-left,
-  .reactor-workspace-panel {
+  .ai4s-chat-panel-left,
+  .ai4s-workspace-panel {
     contain: layout paint;
   }
 
-  .reactor-chat-panel-left .chat-fade-bottom,
-  .reactor-workspace-panel .reactor-workspace-content {
+  .ai4s-chat-panel-left .chat-fade-bottom,
+  .ai4s-workspace-panel .ai4s-workspace-content {
     contain: layout paint;
   }
 
-  .reactor-chat-panel-left .chat-dialogue {
+  .ai4s-chat-panel-left .chat-dialogue {
     content-visibility: auto;
     contain-intrinsic-size: 320px;
   }
 }
 
-.reactor-chat-workspace-layout[data-workspace-resizing="true"] {
+.ai4s-chat-workspace-layout[data-workspace-resizing="true"] {
   cursor: col-resize;
   user-select: none;
 }
 
-.reactor-chat-workspace-layout[data-workspace-resizing="true"]
-  .reactor-chat-panel-left,
-.reactor-chat-workspace-layout[data-workspace-resizing="true"]
-  .reactor-workspace-panel {
+.ai4s-chat-workspace-layout[data-workspace-resizing="true"]
+  .ai4s-chat-panel-left,
+.ai4s-chat-workspace-layout[data-workspace-resizing="true"]
+  .ai4s-workspace-panel {
   transition: none !important;
 }
 
-.reactor-chat-workspace-layout[data-workspace-resizing="true"]
-  .reactor-workspace-resizer {
+.ai4s-chat-workspace-layout[data-workspace-resizing="true"]
+  .ai4s-workspace-resizer {
   background: color-mix(in srgb, var(--chat-accent) 15%, transparent);
   transition: none;
 }
 
-.reactor-chat-workspace-layout[data-workspace-resizing="true"]
-  .reactor-workspace-resizer > div:last-child {
+.ai4s-chat-workspace-layout[data-workspace-resizing="true"]
+  .ai4s-workspace-resizer > div:last-child {
   background: var(--chat-accent);
   transition: none;
 }
 
 /* Mobile chat adaptation: the workspace becomes a thumb-reachable bottom sheet. */
-.reactor-workspace-scrim {
+.ai4s-workspace-scrim {
   display: none;
 }
 
 @media (max-width: 1023px) {
-  .reactor-single-chat-shell,
-  .reactor-data-chat-shell {
+  .ai4s-single-chat-shell,
+  .ai4s-data-chat-shell {
     padding: 8px 12px 0;
   }
 
-  .reactor-single-chat-shell [data-composer-dock],
-  .reactor-data-chat-shell [data-composer-dock],
-  .reactor-chat-panel-left [data-composer-dock] {
+  .ai4s-single-chat-shell [data-composer-dock],
+  .ai4s-data-chat-shell [data-composer-dock],
+  .ai4s-chat-panel-left [data-composer-dock] {
     position: sticky;
     bottom: 0;
     z-index: 10;
@@ -1950,13 +1950,13 @@ ol {
     background: var(--color-surface-sunken);
   }
 
-  .reactor-single-chat-shell [data-composer-dock],
-  .reactor-chat-panel-left [data-composer-dock] {
+  .ai4s-single-chat-shell [data-composer-dock],
+  .ai4s-chat-panel-left [data-composer-dock] {
     background: var(--color-bg);
   }
 
-  .reactor-chat-workspace-layout[data-workspace-open="true"]
-    .reactor-chat-panel-left [data-composer-dock] {
+  .ai4s-chat-workspace-layout[data-workspace-open="true"]
+    .ai4s-chat-panel-left [data-composer-dock] {
     position: fixed;
     right: 0;
     bottom: 0;
@@ -1965,37 +1965,37 @@ ol {
     margin-inline: 0;
   }
 
-  .reactor-single-chat-shell [data-composer-dock] > div,
-  .reactor-data-chat-shell [data-composer-dock] > div,
-  .reactor-chat-panel-left [data-composer-dock] > div {
+  .ai4s-single-chat-shell [data-composer-dock] > div,
+  .ai4s-data-chat-shell [data-composer-dock] > div,
+  .ai4s-chat-panel-left [data-composer-dock] > div {
     max-width: none;
   }
 
-  .reactor-single-chat-shell .reactor-chat-header,
-  .reactor-data-chat-shell .reactor-chat-header,
-  .reactor-chat-panel-left .reactor-chat-header {
+  .ai4s-single-chat-shell .ai4s-chat-header,
+  .ai4s-data-chat-shell .ai4s-chat-header,
+  .ai4s-chat-panel-left .ai4s-chat-header {
     padding-inline: 0;
   }
 
-  .reactor-single-chat-shell .chat-fade-bottom,
-  .reactor-data-chat-shell .chat-fade-bottom,
-  .reactor-chat-panel-left .chat-fade-bottom {
+  .ai4s-single-chat-shell .chat-fade-bottom,
+  .ai4s-data-chat-shell .chat-fade-bottom,
+  .ai4s-chat-panel-left .chat-fade-bottom {
     padding-inline: 0;
   }
 
-  .reactor-single-chat-shell [data-slot="prompt-input-textarea"],
-  .reactor-data-chat-shell [data-slot="prompt-input-textarea"],
-  .reactor-chat-panel-left [data-slot="prompt-input-textarea"] {
+  .ai4s-single-chat-shell [data-slot="prompt-input-textarea"],
+  .ai4s-data-chat-shell [data-slot="prompt-input-textarea"],
+  .ai4s-chat-panel-left [data-slot="prompt-input-textarea"] {
     min-height: 52px !important;
     font-size: 16px !important;
   }
 
-  .reactor-chat-workspace-layout {
+  .ai4s-chat-workspace-layout {
     gap: 0;
     padding: 0;
   }
 
-  .reactor-chat-panel-left {
+  .ai4s-chat-panel-left {
     width: 100% !important;
     min-width: 0 !important;
     max-width: none !important;
@@ -2005,15 +2005,15 @@ ol {
     border-left: 0;
   }
 
-  .reactor-chat-panel-left .chat-fade-bottom {
+  .ai4s-chat-panel-left .chat-fade-bottom {
     padding-top: 12px;
   }
 
-  .reactor-workspace-resizer {
+  .ai4s-workspace-resizer {
     display: none;
   }
 
-  .reactor-workspace-scrim {
+  .ai4s-workspace-scrim {
     display: block;
     position: fixed;
     inset: 0;
@@ -2027,7 +2027,7 @@ ol {
     touch-action: none;
   }
 
-  .reactor-workspace-panel {
+  .ai4s-workspace-panel {
     position: fixed;
     inset-inline: 0;
     bottom: calc(104px + env(safe-area-inset-bottom));
@@ -2050,7 +2050,7 @@ ol {
       visibility var(--duration-panel) var(--ease-out);
   }
 
-  .reactor-workspace-panel::before {
+  .ai4s-workspace-panel::before {
     position: absolute;
     top: 6px;
     left: 50%;
@@ -2064,38 +2064,38 @@ ol {
     transform: translateX(-50%);
   }
 
-  .reactor-workspace-panel[data-workspace-collapsed="true"] {
+  .ai4s-workspace-panel[data-workspace-collapsed="true"] {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
     transform: translateY(100%);
   }
 
-  .reactor-chat-workspace-layout[data-chat-read-only="true"]
-    .reactor-workspace-panel {
+  .ai4s-chat-workspace-layout[data-chat-read-only="true"]
+    .ai4s-workspace-panel {
     bottom: 0;
     max-height: calc(100dvh - 48px);
   }
 
-  .reactor-workspace-toolbar {
+  .ai4s-workspace-toolbar {
     padding-top: 14px;
   }
 
-  .reactor-workspace-tabs {
+  .ai4s-workspace-tabs {
     scrollbar-width: none;
   }
 
-  .reactor-workspace-tabs::-webkit-scrollbar {
+  .ai4s-workspace-tabs::-webkit-scrollbar {
     display: none;
   }
 
-  .reactor-action-icon {
+  .ai4s-action-icon {
     min-width: 44px;
     min-height: 44px;
   }
 
-  .reactor-workspace-panel .kimi-detail-panel-head button,
-  .reactor-workspace-panel .kimi-thinking-panel-head button {
+  .ai4s-workspace-panel .kimi-detail-panel-head button,
+  .ai4s-workspace-panel .kimi-thinking-panel-head button {
     min-width: 44px;
     min-height: 44px;
   }
@@ -2130,12 +2130,12 @@ ol {
     padding-inline: 12px;
   }
 
-  .reactor-chat-panel-left [data-slot="prompt-input-submit"],
-  .reactor-single-chat-shell [data-slot="prompt-input-submit"],
-  .reactor-data-chat-shell [data-slot="prompt-input-submit"],
-  .reactor-chat-panel-left button[aria-label="停止"],
-  .reactor-single-chat-shell button[aria-label="停止"],
-  .reactor-data-chat-shell button[aria-label="停止"] {
+  .ai4s-chat-panel-left [data-slot="prompt-input-submit"],
+  .ai4s-single-chat-shell [data-slot="prompt-input-submit"],
+  .ai4s-data-chat-shell [data-slot="prompt-input-submit"],
+  .ai4s-chat-panel-left button[aria-label="停止"],
+  .ai4s-single-chat-shell button[aria-label="停止"],
+  .ai4s-data-chat-shell button[aria-label="停止"] {
     width: 44px !important;
     min-width: 44px !important;
     height: 44px !important;
@@ -2144,7 +2144,7 @@ ol {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reactor-workspace-panel {
+  .ai4s-workspace-panel {
     transition: none;
   }
 }
@@ -3487,12 +3487,12 @@ ol {
 
 /* Kimi composer adaptation: keep the existing React input state machine while
    matching the source composer's raised card, quiet toolbar, and compact controls. */
-.reactor-input-flat [data-slot="input-group"] {
+.ai4s-input-flat [data-slot="input-group"] {
   min-width: 0 !important;
   overflow: visible !important;
 }
 
-.reactor-input-flat textarea.reactor-composer-textarea {
+.ai4s-input-flat textarea.ai4s-composer-textarea {
   box-sizing: border-box !important;
   width: 100% !important;
   max-height: 25vh !important;
@@ -3511,24 +3511,24 @@ ol {
   box-shadow: none !important;
 }
 
-.reactor-input-flat textarea.reactor-composer-textarea-medium {
+.ai4s-input-flat textarea.ai4s-composer-textarea-medium {
   min-height: 54px !important;
 }
 
-.reactor-input-flat textarea.reactor-composer-textarea-big {
+.ai4s-input-flat textarea.ai4s-composer-textarea-big {
   min-height: 76px !important;
 }
 
-.reactor-input-flat textarea.reactor-composer-textarea:not(:placeholder-shown) {
+.ai4s-input-flat textarea.ai4s-composer-textarea:not(:placeholder-shown) {
   color: var(--color-text) !important;
 }
 
-.reactor-input-flat textarea.reactor-composer-textarea::placeholder {
+.ai4s-input-flat textarea.ai4s-composer-textarea::placeholder {
   color: var(--color-text-muted) !important;
   opacity: 1 !important;
 }
 
-.reactor-input-flat [data-slot="input-group-addon"][data-align="block-end"].reactor-composer-footer {
+.ai4s-input-flat [data-slot="input-group-addon"][data-align="block-end"].ai4s-composer-footer {
   box-sizing: border-box !important;
   width: 100% !important;
   min-width: 0 !important;
@@ -3539,28 +3539,28 @@ ol {
   gap: 4px !important;
 }
 
-.reactor-composer-attachments {
+.ai4s-composer-attachments {
   box-sizing: border-box;
   gap: 6px !important;
   width: 100%;
 }
 
-.reactor-composer-tools {
+.ai4s-composer-tools {
   min-width: 0 !important;
   gap: 2px !important;
 }
 
-.reactor-composer-tools-left {
+.ai4s-composer-tools-left {
   overflow: hidden;
 }
 
-.reactor-composer-tools-right {
+.ai4s-composer-tools-right {
   flex-shrink: 0 !important;
   gap: 8px !important;
 }
 
-.reactor-input-flat .reactor-composer-tool,
-.reactor-input-flat .reactor-composer-icon-button {
+.ai4s-input-flat .ai4s-composer-tool,
+.ai4s-input-flat .ai4s-composer-icon-button {
   box-sizing: border-box;
   min-height: 32px !important;
   height: 32px !important;
@@ -3571,16 +3571,16 @@ ol {
   box-shadow: none !important;
 }
 
-.reactor-input-flat .reactor-composer-tool:hover:not(:disabled),
-.reactor-input-flat .reactor-composer-tool[aria-expanded="true"],
-.reactor-input-flat .reactor-composer-icon-button:hover:not(:disabled),
-.reactor-input-flat .reactor-composer-icon-button[aria-expanded="true"] {
+.ai4s-input-flat .ai4s-composer-tool:hover:not(:disabled),
+.ai4s-input-flat .ai4s-composer-tool[aria-expanded="true"],
+.ai4s-input-flat .ai4s-composer-icon-button:hover:not(:disabled),
+.ai4s-input-flat .ai4s-composer-icon-button[aria-expanded="true"] {
   background: var(--color-surface-sunken) !important;
   color: var(--color-text) !important;
 }
 
-.reactor-input-flat .reactor-composer-stop,
-.reactor-input-flat .reactor-send-btn {
+.ai4s-input-flat .ai4s-composer-stop,
+.ai4s-input-flat .ai4s-send-btn {
   flex: none;
   box-sizing: border-box;
   width: 32px !important;
@@ -3589,11 +3589,11 @@ ol {
   min-height: 32px !important;
 }
 
-.reactor-input-flat .reactor-composer-stop {
+.ai4s-input-flat .ai4s-composer-stop {
   box-shadow: var(--shadow-xs) !important;
 }
 
-.reactor-input-flat .reactor-send-btn {
+.ai4s-input-flat .ai4s-send-btn {
   background: var(--color-accent) !important;
   color: var(--color-text-on-accent) !important;
   box-shadow: var(--shadow-xs) !important;
@@ -3603,36 +3603,36 @@ ol {
     transform 120ms var(--ease-out) !important;
 }
 
-.reactor-input-flat .reactor-send-btn:hover:not(:disabled) {
+.ai4s-input-flat .ai4s-send-btn:hover:not(:disabled) {
   background: var(--color-accent-hover) !important;
   opacity: 1 !important;
 }
 
-.reactor-input-flat .reactor-send-btn:disabled {
+.ai4s-input-flat .ai4s-send-btn:disabled {
   background: var(--color-accent) !important;
   color: var(--color-text-on-accent) !important;
   opacity: 0.42 !important;
 }
 
-.reactor-composer-attachment-chip {
+.ai4s-composer-attachment-chip {
   min-height: 30px;
 }
 
 @media (max-width: 640px) {
-  .reactor-input-flat {
+  .ai4s-input-flat {
     border-radius: 16px !important;
   }
 
-  .reactor-input-flat textarea.reactor-composer-textarea {
+  .ai4s-input-flat textarea.ai4s-composer-textarea {
     font-size: 16px !important;
   }
 
-  .reactor-input-flat [data-slot="input-group-addon"][data-align="block-end"].reactor-composer-footer {
+  .ai4s-input-flat [data-slot="input-group-addon"][data-align="block-end"].ai4s-composer-footer {
     flex-wrap: wrap !important;
     row-gap: 4px !important;
   }
 
-  .reactor-composer-tools-left {
+  .ai4s-composer-tools-left {
     flex: 1 1 100% !important;
     max-width: 100%;
     overflow-x: auto;
@@ -3640,16 +3640,16 @@ ol {
     scrollbar-width: none;
   }
 
-  .reactor-composer-tools-left::-webkit-scrollbar {
+  .ai4s-composer-tools-left::-webkit-scrollbar {
     display: none;
   }
 
-  .reactor-composer-tools-right {
+  .ai4s-composer-tools-right {
     margin-left: auto !important;
   }
 
-  .reactor-input-flat .reactor-composer-stop,
-  .reactor-input-flat .reactor-send-btn {
+  .ai4s-input-flat .ai4s-composer-stop,
+  .ai4s-input-flat .ai4s-send-btn {
     width: 36px !important;
     min-width: 36px !important;
     height: 36px !important;

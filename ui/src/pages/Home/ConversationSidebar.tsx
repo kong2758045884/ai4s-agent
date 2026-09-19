@@ -4,17 +4,17 @@ import classNames from "classnames";
 import { EASE_OUT, useMotionConfig } from "@/lib/motion";
 import {
   Blocks,
-  Bot,
-  Cpu,
   SquarePen,
   Search,
   MoreHorizontal,
-  DatabaseZap,
   MessagesSquare,
+  Network,
   Star,
   WandSparkles,
   X,
   FolderOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import type { ConversationSessionItem } from "@/services/agentConversation";
 import type { PanelItemType } from "@/components/ActionPanel";
@@ -25,6 +25,7 @@ import { canFeatureConversationSession } from "./featuredConversationAdminModel"
 
 type SidebarView =
   | "chat"
+  | "strategic-map"
   | "mrag"
   | "image-generation"
   | "sop"
@@ -46,24 +47,14 @@ const navItems: NavItem[] = [
     icon: MessagesSquare,
   },
   {
-    key: "mrag",
-    label: "MRAG",
-    icon: DatabaseZap,
+    key: "strategic-map",
+    label: "战略图谱",
+    icon: Network,
   },
   {
     key: "image-generation",
     label: "生图",
     icon: WandSparkles,
-  },
-  {
-    key: "sub-agents",
-    label: "子 Agent",
-    icon: Bot,
-  },
-  {
-    key: "models",
-    label: "模型",
-    icon: Cpu,
   },
   {
     key: "capabilities",
@@ -90,6 +81,7 @@ type ConversationSidebarProps = {
   selectedTaskFileKey?: string;
   onNewChat: () => void;
   onSelectSession: (session: ConversationSessionItem) => void;
+  onDeleteSession?: (session: ConversationSessionItem) => void | Promise<void>;
   onChangeView: (view: SidebarView) => void;
   onManageFeaturedConversation: (session: ConversationSessionItem) => void;
   onOpenTaskFiles?: () => void;
@@ -97,6 +89,9 @@ type ConversationSidebarProps = {
   onSelectTaskFile?: (file: WorkspaceFileItem) => void;
   onRefreshTaskFiles?: () => void;
   onRequestClose?: () => void;
+  /** Desktop sidebar state. Mobile always renders the expanded drawer. */
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 };
 
 const ConversationSidebar = memo(function ConversationSidebar(
@@ -113,6 +108,7 @@ const ConversationSidebar = memo(function ConversationSidebar(
     selectedTaskFileKey,
     onNewChat,
     onSelectSession,
+    onDeleteSession,
     onChangeView,
     onManageFeaturedConversation,
     onOpenTaskFiles,
@@ -120,6 +116,8 @@ const ConversationSidebar = memo(function ConversationSidebar(
     onSelectTaskFile,
     onRefreshTaskFiles,
     onRequestClose,
+    isCollapsed = false,
+    onToggleCollapse,
   } = props;
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -138,11 +136,16 @@ const ConversationSidebar = memo(function ConversationSidebar(
     : recentSessions;
 
   const handleSearchToggle = useCallback(() => {
+    // The search input needs room to render. Expand the desktop drawer first
+    // when the user activates search from the icon-only state.
+    if (isCollapsed) {
+      onToggleCollapse?.();
+    }
     setSearchOpen((prev) => !prev);
     if (searchOpen) {
       setSearchQuery("");
     }
-  }, [searchOpen]);
+  }, [isCollapsed, onToggleCollapse, searchOpen]);
 
   const handleMoreClick = useCallback(
     (e: React.MouseEvent, sessionId: string) => {
@@ -162,6 +165,14 @@ const ConversationSidebar = memo(function ConversationSidebar(
     []
   );
 
+  const handleDeleteSession = useCallback(
+    (session: ConversationSessionItem) => {
+      setExpandedSessionId(null);
+      void onDeleteSession?.(session);
+    },
+    [onDeleteSession]
+  );
+
   const handleManageFeatured = useCallback(
     (session: ConversationSessionItem) => {
       setExpandedSessionId(null);
@@ -173,13 +184,38 @@ const ConversationSidebar = memo(function ConversationSidebar(
   const isTaskFilesPanel = sidebarPanel === "task-files";
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col border-r border-[var(--chat-border)] bg-[var(--chat-nav)]">
+    <div
+      className={classNames(
+        "flex h-full w-full min-w-0 flex-col border-r border-[var(--chat-border)] bg-[var(--chat-nav)]",
+        isCollapsed && "items-stretch"
+      )}
+    >
       {/* 顶部操作区 — Manus 侧栏风格 */}
-      <div className="flex h-14 shrink-0 items-center justify-between px-3.5">
-        <div className="text-[18px] font-semibold tracking-[-0.02em] text-[var(--chat-text)]">
-          Reactor
+      <div
+        className={classNames(
+          // Keep the header above the workspace while the compact drawer is
+          // transitioning. The three icon buttons are wider than the
+          // 72px rail and can otherwise overflow into the content layer;
+          // without an explicit stacking context the content captures the
+          // click on the expand button, making the drawer appear stuck.
+          "relative z-20 flex h-14 shrink-0 items-center justify-between",
+          isCollapsed ? "gap-0 px-2" : "px-3.5"
+        )}
+      >
+        <div
+          className={classNames(
+            "min-w-0 text-[18px] font-semibold tracking-[-0.02em] text-[var(--chat-text)]",
+            isCollapsed && "hidden"
+          )}
+        >
+          AI4S 研判系统
         </div>
-        <div className="flex items-center gap-0.5">
+        <div
+          className={classNames(
+            "flex items-center gap-0.5",
+            isCollapsed && "ml-auto"
+          )}
+        >
           {!isTaskFilesPanel ? (
             <>
               <button
@@ -187,13 +223,17 @@ const ConversationSidebar = memo(function ConversationSidebar(
                 onClick={handleSearchToggle}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]"
                 aria-label="搜索"
+                title={isCollapsed ? "搜索" : undefined}
               >
                 <Search className="h-[18px] w-[18px]" />
               </button>
               <button
                 type="button"
                 onClick={onNewChat}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]"
+                className={classNames(
+                  "inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]",
+                  isCollapsed && "hidden"
+                )}
                 aria-label="新建任务"
               >
                 <SquarePen className="h-[18px] w-[18px]" />
@@ -210,6 +250,21 @@ const ConversationSidebar = memo(function ConversationSidebar(
               <X className="h-[18px] w-[18px]" />
             </button>
           ) : null}
+          {onToggleCollapse ? (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="hidden h-8 w-8 items-center justify-center rounded-lg text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)] lg:inline-flex"
+              aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
+              title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
+            >
+              {isCollapsed ? (
+                <PanelLeftOpen className="h-[18px] w-[18px]" />
+              ) : (
+                <PanelLeftClose className="h-[18px] w-[18px]" />
+              )}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -218,10 +273,14 @@ const ConversationSidebar = memo(function ConversationSidebar(
           <button
             type="button"
             onClick={onNewChat}
-            className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] font-medium text-[var(--chat-text)] transition-colors hover:bg-black/[0.04]"
+            className={classNames(
+              "flex h-9 w-full items-center rounded-[10px] text-[14px] font-medium text-[var(--chat-text)] transition-colors hover:bg-black/[0.04]",
+              isCollapsed ? "justify-center px-0" : "gap-2.5 px-2.5"
+            )}
+            title={isCollapsed ? "新建任务" : undefined}
           >
             <SquarePen className="h-[18px] w-[18px]" />
-            <span>新建任务</span>
+            <span className={isCollapsed ? "sr-only" : undefined}>新建任务</span>
           </button>
 
           <div
@@ -306,27 +365,41 @@ const ConversationSidebar = memo(function ConversationSidebar(
                   key={item.key}
                   type="button"
                   onClick={() => onChangeView(item.key)}
+                  title={isCollapsed ? item.label : undefined}
                   className={classNames(
-                    "flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] font-medium transition-colors",
+                    "flex h-9 w-full items-center rounded-[10px] text-[14px] font-medium transition-colors",
+                    isCollapsed ? "justify-center px-0" : "gap-2.5 px-2.5",
                     isActive
                       ? "bg-black/[0.08] text-[var(--chat-text)]"
                       : "text-[var(--chat-text)] hover:bg-black/[0.04]"
                   )}
                 >
                   <Icon className="h-[18px] w-[18px] shrink-0" />
-                  <span>{item.label}</span>
+                  <span className={isCollapsed ? "sr-only" : undefined}>
+                    {item.label}
+                  </span>
                 </button>
               );
             })}
           </div>
 
-          {/* 最近会话 */}
-          <div className="flex min-h-0 flex-1 flex-col px-2 pt-3">
-            <div className="mb-1.5 flex items-center justify-between px-2.5">
-              <span className="text-[12px] font-medium text-[var(--chat-text-muted)]">
+          {/* 最近会话只在对话页展开，切换到其他工作区时保持导航简洁。 */}
+          {activeView === "chat" ? <div className="flex min-h-0 flex-1 flex-col px-2 pt-3">
+            <div
+              className={classNames(
+                "mb-1.5 flex items-center justify-between",
+                isCollapsed ? "justify-center px-0" : "px-2.5"
+              )}
+            >
+              <span
+                className={classNames(
+                  "text-[12px] font-medium text-[var(--chat-text-muted)]",
+                  isCollapsed && "sr-only"
+                )}
+              >
                 任务
               </span>
-              {recentSessionsLoading && (
+              {recentSessionsLoading && !isCollapsed && (
                 <span className="text-[11px] text-[var(--chat-text-muted)]">
                   加载中...
                 </span>
@@ -365,8 +438,14 @@ const ConversationSidebar = memo(function ConversationSidebar(
                         <button
                           type="button"
                           onClick={() => onSelectSession(session)}
+                          title={
+                            isCollapsed
+                              ? session.title || "未命名会话"
+                              : undefined
+                          }
                           className={classNames(
-                            "group relative z-[1] flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-left transition-colors",
+                            "group relative z-[1] flex h-9 w-full items-center rounded-[10px] px-2.5 pr-9 text-left transition-colors",
+                            isCollapsed ? "justify-center pr-2.5" : "gap-2.5",
                             isActive
                               ? "text-[var(--chat-text)]"
                               : "text-[var(--chat-text)] hover:bg-black/[0.04]"
@@ -381,27 +460,27 @@ const ConversationSidebar = memo(function ConversationSidebar(
                             )}
                             aria-hidden
                           />
-                          <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
-                            {session.title || "未命名会话"}
-                          </span>
                           <span
                             className={classNames(
-                              "shrink-0 transition-opacity",
-                              isHovered || isExpanded
-                                ? "opacity-100"
-                                : "opacity-0"
+                              "min-w-0 flex-1 truncate text-[14px] font-medium",
+                              isCollapsed && "sr-only"
                             )}
                           >
-                            <button
-                              type="button"
-                              onClick={(e) =>
-                                handleMoreClick(e, session.sessionId)
-                              }
-                              className="rounded p-0.5 text-[var(--chat-text-muted)] transition-colors hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]"
-                            >
-                              <MoreHorizontal className="h-3.5 w-3.5" />
-                            </button>
+                            {session.title || "未命名会话"}
                           </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => handleMoreClick(e, session.sessionId)}
+                          className={classNames(
+                            "absolute right-2 top-1/2 z-[2] -translate-y-1/2 rounded p-0.5 text-[var(--chat-text-muted)] transition-opacity hover:bg-[var(--chat-surface-muted)] hover:text-[var(--chat-text)]",
+                            isHovered || isExpanded ? "opacity-100" : "opacity-0",
+                            isCollapsed && "hidden"
+                          )}
+                          aria-label={`打开会话${session.title || "未命名会话"}菜单`}
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
                         </button>
 
                         {isExpanded && (
@@ -414,9 +493,7 @@ const ConversationSidebar = memo(function ConversationSidebar(
                             onPin={(targetSession) =>
                               handleConsoleAction("pin", targetSession)
                             }
-                            onDelete={(targetSession) =>
-                              handleConsoleAction("delete", targetSession)
-                            }
+                            onDelete={handleDeleteSession}
                           />
                         )}
                       </div>
@@ -425,7 +502,7 @@ const ConversationSidebar = memo(function ConversationSidebar(
                 </div>
               )}
             </div>
-          </div>
+          </div> : null}
 
           <div className="shrink-0 border-t border-[var(--chat-border)]/50 px-2 py-2">
             <button
@@ -433,21 +510,35 @@ const ConversationSidebar = memo(function ConversationSidebar(
               onClick={() => onOpenTaskFiles?.()}
               disabled={activeView !== "chat"}
               className={classNames(
-                "flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] font-medium transition-colors",
+                "flex h-9 w-full items-center rounded-[10px] px-2.5 text-[14px] font-medium transition-colors",
+                isCollapsed ? "justify-center" : "gap-2.5",
                 activeView === "chat"
                   ? "text-[var(--chat-text)] hover:bg-black/[0.04]"
                   : "cursor-not-allowed text-[var(--chat-text-muted)] opacity-50"
               )}
+              title={isCollapsed ? "查看当前会话的文件" : undefined}
             >
               <FolderOpen className="h-4 w-4 shrink-0 text-[var(--chat-text-muted)]" />
-              <span>查看当前会话的文件</span>
+              <span className={isCollapsed ? "sr-only" : undefined}>
+                查看当前会话的文件
+              </span>
             </button>
             {visitorUsername ? (
-              <div className="mt-1 flex items-center gap-2.5 px-2.5 py-1.5">
+              <div
+                className={classNames(
+                  "mt-1 flex items-center py-1.5",
+                  isCollapsed ? "justify-center px-0" : "gap-2.5 px-2.5"
+                )}
+              >
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--chat-accent)] text-[11px] font-semibold text-white">
                   {visitorUsername.slice(0, 1).toUpperCase()}
                 </div>
-                <div className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--chat-text-soft)]">
+                <div
+                  className={classNames(
+                    "min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--chat-text-soft)]",
+                    isCollapsed && "sr-only"
+                  )}
+                >
                   {visitorUsername}
                 </div>
               </div>

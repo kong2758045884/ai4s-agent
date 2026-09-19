@@ -132,7 +132,7 @@ type ModelAdminProps = {
   embedded?: boolean;
 };
 
-const ModelAdmin: ReactorType.FC<ModelAdminProps> = ({ embedded }) => {
+const ModelAdmin: AI4SType.FC<ModelAdminProps> = ({ embedded }) => {
   const [models, setModels] = useState<LlmModelRecord[]>([]);
   const [apis, setApis] = useState<LlmApiRecord[]>([]);
   const [loading, setLoading] = useState(false);

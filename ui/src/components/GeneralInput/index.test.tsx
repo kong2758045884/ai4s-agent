@@ -64,7 +64,7 @@ describe("GeneralInput", () => {
 
     expect(html).not.toContain("输出格式");
     expect(html).not.toContain("网页模式");
-    expect(html).toContain("深度思考");
+    expect(html).toContain("AI4S 研判系统");
     expect(html).toContain("数据分析");
   });
 

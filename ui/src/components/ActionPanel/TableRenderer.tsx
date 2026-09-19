@@ -134,7 +134,7 @@ interface TableRendererProps {
   className?: string;
 }
 
-const TableRenderer: ReactorType.FC<TableRendererProps> = memo((props) => {
+const TableRenderer: AI4SType.FC<TableRendererProps> = memo((props) => {
   const { fileUrl, mode, fileName, missingReason, className } = props;
   const [activeSheet, setActiveSheet] = useState(0);
   const [selected, setSelected] = useState<{ row: number; col: number } | null>(

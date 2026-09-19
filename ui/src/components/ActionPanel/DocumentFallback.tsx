@@ -20,7 +20,7 @@ interface DocumentFallbackProps {
 /**
  * PDF/Word 预览失败或 .doc 不支持时的统一空态 + 下载。
  */
-const DocumentFallback: ReactorType.FC<DocumentFallbackProps> = React.memo(
+const DocumentFallback: AI4SType.FC<DocumentFallbackProps> = React.memo(
   (props) => {
     const {
       label = "DOC",

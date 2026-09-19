@@ -1,4 +1,4 @@
-本页解释 Reactor-agent 如何把**可配置子智能体**从外部配置源（数据库）**热挂载**进运行时，并通过主 Agent 的 `Agent` 工具同步派发执行。重点覆盖：定义模型、双层注册表、工具三层过滤、上下文隔离、同步执行与结果回传、管理端 CRUD + reload 链路，以及 SSE 嵌套展示约定。执行内核细节见 [ReAct 执行链路](12-react-zhi-xing-lian-lu)；自定义接入实践见 [自定义工具与子智能体接入](29-zi-ding-yi-gong-ju-yu-zi-zhi-neng-ti-jie-ru)。
+本页解释 AI4S-agent 如何把**可配置子智能体**从外部配置源（数据库）**热挂载**进运行时，并通过主 Agent 的 `Agent` 工具同步派发执行。重点覆盖：定义模型、双层注册表、工具三层过滤、上下文隔离、同步执行与结果回传、管理端 CRUD + reload 链路，以及 SSE 嵌套展示约定。执行内核细节见 [ReAct 执行链路](12-react-zhi-xing-lian-lu)；自定义接入实践见 [自定义工具与子智能体接入](29-zi-ding-yi-gong-ju-yu-zi-zhi-neng-ti-jie-ru)。
 
 ## 设计意图与“远程挂载”语义
 
@@ -6,7 +6,7 @@
 
 路径清晰：注释与实现均采用子 Agent 定义、同步执行与终结工具路径——主 Agent 阻塞等待子 Agent 跑完，**只把结论文本回主上下文**，中间工具轨迹不污染主对话记忆。
 
-Sources: [SubAgentDefinition.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinition.java#L10-L45)、[AgentDispatchTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/AgentDispatchTool.java#L22-L25)、[SubAgentRunner.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentRunner.java#L18-L21)
+Sources: [SubAgentDefinition.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinition.java#L10-L45)、[AgentDispatchTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/AgentDispatchTool.java#L22-L25)、[SubAgentRunner.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentRunner.java#L18-L21)
 
 ## 总体架构
 
@@ -63,7 +63,7 @@ flowchart TB
 | App | `SubAgentDefinitionAutoConfiguration` | 启动完成后首次加载 |
 | UI | `SubAgentAdmin` + `subAgentDefinitionAdmin` API | 可视化挂载与热重载 |
 
-Sources: [SubAgentDefinitionAdminController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/admin/SubAgentDefinitionAdminController.java#L32-L34)、[SubAgentDefinitionAdminApplicationService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/subagent/SubAgentDefinitionAdminApplicationService.java#L17-L27)、[SubAgentDefinitionAutoConfiguration.java](Reactor-agent-app/src/main/java/org/wwz/ai/config/SubAgentDefinitionAutoConfiguration.java#L12-L29)
+Sources: [SubAgentDefinitionAdminController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/admin/SubAgentDefinitionAdminController.java#L32-L34)、[SubAgentDefinitionAdminApplicationService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/subagent/SubAgentDefinitionAdminApplicationService.java#L17-L27)、[SubAgentDefinitionAutoConfiguration.java](AI4S-agent-app/src/main/java/org/wwz/ai/config/SubAgentDefinitionAutoConfiguration.java#L12-L29)
 
 ## 子 Agent 定义模型
 
@@ -80,7 +80,7 @@ Sources: [SubAgentDefinitionAdminController.java](Reactor-agent-trigger/src/main
 
 管理视图另用 `SubAgentDefinitionRecord`（含 `displayName` / `status`）与 `SubAgentDefinitionUpsertCommand`，与执行账本（Execution Ledger）刻意解耦——注释标明“装配配置，非 ledger”。
 
-Sources: [SubAgentDefinition.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinition.java#L14-L45)、[SubAgentDefinitionRecord.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinitionRecord.java#L9-L31)、[ISubAgentDefinitionRepository.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/adapter/repository/ISubAgentDefinitionRepository.java#L11-L31)
+Sources: [SubAgentDefinition.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinition.java#L14-L45)、[SubAgentDefinitionRecord.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinitionRecord.java#L9-L31)、[ISubAgentDefinitionRepository.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/adapter/repository/ISubAgentDefinitionRepository.java#L11-L31)
 
 ## 双层注册表：内置不可覆盖 + 可配置热替换
 
@@ -100,7 +100,7 @@ Sources: [SubAgentDefinition.java](Reactor-agent-domain/src/main/java/org/wwz/ai
 
 `resolveOrDefault(null|blank)` 回落到 `general-purpose`。
 
-Sources: [SubAgentRegistry.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentRegistry.java#L14-L190)、[SubAgentRegistryConfiguredTest.java](Reactor-agent-domain/src/test/java/org/wwz/ai/test/domain/subagent/SubAgentRegistryConfiguredTest.java#L15-L50)
+Sources: [SubAgentRegistry.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentRegistry.java#L14-L190)、[SubAgentRegistryConfiguredTest.java](AI4S-agent-domain/src/test/java/org/wwz/ai/test/domain/subagent/SubAgentRegistryConfiguredTest.java#L15-L50)
 
 ## 挂载生命周期：启动加载与热 reload
 
@@ -131,7 +131,7 @@ sequenceDiagram
 
 注意：热加载影响**之后**新建会话/工具池描述中的类型列表；已在飞的主 Agent 持有的是当时注入的 `AgentDispatchTool` 与 Registry 引用（Registry 本身是单例 Concurrent 结构，`find` 会看到新配置）。
 
-Sources: [SubAgentDefinitionLoader.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinitionLoader.java#L11-L47)、[SubAgentDefinitionAutoConfiguration.java](Reactor-agent-app/src/main/java/org/wwz/ai/config/SubAgentDefinitionAutoConfiguration.java#L16-L29)、[SubAgentDefinitionAdminApplicationService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/subagent/SubAgentDefinitionAdminApplicationService.java#L40-L80)
+Sources: [SubAgentDefinitionLoader.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentDefinitionLoader.java#L11-L47)、[SubAgentDefinitionAutoConfiguration.java](AI4S-agent-app/src/main/java/org/wwz/ai/config/SubAgentDefinitionAutoConfiguration.java#L16-L29)、[SubAgentDefinitionAdminApplicationService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/subagent/SubAgentDefinitionAdminApplicationService.java#L40-L80)
 
 ## 持久化与示例挂载
 
@@ -139,7 +139,7 @@ Sources: [SubAgentDefinitionLoader.java](Reactor-agent-domain/src/main/java/org/
 
 MyBatis `queryEnabled` 条件：`deleted=0 AND status=1`，供运行时挂载；`queryAll` 含禁用项，供管理端列表。
 
-Sources: [migration_sub_agent_definition.sql](Reactor-agent-app/src/main/resources/db/migration_sub_agent_definition.sql#L1-L45)、[sub_agent_definition_mapper.xml](Reactor-agent-app/src/main/resources/mybatis/mapper/sub_agent_definition_mapper.xml#L26-L80)、[SubAgentDefinitionRepository.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/adapter/repository/SubAgentDefinitionRepository.java#L24-L104)
+Sources: [migration_sub_agent_definition.sql](AI4S-agent-app/src/main/resources/db/migration_sub_agent_definition.sql#L1-L45)、[sub_agent_definition_mapper.xml](AI4S-agent-app/src/main/resources/mybatis/mapper/sub_agent_definition_mapper.xml#L26-L80)、[SubAgentDefinitionRepository.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/adapter/repository/SubAgentDefinitionRepository.java#L24-L104)
 
 ## 派发入口：AgentDispatchTool
 
@@ -171,7 +171,7 @@ totalDurationMs=M
 
 工具 description 会枚举 Registry 中全部类型的 `agentType — whenToUse`，因此**远程挂载新类型后，主 LLM 的工具说明会自动包含新入口**（取决于工具定义缓存失效策略，见 LLM 工具定义层）。
 
-Sources: [AgentDispatchTool.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/AgentDispatchTool.java#L26-L178)、[subagent.ts](ui/src/utils/chat/subagent.ts#L1-L70)、[AgentToolCollectionFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L98-L100)
+Sources: [AgentDispatchTool.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/AgentDispatchTool.java#L26-L178)、[subagent.ts](ui/src/utils/chat/subagent.ts#L1-L70)、[AgentToolCollectionFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/factory/AgentToolCollectionFactory.java#L98-L100)
 
 ## 同步执行引擎：SubAgentRunner
 
@@ -199,7 +199,7 @@ flowchart LR
 3. **结论抽取 `finalizeContent`**：优先 `run` 返回值；否则自 memory 逆序取无 tool_calls 的 ASSISTANT 文本。
 4. **失败不抛穿主链路**：异常包装为 `STATUS_FAILED` 的 `SubAgentResult`。
 
-Sources: [SubAgentRunner.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentRunner.java#L29-L191)、[SubAgentResult.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentResult.java#L7-L30)
+Sources: [SubAgentRunner.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentRunner.java#L29-L191)、[SubAgentResult.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentResult.java#L7-L30)
 
 ## 上下文隔离与共享边界
 
@@ -222,7 +222,7 @@ Sources: [SubAgentRunner.java](Reactor-agent-domain/src/main/java/org/wwz/ai/dom
 
 **SSE 挂载：** 用当前父 `ToolArtifactSource.toolCallId` 作为 `parentToolUseId`，包装 `SubAgentPrinter`。若无法解析 parent tool id，则退回父 printer（不打嵌套标签）。
 
-Sources: [SubAgentContextFactory.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentContextFactory.java#L12-L94)
+Sources: [SubAgentContextFactory.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentContextFactory.java#L12-L94)
 
 ## 工具三层过滤（防递归与权限画像）
 
@@ -235,7 +235,7 @@ Sources: [SubAgentContextFactory.java](Reactor-agent-domain/src/main/java/org/ww
 
 单测覆盖：`Explore` 去掉写工具与 `Agent`；`general-purpose` 仍强制去掉 `Agent`。
 
-Sources: [SubAgentToolFilter.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentToolFilter.java#L13-L103)、[SubAgentDispatchTest.java](Reactor-agent-domain/src/test/java/org/wwz/ai/test/domain/subagent/SubAgentDispatchTest.java#L36-L68)
+Sources: [SubAgentToolFilter.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentToolFilter.java#L13-L103)、[SubAgentDispatchTest.java](AI4S-agent-domain/src/test/java/org/wwz/ai/test/domain/subagent/SubAgentDispatchTest.java#L36-L68)
 
 ## SSE 嵌套与前端展示
 
@@ -253,7 +253,7 @@ Sources: [SubAgentToolFilter.java](Reactor-agent-domain/src/main/java/org/wwz/ai
 
 管理 UI `SubAgentAdmin` 提供列表、草稿编辑、工具 catalog 多选、启用开关、删除确认与 **Registry 重载**。
 
-Sources: [SubAgentPrinter.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentPrinter.java#L11-L136)、[subagent.ts](ui/src/utils/chat/subagent.ts#L71-L170)、[SubAgentAdmin/index.tsx](ui/src/pages/SubAgentAdmin/index.tsx#L51-L186)
+Sources: [SubAgentPrinter.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentPrinter.java#L11-L136)、[subagent.ts](ui/src/utils/chat/subagent.ts#L71-L170)、[SubAgentAdmin/index.tsx](ui/src/pages/SubAgentAdmin/index.tsx#L51-L186)
 
 ## 管理 API 与校验规则
 
@@ -276,7 +276,7 @@ Sources: [SubAgentPrinter.java](Reactor-agent-domain/src/main/java/org/wwz/ai/do
 - `whenToUse`、`systemPrompt` 必填；`maxSteps` 为正整数或空
 - create 时 key 不得已存在；update 时必须存在
 
-Sources: [SubAgentDefinitionAdminController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/admin/SubAgentDefinitionAdminController.java#L39-L125)、[SubAgentDefinitionAdminApplicationService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/subagent/SubAgentDefinitionAdminApplicationService.java#L97-L128)、[subAgentDefinitionAdmin.ts](ui/src/services/subAgentDefinitionAdmin.ts#L25-L62)
+Sources: [SubAgentDefinitionAdminController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/admin/SubAgentDefinitionAdminController.java#L39-L125)、[SubAgentDefinitionAdminApplicationService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/subagent/SubAgentDefinitionAdminApplicationService.java#L97-L128)、[subAgentDefinitionAdmin.ts](ui/src/services/subAgentDefinitionAdmin.ts#L25-L62)
 
 ## 设计权衡与边界
 
@@ -291,7 +291,7 @@ Sources: [SubAgentDefinitionAdminController.java](Reactor-agent-trigger/src/main
 
 **明确非目标（本页不展开）：** 跨服务 A2A Agent 卡片发现、异步后台子 Agent、子 Agent 独立会话持久化。远程 HTTP/SSE 端口（`RemoteHttpPort` / `RemoteStreamPort`）服务于工具层远端调用，与子智能体挂载正交。
 
-Sources: [SubAgentToolFilter.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentToolFilter.java#L55-L60)、[RemoteStreamPort.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/adapter/port/RemoteStreamPort.java#L5-L15)、[MultiModalAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L38-L76)
+Sources: [SubAgentToolFilter.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/subagent/SubAgentToolFilter.java#L55-L60)、[RemoteStreamPort.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/adapter/port/RemoteStreamPort.java#L5-L15)、[MultiModalAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/tool/common/MultiModalAgent.java#L38-L76)
 
 ## 概念关系小结
 

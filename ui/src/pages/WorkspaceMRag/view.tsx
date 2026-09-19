@@ -663,7 +663,7 @@ export function WorkspaceMRagView(props: WorkspaceMRagViewProps) {
   return (
     <div className="workspace-admin-shell mrag-workspace-shell">
       <WorkspaceAdminHeader
-        title="MRAG 智能问答工作台"
+        title="MRAG 智能问答AI4S 研判系统"
         description="在选定知识源中检索文件与网页资料，回答、证据和调试数据保持可追溯。"
         icon={DatabaseZap}
         embedded={embedded}

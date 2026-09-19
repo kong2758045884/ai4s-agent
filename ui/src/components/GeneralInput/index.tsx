@@ -89,8 +89,8 @@ const MODE_OPTIONS: Array<{
 }> = [
   {
     key: "think",
-    label: "ReAct",
-    description: "边思考边执行工具",
+    label: "AI4S 研判系统",
+    description: "AI4S 研判系统的任务执行功能",
     icon: BrainCircuitIcon,
   },
   {
@@ -127,13 +127,13 @@ const menuItemClassName = (active: boolean) =>
 
 const toolBtnClassName = (active?: boolean, disabled?: boolean) =>
   cn(
-    "reactor-composer-tool inline-flex h-8 max-w-full items-center gap-1 rounded-md px-2 text-[13px] font-medium tracking-[-0.01em] transition-colors",
+    "ai4s-composer-tool inline-flex h-8 max-w-full items-center gap-1 rounded-md px-2 text-[13px] font-medium tracking-[-0.01em] transition-colors",
     "text-[#6b6b70] hover:bg-black/[0.04] hover:text-[#1d1d1f]",
     active && "text-[#1d1d1f]",
     disabled && "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-[#6b6b70]"
   );
 
-const GeneralInput: ReactorType.FC<Props> = (props) => {
+const GeneralInput: AI4SType.FC<Props> = (props) => {
   const {
     sessionId,
     placeholder,
@@ -384,7 +384,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
       <div className="w-full" ref={inputShellRef}>
         <PromptInput
           accept={ATTACHMENT_ACCEPT}
-          className="reactor-input-flat w-full"
+          className="ai4s-input-flat w-full"
           convertBlobUrlsOnSubmit={false}
           multiple={true}
           onAttachmentsAdded={handleAttachmentsAdded}
@@ -392,7 +392,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
           onSubmit={handleSubmit}
         >
           <PromptInputBody>
-            <PromptInputAttachments className="reactor-composer-attachments px-1.5 pt-2.5 pb-0">
+            <PromptInputAttachments className="ai4s-composer-attachments px-1.5 pt-2.5 pb-0">
               {(file) => (
                 <UploadAttachmentChip
                   key={file.id}
@@ -415,10 +415,10 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
 
             <PromptInputTextarea
               className={cn(
-                "reactor-composer-textarea px-4 text-[15px] leading-[1.5] text-[#1d1d1f] placeholder:text-[#9aa3af] placeholder:opacity-100",
+                "ai4s-composer-textarea px-4 text-[15px] leading-[1.5] text-[#1d1d1f] placeholder:text-[#9aa3af] placeholder:opacity-100",
                 size === "big"
-                  ? "reactor-composer-textarea-big min-h-[76px] pt-3.5"
-                  : "reactor-composer-textarea-medium min-h-[54px] pt-3"
+                  ? "ai4s-composer-textarea-big min-h-[76px] pt-3.5"
+                  : "ai4s-composer-textarea-medium min-h-[54px] pt-3"
               )}
               disabled={disabled}
               maxLength={MAX_QUERY_CHARS}
@@ -447,13 +447,13 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
             ) : null}
           </PromptInputBody>
 
-          <PromptInputFooter className="reactor-composer-footer items-center justify-between gap-2 px-2.5 pb-2 pt-0.5">
-            <PromptInputTools className="reactor-composer-tools reactor-composer-tools-left min-w-0 flex-1 flex-wrap items-center gap-0.5">
+          <PromptInputFooter className="ai4s-composer-footer items-center justify-between gap-2 px-2.5 pb-2 pt-0.5">
+            <PromptInputTools className="ai4s-composer-tools ai4s-composer-tools-left min-w-0 flex-1 flex-wrap items-center gap-0.5">
               <PromptInputAddAttachmentsButton
                 size="icon-sm"
                 variant="ghost"
                 disabled={disabled}
-                className="reactor-composer-icon-button h-8 w-8 rounded-md border-0 bg-transparent text-[#6b6b70] shadow-none ring-0 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-0"
+                className="ai4s-composer-icon-button h-8 w-8 rounded-md border-0 bg-transparent text-[#6b6b70] shadow-none ring-0 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-0"
               />
 
               {showPlanToggle ? (
@@ -589,7 +589,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
               ) : null}
             </PromptInputTools>
 
-            <PromptInputTools className="reactor-composer-tools reactor-composer-tools-right ml-auto shrink-0 items-center gap-1.5 self-end">
+            <PromptInputTools className="ai4s-composer-tools ai4s-composer-tools-right ml-auto shrink-0 items-center gap-1.5 self-end">
               <ContextRing
                 usage={contextUsage}
                 contextWindow={currentModelMeta?.contextWindow}
@@ -599,7 +599,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="reactor-composer-stop group relative flex size-8 items-center justify-center rounded-full border border-[var(--color-danger-bd)] bg-[var(--color-danger-soft)] p-0 text-[var(--color-danger)] shadow-[var(--shadow-xs)] transition-[background-color,border-color,color,transform] duration-150 hover:border-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white active:scale-[0.92]"
+                      className="ai4s-composer-stop group relative flex size-8 items-center justify-center rounded-full border border-[var(--color-danger-bd)] bg-[var(--color-danger-soft)] p-0 text-[var(--color-danger)] shadow-[var(--shadow-xs)] transition-[background-color,border-color,color,transform] duration-150 hover:border-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white active:scale-[0.92]"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -620,7 +620,7 @@ const GeneralInput: ReactorType.FC<Props> = (props) => {
                   <TooltipTrigger asChild>
                     <PromptInputSubmit
                       className={cn(
-                        "reactor-send-btn relative flex size-8 items-center justify-center rounded-full border-0 p-0 shadow-none transition-opacity",
+                        "ai4s-send-btn relative flex size-8 items-center justify-center rounded-full border-0 p-0 shadow-none transition-opacity",
                         "bg-[var(--color-accent)] text-[var(--color-text-on-accent)] hover:bg-[var(--color-accent-hover)]",
                         "disabled:cursor-not-allowed disabled:bg-[var(--color-accent)] disabled:text-[var(--color-text-on-accent)] disabled:opacity-45"
                       )}

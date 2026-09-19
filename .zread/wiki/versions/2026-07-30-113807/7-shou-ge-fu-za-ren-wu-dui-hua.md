@@ -1,6 +1,6 @@
 本页面向已经完成本地联调的初学者，带你从打开工作台开始，发出**第一条复杂任务**，并看懂执行过程中的计划、工具时间线与产物工作区。内容只覆盖「怎么发、发什么、看到什么、如何解读」，不展开后端内核与 SSE 协议细节——那些属于后续 Deep Dive 页面。
 
-前置建议：先完成 [Java 后端启动与配置](4-java-hou-duan-qi-dong-yu-pei-zhi)、[Python 工具运行时启动](5-python-gong-ju-yun-xing-shi-qi-dong)、[前端 UI 启动与联调](6-qian-duan-ui-qi-dong-yu-lian-diao)，确认浏览器可访问 `http://localhost:3000`，Java 在 `:8100`、reactor-tool 在 `:1601`。
+前置建议：先完成 [Java 后端启动与配置](4-java-hou-duan-qi-dong-yu-pei-zhi)、[Python 工具运行时启动](5-python-gong-ju-yun-xing-shi-qi-dong)、[前端 UI 启动与联调](6-qian-duan-ui-qi-dong-yu-lian-diao)，确认浏览器可访问 `http://localhost:3000`，Java 在 `:8100`、ai4s-tool 在 `:1601`。
 
 ## 你将完成什么
 
@@ -71,7 +71,7 @@ Sources: [WelcomeView.tsx](ui/src/pages/Home/WelcomeView.tsx#L46-L154) · [const
 
 **首个复杂任务建议**：选 **深度思考** 或 **深度研究**，交付物选 **网页模式（html）** 或 **文档模式（docs）**，这样更容易看到工具时间线与可下载报告。
 
-Sources: [inputMode.ts](ui/src/components/GeneralInput/inputMode.ts#L1-L29) · [index.tsx](ui/src/components/GeneralInput/index.tsx#L77-L110) · [constants.ts](ui/src/utils/constants.ts#L72-L144) · [AgentQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L201-L228)
+Sources: [inputMode.ts](ui/src/components/GeneralInput/inputMode.ts#L1-L29) · [index.tsx](ui/src/components/GeneralInput/index.tsx#L77-L110) · [constants.ts](ui/src/utils/constants.ts#L72-L144) · [AgentQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L201-L228)
 
 ## 第 4 步：发送第一条复杂任务
 
@@ -111,7 +111,7 @@ sequenceDiagram
   participant CV as ChatView / useConversationStream
   participant SSE as querySSE
   participant Java as Java :8100
-  participant Tool as reactor-tool :1601
+  participant Tool as ai4s-tool :1601
 
   U->>GI: 输入任务并发送
   GI->>Home: TInputInfo
@@ -126,7 +126,7 @@ sequenceDiagram
   CV-->>U: 对话区 + 右侧产物预览
 ```
 
-Sources: [useConversationStream.ts](ui/src/components/ChatView/useConversationStream.ts#L389-L470) · [agentRequest.ts](ui/src/utils/agentRequest.ts#L53-L80) · [querySSE.ts](ui/src/utils/querySSE.ts#L7-L66) · [ReactorController.java](Reactor-agent-trigger/src/main/java/org/wwz/ai/trigger/http/reactor/ReactorController.java#L148-L157)
+Sources: [useConversationStream.ts](ui/src/components/ChatView/useConversationStream.ts#L389-L470) · [agentRequest.ts](ui/src/utils/agentRequest.ts#L53-L80) · [querySSE.ts](ui/src/utils/querySSE.ts#L7-L66) · [AI4SController.java](AI4S-agent-trigger/src/main/java/org/wwz/ai/trigger/http/ai4s/AI4SController.java#L148-L157)
 
 ### 后端如何决定「复杂任务」走哪条策略
 
@@ -140,7 +140,7 @@ Sources: [useConversationStream.ts](ui/src/components/ChatView/useConversationSt
 
 因此：你在输入区选 **深度思考** → 典型 ReAct 工具循环；选 **深度研究** → 典型 Plan-Execute（计划 → 逐步执行 → 汇总）。调度入口见 `AgentDispatchService`。
 
-Sources: [AgentQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L201-L228) · [AgentDispatchService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/dispatch/AgentDispatchService.java#L26-L49) · [AgentType.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/enums/AgentType.java#L6-L30)
+Sources: [AgentQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L201-L228) · [AgentDispatchService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/dispatch/AgentDispatchService.java#L26-L49) · [AgentType.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/enums/AgentType.java#L6-L30)
 
 ## 第 5 步：读懂界面上的执行过程
 
@@ -167,7 +167,7 @@ Sources: [index.tsx](ui/src/components/Dialogue/index.tsx#L91-L200) · [Timeline
 当存在 plan 或可渲染任务时，`showAction` 为真，进入左右分栏：
 
 - **动态**：跟随当前 / 流式任务，按类型渲染 HTML、Markdown、搜索列表、图片、表格等（`resolvePanelView`）。
-- **文件**：会话级产物列表，支持预览与下载；文件 URL 会经前端改写，走 `/tool` 代理访问 reactor-tool。
+- **文件**：会话级产物列表，支持预览与下载；文件 URL 会经前端改写，走 `/tool` 代理访问 ai4s-tool。
 
 你也可以折叠某一侧、进入专注模式，或拖拽中间分隔条调整宽度——这些只影响观察，不改变后端执行。
 
@@ -201,9 +201,9 @@ Sources: [useConversationStream.ts](ui/src/components/ChatView/useConversationSt
 
 若第 4 步失败：回到 [前端 UI 启动与联调](6-qian-duan-ui-qi-dong-yu-lian-diao) 检查 `SERVICE_BASE_URL` 与 `/web` 代理。  
 若第 5 步只有文字没有工具：确认未误选「快速」聊天模式。  
-若第 6 步预览 404：确认 reactor-tool 已启动且 `/tool` 代理正常。
+若第 6 步预览 404：确认 ai4s-tool 已启动且 `/tool` 代理正常。
 
-Sources: [querySSE.ts](ui/src/utils/querySSE.ts#L7-L20) · [AgentQueryServiceImpl.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L201-L228) · [taskArtifacts.ts](ui/src/utils/taskArtifacts.ts#L56-L112)
+Sources: [querySSE.ts](ui/src/utils/querySSE.ts#L7-L20) · [AgentQueryServiceImpl.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/AgentQueryServiceImpl.java#L201-L228) · [taskArtifacts.ts](ui/src/utils/taskArtifacts.ts#L56-L112)
 
 ## 可选：停止本轮与重新生成
 

@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ActionViewItemEnum } from "@/utils";
 import querySSE from "@/utils/querySSE";
+import { resolveServiceBaseUrl } from "@/utils/origin";
 import { buildConversationTaskData, getStableTaskIdentity } from "@/utils/chat";
 import Dialogue from "@/components/Dialogue";
 import DataDialogue from "@/components/Dialogue/DataDialogue";
@@ -147,7 +148,7 @@ const sameStringList = (previous: string[], next: string[]) =>
 
 type SessionFileTasks = ReturnType<typeof collectSessionFileTasks>;
 
-const ChatView: ReactorType.FC<Props> = (props) => {
+const ChatView: AI4SType.FC<Props> = (props) => {
   const {
     inputInfo: inputInfoProp,
     product,
@@ -682,7 +683,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         handleError,
         handleClose,
       },
-      `${SERVICE_BASE_URL}/data/chatQuery`
+      `${resolveServiceBaseUrl(SERVICE_BASE_URL)}/data/chatQuery`
     );
   });
 
@@ -884,7 +885,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
       <button
         type="button"
         onClick={toggleRightPanel}
-        className="reactor-mobile-workspace-trigger flex h-8 w-8 items-center justify-center rounded-full text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]"
+        className="ai4s-mobile-workspace-trigger flex h-8 w-8 items-center justify-center rounded-full text-[var(--chat-text-soft)] transition-colors hover:bg-[var(--chat-surface-soft)] hover:text-[var(--chat-text)]"
         title="打开工作区"
         aria-label="打开工作区"
       >
@@ -1006,7 +1007,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
             key={inputKey}
             sessionId={conversation.sessionId}
             contextUsage={activeChat?.contextUsage ?? null}
-            placeholder={loading ? "任务进行中，可发送指导…" : "希望 Reactor 为你做哪些任务呢？"}
+            placeholder={loading ? "任务进行中，可发送指导…" : "希望 AI4S 研判系统为你做哪些任务呢？"}
             showBtn={false}
             size="medium"
             busy={loading}
@@ -1034,7 +1035,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
     <div className="flex min-w-0 items-center gap-2.5">
       <span
         className={classNames(
-          "reactor-status-dot shrink-0",
+          "ai4s-status-dot shrink-0",
           headerStatus && "is-running"
         )}
         aria-hidden="true"
@@ -1132,10 +1133,10 @@ const ChatView: ReactorType.FC<Props> = (props) => {
       <div
         ref={containerRef}
         className={classNames(
-          "reactor-chat-workspace-layout flex h-full w-full bg-[var(--color-bg)]",
+          "ai4s-chat-workspace-layout flex h-full w-full bg-[var(--color-bg)]",
           hasWorkspaceLayout
             ? "gap-1.5 p-1.5 md:p-2"
-            : "reactor-single-chat-shell justify-center overflow-hidden px-4 pt-4 md:px-6"
+            : "ai4s-single-chat-shell justify-center overflow-hidden px-4 pt-4 md:px-6"
         )}
         data-workspace-open={hasWorkspaceLayout ? "true" : "false"}
         data-workspace-empty={hasWorkspaceContent ? "false" : "true"}
@@ -1145,7 +1146,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         <div
           ref={leftPanelRef}
             className={classNames(
-            "reactor-chat-panel-left flex min-h-0 flex-col overflow-hidden bg-[var(--color-bg)]",
+            "ai4s-chat-panel-left flex min-h-0 flex-col overflow-hidden bg-[var(--color-bg)]",
             !hasWorkspaceLayout && "mx-auto h-full w-full max-w-[980px]",
             isLeftCollapsed && !isFocusMode && "w-14 min-w-14",
             (!isLeftCollapsed || isFocusMode) && hasWorkspaceLayout && "shrink-0"
@@ -1187,7 +1188,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
               <>
                 <div
                   className={classNames(
-                    "reactor-chat-header flex items-center justify-between",
+                    "ai4s-chat-header flex items-center justify-between",
                     hasWorkspaceLayout
                       ? "border-b border-[var(--color-line)] py-3.5"
                       : "mb-3 min-h-[36px]",
@@ -1281,7 +1282,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
             onPointerUp={handleDragEnd}
             onPointerCancel={handleDragEnd}
             className={classNames(
-              "reactor-workspace-resizer group relative flex w-4 shrink-0 touch-none cursor-col-resize items-center justify-center rounded-full transition-colors",
+              "ai4s-workspace-resizer group relative flex w-4 shrink-0 touch-none cursor-col-resize items-center justify-center rounded-full transition-colors",
               "hover:bg-[var(--chat-accent)]/10"
             )}
             title="拖拽调整左右区域宽度"
@@ -1300,7 +1301,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
         {hasWorkspaceLayout ? (
           <button
             type="button"
-            className="reactor-workspace-scrim lg:hidden"
+            className="ai4s-workspace-scrim lg:hidden"
             aria-label="关闭工作区"
             onClick={closeMobileWorkspace}
           />
@@ -1308,7 +1309,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
 
         {hasWorkspaceLayout ? (
           <div
-            className="reactor-workspace-panel flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-bg)]"
+            className="ai4s-workspace-panel flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-bg)]"
             data-workspace-collapsed="false"
           >
             {thinkingDetail != null ? (
@@ -1394,12 +1395,12 @@ const ChatView: ReactorType.FC<Props> = (props) => {
 
   const renderDataAgent = () => {
     return (
-      <div className="reactor-data-chat-shell flex h-full w-full justify-center overflow-hidden bg-[var(--color-surface-sunken)] px-4 pt-4 md:px-6">
+      <div className="ai4s-data-chat-shell flex h-full w-full justify-center overflow-hidden bg-[var(--color-surface-sunken)] px-4 pt-4 md:px-6">
         <div
           className="flex h-full min-h-0 w-full max-w-[980px] flex-col overflow-hidden"
           id="chat-view"
         >
-          <div className="reactor-chat-header mb-3 flex min-h-[36px] items-center justify-between px-1">
+          <div className="ai4s-chat-header mb-3 flex min-h-[36px] items-center justify-between px-1">
             {renderHeaderStatus({ badge: "数据分析" })}
           </div>
 
@@ -1426,7 +1427,7 @@ const ChatView: ReactorType.FC<Props> = (props) => {
                     conversation.chatList?.[conversation.chatList.length - 1]
                       ?.contextUsage ?? null
                   }
-                  placeholder={loading ? "任务进行中..." : "希望 Reactor 为你做哪些任务呢？"}
+                  placeholder={loading ? "任务进行中..." : "希望 AI4S 研判系统为你做哪些任务呢？"}
                   showBtn={false}
                   size="medium"
                   busy={loading}

@@ -1,7 +1,7 @@
 import Lottie from 'react-lottie';
 import { animationData } from './animation';
 
-const Slogn: ReactorType.FC = () => {
+const Slogn: AI4SType.FC = () => {
   const defaultOptions = {
     loop: true,
     autoplay: true,

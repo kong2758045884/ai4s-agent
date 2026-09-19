@@ -1,4 +1,4 @@
-DeepSearch 与 WebFetch 是 Reactor-agent 对外网信息获取的两条互补能力：前者做**多引擎、多轮、可推理的深度检索并生成带引用报告**；后者做**单 URL 精准抓取并落盘 Markdown 正文**。两者均由 Java Agent 工具层发起，经 HTTP/SSE 调用 Python `reactor-tool` 运行时完成实际检索与抽取，再把结构化结果与文件产物回灌到工作区与执行账本。
+DeepSearch 与 WebFetch 是 AI4S-agent 对外网信息获取的两条互补能力：前者做**多引擎、多轮、可推理的深度检索并生成带引用报告**；后者做**单 URL 精准抓取并落盘 Markdown 正文**。两者均由 Java Agent 工具层发起，经 HTTP/SSE 调用 Python `ai4s-tool` 运行时完成实际检索与抽取，再把结构化结果与文件产物回灌到工作区与执行账本。
 
 本文聚焦这两条链路的职责边界、端到端流程、引擎选型、SSE 事件协议与关键配置，不展开通用工具注册体系或其它工具实现。
 
@@ -17,7 +17,7 @@ DeepSearch 与 WebFetch 是 Reactor-agent 对外网信息获取的两条互补�
 | 多轮推理 | 支持 max_loop | 无 |
 | 默认超时 | 总超时 1200s | 单次下载 30s（5–300 可配） |
 
-Sources: [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L1-L36), [web_fetcher.py](reactor-tool/reactor_tool/tool/web_fetcher.py#L1-L72), [tool.py](reactor-tool/reactor_tool/api/tool.py#L368-L420)
+Sources: [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L1-L36), [web_fetcher.py](ai4s-tool/ai4s_tool/tool/web_fetcher.py#L1-L72), [tool.py](ai4s-tool/ai4s_tool/api/tool.py#L368-L420)
 
 ## 整体架构关系
 
@@ -31,7 +31,7 @@ flowchart TB
     SRB[DeepSearchStructuredResultBuilder]
   end
 
-  subgraph API["reactor-tool API"]
+  subgraph API["ai4s-tool API"]
     DS_EP["POST /deepsearch SSE"]
     WF_EP["POST /web_fetch JSON"]
   end
@@ -58,7 +58,7 @@ flowchart TB
 
 上图强调两点：DeepSearch 是**闭环多阶段流水线**；WebFetch 是**线性抓取落盘**。Java 侧对 DeepSearch 还有结构化结果构建与账本投影，用于历史回放与前端阶段展示。
 
-Sources: [tool.py](reactor-tool/reactor_tool/api/tool.py#L1-L56), [tool.py](reactor-tool/reactor_tool/api/tool.py#L368-L420), [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L14-L36)
+Sources: [tool.py](ai4s-tool/ai4s_tool/api/tool.py#L1-L56), [tool.py](ai4s-tool/ai4s_tool/api/tool.py#L368-L420), [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L14-L36)
 
 ## DeepSearch 主循环
 
@@ -90,7 +90,7 @@ flowchart TD
 
 **最终回答**把累计文档格式化为带编号的 HTML（`文档编号〔i〕`），按模型上下文长度约 80% 截断后交给 `answer_question` 流式生成。流式模式下按 `stream_mode.token` 批量推送 `messageType=report` 的 answer 片段，最后再推 `isFinal=true`。
 
-Sources: [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L68-L267), [query_process.py](reactor-tool/reactor_tool/tool/search_component/query_process.py#L22-L72), [reasoning.py](reactor-tool/reactor_tool/tool/search_component/reasoning.py#L19-L61), [answer.py](reactor-tool/reactor_tool/tool/search_component/answer.py#L18-L42)
+Sources: [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L68-L267), [query_process.py](ai4s-tool/ai4s_tool/tool/search_component/query_process.py#L22-L72), [reasoning.py](ai4s-tool/ai4s_tool/tool/search_component/reasoning.py#L19-L61), [answer.py](ai4s-tool/ai4s_tool/tool/search_component/answer.py#L18-L42)
 
 ## 混合检索引擎 MixSearch
 
@@ -115,7 +115,7 @@ Sources: [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L68-L267),
 
 统一文档模型是 `Doc`：`doc_type=web_page`，含 title/link/content/data，支持 `to_html`（喂给 LLM）与 `to_dict(truncate_len)`（SSE 摘要，默认 `SINGLE_PAGE_MAX_SIZE`）。
 
-Sources: [search_engine.py](reactor-tool/reactor_tool/tool/search_component/search_engine.py#L38-L465), [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L37-L63), [document.py](reactor-tool/reactor_tool/model/document.py#L1-L70), [test_deepsearch_engine_selection.py](reactor-tool/tests/test_deepsearch_engine_selection.py#L1-L25)
+Sources: [search_engine.py](ai4s-tool/ai4s_tool/tool/search_component/search_engine.py#L38-L465), [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L37-L63), [document.py](ai4s-tool/ai4s_tool/model/document.py#L1-L70), [test_deepsearch_engine_selection.py](ai4s-tool/tests/test_deepsearch_engine_selection.py#L1-L25)
 
 ## DeepSearch 请求协议与 SSE 事件
 
@@ -142,7 +142,7 @@ API 端点 `POST /deepsearch` 懒加载 `DeepSearch`，将 `run` 的每个 JSON 
 
 超时路径不会抛给客户端裸异常，而是 yield 一条 `isFinal=true` 的 report，内容为“深度搜索超时，已返回当前可用结果……”，保证 Agent 侧仍能收尾。
 
-Sources: [protocal.py](reactor-tool/reactor_tool/model/protocal.py#L116-L126), [tool.py](reactor-tool/reactor_tool/api/tool.py#L368-L386), [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L100-L230)
+Sources: [protocal.py](ai4s-tool/ai4s_tool/model/protocal.py#L116-L126), [tool.py](ai4s-tool/ai4s_tool/api/tool.py#L368-L386), [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L100-L230)
 
 ## DeepSearch Prompt 与模型配置
 
@@ -167,7 +167,7 @@ LLM 网关通过 `resolve_openai_compat_env("DEEPSEARCH")` 解析：优先 `DEEP
 | `DEEPSEARCH_TOTAL_TIMEOUT_SECONDS` | 整次硬超时 | 1200 |
 | `SINGLE_PAGE_MAX_SIZE` | SSE 文档 content 截断 | 模板中为 6 字量级配置，代码默认回退 200 |
 
-Sources: [deepsearch.yaml](reactor-tool/reactor_tool/prompt/deepsearch.yaml#L1-L180), [.env_template](reactor-tool/.env_template#L29-L72), [test_deepsearch_llm_config.py](reactor-tool/tests/test_deepsearch_llm_config.py#L1-L120)
+Sources: [deepsearch.yaml](ai4s-tool/ai4s_tool/prompt/deepsearch.yaml#L1-L180), [.env_template](ai4s-tool/.env_template#L29-L72), [test_deepsearch_llm_config.py](ai4s-tool/tests/test_deepsearch_llm_config.py#L1-L120)
 
 ## WebFetch 抓取与抽取流水线
 
@@ -187,7 +187,7 @@ flowchart LR
   O --> F[upload_file .md]
 ```
 
-**下载约束**：User-Agent 为 `ReactorToolWebFetch/1.0`；仅允许 HTML、Markdown、纯文本；空正文或非支持类型直接 `ValueError`。
+**下载约束**：User-Agent 为 `AI4SToolWebFetch/1.0`；仅允许 HTML、Markdown、纯文本；空正文或非支持类型直接 `ValueError`。
 
 **标题与元数据**：优先 `og:title`，其次 HTML title / h1；metadata 含 description 与 `og:site_name`。标题缺失时用 URL path slug 或 host 兜底。
 
@@ -198,7 +198,7 @@ flowchart LR
 
 **文件名**：清洗 Windows 非法字符，截断到 80 字符，后缀固定 `.md`。
 
-Sources: [web_fetcher.py](reactor-tool/reactor_tool/tool/web_fetcher.py#L74-L271), [test_web_fetcher.py](reactor-tool/tests/test_web_fetcher.py#L1-L110)
+Sources: [web_fetcher.py](ai4s-tool/ai4s_tool/tool/web_fetcher.py#L74-L271), [test_web_fetcher.py](ai4s-tool/tests/test_web_fetcher.py#L1-L110)
 
 ## WebFetch API 与校验
 
@@ -216,7 +216,7 @@ Sources: [web_fetcher.py](reactor-tool/reactor_tool/tool/web_fetcher.py#L74-L271
 
 与 DeepSearch 不同，WebFetch **不走 SSE**，适合 Agent 在已知链接后“读全文”的同步工具调用；完整正文通过文件服务进入会话工作区，后续可被 Report、CodeInterpreter 或工作区阅读工具复用。
 
-Sources: [protocal.py](reactor-tool/reactor_tool/model/protocal.py#L129-L154), [tool.py](reactor-tool/reactor_tool/api/tool.py#L390-L420), [test_web_fetch_api.py](reactor-tool/tests/test_web_fetch_api.py#L1-L80)
+Sources: [protocal.py](ai4s-tool/ai4s_tool/model/protocal.py#L129-L154), [tool.py](ai4s-tool/ai4s_tool/api/tool.py#L390-L420), [test_web_fetch_api.py](ai4s-tool/tests/test_web_fetch_api.py#L1-L80)
 
 ## Java 侧接入与结构化落账
 
@@ -232,7 +232,7 @@ Java DTO `DeepSearchRequest` 与 Python 协议对齐（query、maxLoop、引擎�
 
 这些 Java 工件说明：DeepSearch 不只是“远程搜一下”，而是被纳入**工具调用账本、结构化输出、回放投影**的一等公民；WebFetch 更偏文件型产物工具，结果以正文 + Markdown 附件形式进入工作区。
 
-Sources: 目录与类清单见 `Reactor-agent-domain/.../tool/common/DeepSearchTool.java`、`WebFetchTool.java`、`DeepSearchStructuredResultBuilder.java`，以及 `ledger/model/tooloutput/DeepSearch*` 与 `infrastructure/dao/po/ToolOutputDeepSearchPO.java`
+Sources: 目录与类清单见 `AI4S-agent-domain/.../tool/common/DeepSearchTool.java`、`WebFetchTool.java`、`DeepSearchStructuredResultBuilder.java`，以及 `ledger/model/tooloutput/DeepSearch*` 与 `infrastructure/dao/po/ToolOutputDeepSearchPO.java`
 
 ## 二者如何配合使用
 
@@ -244,7 +244,7 @@ Sources: 目录与类清单见 `Reactor-agent-domain/.../tool/common/DeepSearchT
 
 DeepSearch 的 SSE docs 里 content 往往被截断（控制上下文与前端包体），因此当模型需要“某篇文章的完整论述”时，应转调 WebFetch，而不是指望 DeepSearch 的 search 事件携带全文。反过来，已知单一权威链接时，直接 WebFetch 比开一轮 DeepSearch 更省延迟与费用。
 
-Sources: [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L130-L145), [web_fetcher.py](reactor-tool/reactor_tool/tool/web_fetcher.py#L84-L105), [tool.py](reactor-tool/reactor_tool/api/tool.py#L390-L407)
+Sources: [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L130-L145), [web_fetcher.py](ai4s-tool/ai4s_tool/tool/web_fetcher.py#L84-L105), [tool.py](ai4s-tool/ai4s_tool/api/tool.py#L390-L407)
 
 ## 配置清单与排障要点
 
@@ -268,7 +268,7 @@ Sources: [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L130-L145)
 | 最终超时兜底文案 | 总时长超过 1200s | 调高 `DEEPSEARCH_TOTAL_TIMEOUT_SECONDS` 或减少引擎/轮次 |
 | 子查询为空 | decompose 输出未按 `- ` 列表 | 检查拆解模型与 prompt 加载 |
 
-Sources: [.env_template](reactor-tool/.env_template#L29-L72), [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py#L220-L240), [web_fetcher.py](reactor-tool/reactor_tool/tool/web_fetcher.py#L107-L124), [test_web_fetch_api.py](reactor-tool/tests/test_web_fetch_api.py#L60-L78)
+Sources: [.env_template](ai4s-tool/.env_template#L29-L72), [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py#L220-L240), [web_fetcher.py](ai4s-tool/ai4s_tool/tool/web_fetcher.py#L107-L124), [test_web_fetch_api.py](ai4s-tool/tests/test_web_fetch_api.py#L60-L78)
 
 ## 小结
 

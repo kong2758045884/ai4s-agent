@@ -261,6 +261,59 @@ describe("agentProcessModel", () => {
     expect(model.groups[0].steps[0].kind).toBe("edit");
   });
 
+  it("uses the live clock while running and the finish time after completion", () => {
+    const runningTool = tool({
+      id: "running-clock",
+      messageType: "tool_call",
+      messageTime: "1714041601500",
+      resultMap: { toolName: "Read", isFinal: false },
+      isFinal: false,
+      finish: false,
+    });
+    const runningChat = createChat({
+      loading: true,
+      startedAt: "1714041601000",
+      finishedAt: undefined,
+      tasks: [
+        [
+          {
+            id: "clock-container",
+            children: [runningTool],
+          } as unknown as CHAT.Task,
+        ],
+      ],
+    });
+
+    const first = deriveAgentProcessModel({
+      chat: runningChat,
+      isPlanSolve: false,
+      nowMs: 1714041604000,
+    });
+    const second = deriveAgentProcessModel({
+      chat: runningChat,
+      isPlanSolve: false,
+      nowMs: 1714041605000,
+    });
+    expect(first.totalDurationMs).toBe(3000);
+    expect(second.totalDurationMs).toBe(4000);
+    expect(first.groups[0].steps[0].durationMs).toBe(2500);
+    expect(second.groups[0].steps[0].durationMs).toBe(3500);
+
+    const completedChat = createChat({
+      loading: false,
+      startedAt: "1714041601000",
+      finishedAt: "1714041604200",
+      tasks: runningChat.tasks,
+    });
+    const completed = deriveAgentProcessModel({
+      chat: completedChat,
+      isPlanSolve: false,
+      nowMs: 1714041615000,
+    });
+    expect(completed.totalDurationMs).toBe(3200);
+    expect(completed.groups[0].steps[0].durationMs).toBe(2700);
+  });
+
   it("uses plan task label for PlanSolve groups", () => {
     const chat = createChat({
       tasks: [

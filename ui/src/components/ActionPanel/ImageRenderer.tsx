@@ -12,7 +12,7 @@ interface ImageRendererProps {
   className?: string;
 }
 
-const ImageRenderer: ReactorType.FC<ImageRendererProps> = React.memo((props) => {
+const ImageRenderer: AI4SType.FC<ImageRendererProps> = React.memo((props) => {
   const { imageUrl, fileName, missingReason, className } = props;
 
   if (missingReason || !imageUrl) {

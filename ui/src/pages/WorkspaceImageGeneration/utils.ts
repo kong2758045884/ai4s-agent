@@ -33,7 +33,7 @@ export const checkerboardStyle = {
 } as const;
 
 export function buildDefaultToolBaseUrl(): string {
-  return normalizeToolBaseUrlForBrowser(REACTOR_TOOL_BASE_URL);
+  return normalizeToolBaseUrlForBrowser(AI4S_TOOL_BASE_URL);
 }
 
 export function trimTrailingSlash(url: string): string {

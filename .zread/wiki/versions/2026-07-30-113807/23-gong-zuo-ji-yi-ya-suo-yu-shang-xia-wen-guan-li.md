@@ -2,7 +2,7 @@
 
 # 工作记忆压缩与上下文管理
 
-本页详细阐述 Reactor-agent 的**工作记忆压缩与上下文管理**核心机制。系统通过分层压缩（microcompact → session-memory compact → full LLM compact → drop-oldest）和投影表（working_memory_*）实现上下文长时记忆保存与高效加载，平衡 token 消耗与上下文保真度，同时支持 prompt-cache 友好模式。所有操作均记录于 `ai_agent_working_memory_compaction` 审计表。
+本页详细阐述 AI4S-agent 的**工作记忆压缩与上下文管理**核心机制。系统通过分层压缩（microcompact → session-memory compact → full LLM compact → drop-oldest）和投影表（working_memory_*）实现上下文长时记忆保存与高效加载，平衡 token 消耗与上下文保真度，同时支持 prompt-cache 友好模式。所有操作均记录于 `ai_agent_working_memory_compaction` 审计表。
 
 ## 核心架构与压缩流水线
 
@@ -23,7 +23,7 @@ graph TD
     I --> J[LoadReadyMessages]
 ```
 
-**Sources: [WorkingMemoryCompactor.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L1-L429)**
+**Sources: [WorkingMemoryCompactor.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L1-L429)**
 
 ## 压缩算法详解
 
@@ -38,24 +38,24 @@ sequenceDiagram
     M-->>C: List<Message> (possibly truncated)
 ```
 
-**Sources: [WorkingMemoryCompactor.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L45-L105)**
+**Sources: [WorkingMemoryCompactor.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L45-L105)**
 
 ### 2. Session-memory Compact
 优先使用已有的 session notes + recent tail，避免重复 LLM 摘要。
 
-**Sources: [WorkingMemoryCompactor.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L111-L141)**
+**Sources: [WorkingMemoryCompactor.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L111-L141)**
 
 ### 3. Full LLM Compact
 使用 `CompactionPrompt` 引导 LLM 生成结构化摘要（<analysis> + <summary>），注入压缩后消息。
 
-**Sources: [CompactionPrompt.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/CompactionPrompt.java#L1-L140)**
+**Sources: [CompactionPrompt.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/CompactionPrompt.java#L1-L140)**
 
 ### 4. Drop-oldest 兜底
 最保守策略，从最旧侧切片，确保至少保留 1 条且 tool-safe。
 
-**Sources: [WorkingMemoryCompactor.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L164-L200)**
+**Sources: [WorkingMemoryCompactor.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L164-L200)**
 
-**Sources: [CompactionBudget.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/CompactionBudget.java#L1-L73)**
+**Sources: [CompactionBudget.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/CompactionBudget.java#L1-L73)**
 
 ## 上下文管理与投影
 
@@ -63,9 +63,9 @@ sequenceDiagram
 - `SessionContextMemoryServiceImpl.hydrateWorkingMessages` 从 `ai_agent_working_memory_turn` + `ai_agent_working_memory_message` 投影为 `List<Message>`
 - 优先使用 `loadReadyMessages`（排除当前 requestId），支持 prompt-cache
 
-**Sources: [SessionContextMemoryServiceImpl.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/reactor/service/impl/SessionContextMemoryServiceImpl.java#L88-L93)**
+**Sources: [SessionContextMemoryServiceImpl.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/ai4s/service/impl/SessionContextMemoryServiceImpl.java#L88-L93)**
 
-**Sources: [SessionWorkingMemoryServiceImpl.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/reactor/service/impl/SessionWorkingMemoryServiceImpl.java#L39-L77)**
+**Sources: [SessionWorkingMemoryServiceImpl.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/ai4s/service/impl/SessionWorkingMemoryServiceImpl.java#L39-L77)**
 
 ### WorkingMemoryMessage / WorkingMemoryTurn 实体
 
@@ -74,15 +74,15 @@ sequenceDiagram
 | WorkingMemoryMessage | sessionId, requestId, role, content, toolCallsJson | 压缩后消息投影 |
 | WorkingMemoryTurn | turnSeq, status(READY/INVALID), tokenEstimate | 轮次元数据 |
 
-**Sources: [WorkingMemoryMessage.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryMessage.java#L13-L37)**
+**Sources: [WorkingMemoryMessage.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryMessage.java#L13-L37)**
 
-**Sources: [WorkingMemoryTurn.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryTurn.java#L18-L38)**
+**Sources: [WorkingMemoryTurn.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryTurn.java#L18-L38)**
 
 ### Compaction Event 审计
 
 每次有效压缩写入 `ai_agent_working_memory_compaction` 表，记录 before/after tokens、strategy、summaryText。
 
-**Sources: [WorkingMemoryCompactionEvent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactionEvent.java#L18-L40)**
+**Sources: [WorkingMemoryCompactionEvent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactionEvent.java#L18-L40)**
 
 ## 集成与配置
 
@@ -91,7 +91,7 @@ sequenceDiagram
 - **审计**：`IWorkingMemoryCompactionDao` 记录压缩事件
 - **fallback**：压缩失败时降级为 drop-oldest
 
-**Sources: [SessionContextCompactionServiceImpl.java](Reactor-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/reactor/service/impl/SessionContextCompactionServiceImpl.java#L124-L200)**
+**Sources: [SessionContextCompactionServiceImpl.java](AI4S-agent-infrastructure/src/main/java/org/wwz/ai/infrastructure/ai4s/service/impl/SessionContextCompactionServiceImpl.java#L124-L200)**
 
 ## 最佳实践与注意事项
 
@@ -100,7 +100,7 @@ sequenceDiagram
 - 监控 consecutiveFailures 防止循环压缩
 - 建议结合 MRAG / SOP 提高摘要质量
 
-**Sources: [WorkingMemoryCompactor.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L35-L40)**
+**Sources: [WorkingMemoryCompactor.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/memory/WorkingMemoryCompactor.java#L35-L40)**
 
 ## Next Steps
 

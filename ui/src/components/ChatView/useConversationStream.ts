@@ -275,6 +275,7 @@ function createRunningChat(
     requestId,
     agentType: deepThink ? 3 : 5,
     loading: true,
+    startedAt: String(Date.now()),
     forceStop: false,
     tasks: [],
     thought: "",

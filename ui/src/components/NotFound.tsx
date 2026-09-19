@@ -2,7 +2,7 @@ import { Result, Button } from 'antd';
 
 import { jumpUrl } from '@/utils/utils';
 
-const NotFound: ReactorType.FC = () => {
+const NotFound: AI4SType.FC = () => {
   return (
     <Result
       status="404"

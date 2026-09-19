@@ -204,6 +204,59 @@ describe("toolRegistry", () => {
     expect(html).toContain("files");
     expect(html).toContain("a.ts");
   });
+
+  it("renders AI4S Daily provenance and follow-up deep search status", () => {
+    const ai4sTask = toolTask({
+      id: "ai4s-1",
+      resultMap: { toolName: "ai4s_daily" },
+      toolResult: {
+        toolName: "ai4s_daily",
+        toolResult: JSON.stringify({
+          tool: "ai4s_daily",
+          source: "AI4S Daily",
+          matched: true,
+          reports: [
+            {
+              reportId: "push-demo",
+              title: "AI4S 前沿观察报告",
+              date: "2026-09-18",
+              reportUrl: "https://example.com/reports/push-demo.md",
+              sections: [
+                {
+                  section: "rss",
+                  hotspots: [
+                    {
+                      title: "材料发现新进展",
+                      sourceUrls: ["https://paper.example.org/work"],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    });
+    const deepSearchTask = toolTask({
+      id: "deep-1",
+      messageType: "deep_search",
+      resultMap: { status: "success" },
+    });
+
+    const html = renderToStaticMarkup(
+      createElement(GenericToolCall, {
+        tool: ai4sTask,
+        chat: { tasks: [[ai4sTask, deepSearchTask]] } as CHAT.ChatItem,
+        changeActiveChat: () => undefined,
+      })
+    );
+
+    expect(html).toContain("AI4S Daily");
+    expect(html).toContain("AI4S 前沿观察报告");
+    expect(html).toContain("push-demo.md");
+    expect(html).toContain("paper.example.org/work");
+    expect(html).toContain("已基于 AI4S Daily 线索继续进行外部补充 / 核验");
+  });
 });
 
 describe("editDiffStats chip", () => {

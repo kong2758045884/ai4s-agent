@@ -50,6 +50,7 @@ const TOOL_LABELS: Record<string, string> = {
   search: "Search",
   todo: "Todo",
   task: "Agent",
+  ai4s_daily: "AI4S Daily",
   askuserquestion: "提问",
   canvas_publish: "发布画布",
   html: "发布画布",

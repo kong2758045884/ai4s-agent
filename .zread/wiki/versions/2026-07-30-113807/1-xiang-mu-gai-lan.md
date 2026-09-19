@@ -1,12 +1,12 @@
-本文是 **Reactor-agent** 文档的入口页。它帮助初学者在动手配置与写代码之前，先建立整体心智模型：这个平台解决什么问题、由哪些部分组成、核心能力在哪里，以及接下来该按什么顺序阅读。
+本文是 **AI4S-agent** 文档的入口页。它帮助初学者在动手配置与写代码之前，先建立整体心智模型：这个平台解决什么问题、由哪些部分组成、核心能力在哪里，以及接下来该按什么顺序阅读。
 
 ## 平台是什么
 
-**Reactor-agent** 是一个面向复杂任务自动化与 AI 应用工程化落地的 **多智能体协作应用平台**。它不是“单轮对话 + 几次工具调用”的演示 Demo，而是把任务拆解、多 Agent 协作、工具编排、检索增强、会话记忆、执行事实持久化与历史回放串成一条可运行、可追踪、可复用的完整链路。
+**AI4S-agent** 是一个面向复杂任务自动化与 AI 应用工程化落地的 **多智能体协作应用平台**。它不是“单轮对话 + 几次工具调用”的演示 Demo，而是把任务拆解、多 Agent 协作、工具编排、检索增强、会话记忆、执行事实持久化与历史回放串成一条可运行、可追踪、可复用的完整链路。
 
 Sources: [README.md](README.md#L1-L6)
 
-传统对话系统擅长回答问题，但在需要多步拆解、中间产物复用、跨工具协作的任务上往往力不从心。Reactor-agent 的目标，是把这类任务变成可编排、可观察、可扩展的工程系统，而不是一次性 Prompt 临场发挥。
+传统对话系统擅长回答问题，但在需要多步拆解、中间产物复用、跨工具协作的任务上往往力不从心。AI4S-agent 的目标，是把这类任务变成可编排、可观察、可扩展的工程系统，而不是一次性 Prompt 临场发挥。
 
 Sources: [README.md](README.md#L3-L6)
 
@@ -31,26 +31,26 @@ Sources: [README.md](README.md#L9-L16)
 
 Sources: [README.md](README.md#L18-L22)
 
-前端产品定位上，Reactor 更像“AI Agent 工作站”：面向技术团队、产品经理和研究人员，支持深度研究、数据分析、竞品调研与内容生成，而不是单纯的聊天框克隆。
+前端产品定位上，AI4S 更像“AI Agent 工作站”：面向技术团队、产品经理和研究人员，支持深度研究、数据分析、竞品调研与内容生成，而不是单纯的聊天框克隆。
 
 Sources: [PRODUCT.md](ui/PRODUCT.md#L7-L15)
 
 ## 仓库长什么样
 
-仓库采用 **Java 后端多模块 + Python 工具运行时 + React 前端** 的三段式结构。Maven 聚合工程声明了 7 个后端模块，外加独立的 `reactor-tool`、`ui` 与运行时技能目录。
+仓库采用 **Java 后端多模块 + Python 工具运行时 + React 前端** 的三段式结构。Maven 聚合工程声明了 7 个后端模块，外加独立的 `ai4s-tool`、`ui` 与运行时技能目录。
 
 Sources: [pom.xml](pom.xml#L11-L19)
 
 ```text
-Reactor-agent/
-├── Reactor-agent-api/              # API 契约（DTO / 服务接口）
-├── Reactor-agent-types/            # 公共类型、异常、配置常量
-├── Reactor-agent-trigger/          # HTTP / SSE / Job 入口适配
-├── Reactor-agent-case/             # 应用编排：调度、执行策略、任务
-├── Reactor-agent-domain/           # 领域核心：Runtime / Ledger / Memory / RAG
-├── Reactor-agent-infrastructure/   # DAO、网关、远端适配、持久化
-├── Reactor-agent-app/              # Spring Boot 启动与装配
-├── reactor-tool/                   # Python 工具运行时（DeepSearch / CI / MRAG / Report…）
+AI4S-agent/
+├── AI4S-agent-api/              # API 契约（DTO / 服务接口）
+├── AI4S-agent-types/            # 公共类型、异常、配置常量
+├── AI4S-agent-trigger/          # HTTP / SSE / Job 入口适配
+├── AI4S-agent-case/             # 应用编排：调度、执行策略、任务
+├── AI4S-agent-domain/           # 领域核心：Runtime / Ledger / Memory / RAG
+├── AI4S-agent-infrastructure/   # DAO、网关、远端适配、持久化
+├── AI4S-agent-app/              # Spring Boot 启动与装配
+├── ai4s-tool/                   # Python 工具运行时（DeepSearch / CI / MRAG / Report…）
 ├── ui/                             # React 前端工作站
 ├── runtime/skills/                 # 技能脚本与能力扩展
 └── assets/                         # 品牌与演示资源
@@ -64,7 +64,7 @@ Sources: [README.md](README.md#L523-L528)
 
 ## 系统架构总览
 
-从用户发起对话到产物落盘，整体数据流如下。前端通过 SSE 与后端保持长连接；后端按策略选择 ReAct / Plan-Execute / Workflow；领域层驱动 LLM、工具、记忆与账本；Python 侧 `reactor-tool` 承担深度搜索、代码解释、报告生成、混合检索等高成本能力。
+从用户发起对话到产物落盘，整体数据流如下。前端通过 SSE 与后端保持长连接；后端按策略选择 ReAct / Plan-Execute / Workflow；领域层驱动 LLM、工具、记忆与账本；Python 侧 `ai4s-tool` 承担深度搜索、代码解释、报告生成、混合检索等高成本能力。
 
 Sources: [README.md](README.md#L216-L236)
 
@@ -78,7 +78,7 @@ flowchart LR
 
     DO --> LLM[LLM / Spring AI]
     DO --> MCP[MCP 工具编排]
-    DO --> PY[reactor-tool<br/>Python Tool Runtime]
+    DO --> PY[ai4s-tool<br/>Python Tool Runtime]
     DO --> RAG[RAG 检索增强]
 
     INF --> MYSQL[(MySQL)]
@@ -94,11 +94,11 @@ Sources: [README.md](README.md#L218-L236)
 
 请求进入后，应用层会根据 `agentType` 选择执行策略：Workflow、Plan-Solve 或 ReAct；未指定时默认走 ReAct。
 
-Sources: [AgentDispatchService.java](Reactor-agent-case/src/main/java/org/wwz/ai/application/agent/dispatch/AgentDispatchService.java#L25-L48)
+Sources: [AgentDispatchService.java](AI4S-agent-case/src/main/java/org/wwz/ai/application/agent/dispatch/AgentDispatchService.java#L25-L48)
 
 平台内置的智能体类型包括综合、工作流、Plan-Solve、路由与 ReAct，用于覆盖不同复杂度的任务形态。
 
-Sources: [AgentType.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/enums/AgentType.java#L6-L11)
+Sources: [AgentType.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/enums/AgentType.java#L6-L11)
 
 ## 核心能力速览
 
@@ -119,7 +119,7 @@ Sources: [README.md](README.md#L239-L329)
 
 **ReAct** 强调“思考 → 选工具 → 观察 → 再思考”的循环，适合探索性强、路径不固定的任务。领域层 `ReactImplAgent` 在 `think()` 中调用 LLM 生成 `toolCalls`，在 `act()` 中执行工具并写回记忆。
 
-Sources: [ReactImplAgent.java](Reactor-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/ReactImplAgent.java#L102-L199)
+Sources: [ReactImplAgent.java](AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/runtime/agent/ReactImplAgent.java#L102-L199)
 
 **Plan-Execute** 则先生成/更新计划，再按步骤交给执行 Agent，最后由 Summary 收口，适合步骤清晰、需要过程约束的长任务。
 
@@ -149,13 +149,13 @@ Sources: [README.md](README.md#L334-L392)
 
 ### 工具与扩展生态
 
-Python 运行时 `reactor-tool` 承载了 DeepSearch、CodeInterpreter、Report、WebFetch、MRAG、SOP、文档读写等能力，Java 编排中枢通过远程协议调度它们，而不是把所有逻辑塞进单体进程。
+Python 运行时 `ai4s-tool` 承载了 DeepSearch、CodeInterpreter、Report、WebFetch、MRAG、SOP、文档读写等能力，Java 编排中枢通过远程协议调度它们，而不是把所有逻辑塞进单体进程。
 
-Sources: [README.md](reactor-tool/README.md#L1-L18)
+Sources: [README.md](ai4s-tool/README.md#L1-L18)
 
 工具目录中可直接看到核心能力入口，例如 `deepsearch.py`、`code_interpreter.py`、`report.py`、`web_fetcher.py`、`mrag/`、`plan_sop.py` 等。
 
-Sources: [deepsearch.py](reactor-tool/reactor_tool/tool/deepsearch.py)
+Sources: [deepsearch.py](ai4s-tool/ai4s_tool/tool/deepsearch.py)
 
 此外还有 **MCP**（SSE / STDIO / Streamable HTTP）、**Skill 技能库**、**数字员工角色** 等扩展面，用来把“外部生态能力”与“业务人设”接到统一运行时中。
 
@@ -167,7 +167,7 @@ Sources: [README.md](README.md#L239-L277)
 |------|----------|
 | 后端运行时 | Java 17、Spring Boot 3.4.x、Spring AI 1.1.x、MyBatis / MyBatis-Plus |
 | 数据与检索 | MySQL、Qdrant；语义 + BM25 + 跨模态混合召回、Rerank、多轮检索 |
-| 工具运行时 | Python ≥ 3.11、FastAPI 风格服务（`reactor-tool`） |
+| 工具运行时 | Python ≥ 3.11、FastAPI 风格服务（`ai4s-tool`） |
 | 前端工作站 | React 19、TypeScript、Vite 6、Ant Design 5 |
 | 通信形态 | HTTP + SSE 流式对话 |
 
@@ -177,11 +177,11 @@ Sources: [pom.xml](pom.xml#L35-L60)
 
 Sources: [package.json](ui/package.json#L1-L50)
 
-Sources: [README.md](reactor-tool/README.md#L1-L4)
+Sources: [README.md](ai4s-tool/README.md#L1-L4)
 
-Spring Boot 启动入口位于 `Reactor-agent-app` 模块，负责装配整个后端运行时。
+Spring Boot 启动入口位于 `AI4S-agent-app` 模块，负责装配整个后端运行时。
 
-Sources: [Application.java](Reactor-agent-app/src/main/java/org/wwz/ai/Application.java#L8-L15)
+Sources: [Application.java](AI4S-agent-app/src/main/java/org/wwz/ai/Application.java#L8-L15)
 
 ## 典型应用场景
 
@@ -222,7 +222,7 @@ flowchart TB
         Case[case 编排]
         Domain[domain 内核]
     end
-    subgraph PY[reactor-tool]
+    subgraph PY[ai4s-tool]
         DS[DeepSearch]
         CI[CodeInterpreter]
         RP[Report]
@@ -246,7 +246,7 @@ Sources: [README.md](README.md#L396-L520)
 - **改交互协议 / 入口** → 优先看 `trigger`
 - **改调度与执行策略** → 优先看 `case`
 - **改 Agent 内核、记忆、账本** → 优先看 `domain`
-- **改搜索/代码/报告/检索实现** → 优先看 `reactor-tool`
+- **改搜索/代码/报告/检索实现** → 优先看 `ai4s-tool`
 - **改页面与流式渲染** → 优先看 `ui`
 
 Sources: [README.md](README.md#L523-L528)

@@ -35,7 +35,7 @@ const resolveFetchError = (error: unknown) => {
   return message || "引用资源不存在或已失效";
 };
 
-const WordRenderer: ReactorType.FC<WordRendererProps> = React.memo((props) => {
+const WordRenderer: AI4SType.FC<WordRendererProps> = React.memo((props) => {
   const {
     fileUrl,
     fileName,

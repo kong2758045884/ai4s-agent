@@ -154,7 +154,7 @@ export const setSessionId = (sessionId: string) => {
   }
   try {
     if (typeof window !== "undefined" && window.sessionStorage) {
-      window.sessionStorage.setItem("reactor.sessionId", sessionId);
+      window.sessionStorage.setItem("ai4s.sessionId", sessionId);
     }
   } catch {
     // ignore storage access errors
@@ -168,7 +168,7 @@ export const setSessionId = (sessionId: string) => {
 export const peekSessionId = () => {
   try {
     if (typeof window !== "undefined" && window.sessionStorage) {
-      return window.sessionStorage.getItem("reactor.sessionId");
+      return window.sessionStorage.getItem("ai4s.sessionId");
     }
   } catch {
     // ignore storage access errors

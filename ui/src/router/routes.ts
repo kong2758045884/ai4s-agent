@@ -3,6 +3,7 @@ export const ROUTES = {
   FEATURED_CONVERSATIONS: "/featured-conversations",
   FEATURED_CONVERSATION_DETAIL: "/featured-conversations/:featuredId",
   WORKSPACE: "/workspace",
+  WORKSPACE_STRATEGIC_MAP: "/workspace/strategic-map",
   WORKSPACE_MRAG: "/workspace/mrag",
   WORKSPACE_IMAGE_GENERATION: "/workspace/image-generation",
   WORKSPACE_SOP: "/workspace/sop",

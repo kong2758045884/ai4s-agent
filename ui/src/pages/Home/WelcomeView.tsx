@@ -7,19 +7,15 @@ import { AnimatedOrb } from "@/components/chat/AnimatedOrb";
 import { KeyboardTypewriter } from "@/components/ai-elements/keyboard-typewriter";
 import type { FeaturedConversationCard as FeaturedConversationCardModel } from "@/services/featuredConversation";
 import { DURATION, EASE_OUT, useMotionConfig } from "@/lib/motion";
-import {
-  suggestedQuestionsByProductType,
-  type SuggestedQuestion,
-} from "@/utils/constants";
+import Ai4sDailyToday from "./Ai4sDailyToday";
+import type { Ai4sDailyHomeHotspot } from "@/utils/ai4sDailyHome";
 
 const HERO_TYPEWRITER_TEXTS = [
-  "Let's build",
-  "Let's create",
-  "Hello! How can I help?",
-  "Let's analyze",
-  "Let's research",
-  "Welcome back!",
-  "Awaiting your instructions",
+  "探索 AI4S 前沿",
+  "研判科研趋势",
+  "分析技术演进",
+  "连接科学与智能",
+  "AI4S 研判系统",
 ];
 
 export default function WelcomeView(props: {
@@ -33,35 +29,32 @@ export default function WelcomeView(props: {
     deepThink: boolean;
   }) => void;
   onSend: (inputInfo: CHAT.TInputInfo) => void;
-  onSendQuestion: (query: SuggestedQuestion) => void;
+  onResearchHotspot?: (hotspot: Ai4sDailyHomeHotspot) => void;
   onOpenVideo: (url: string) => void;
   onCloseVideo: () => void;
   onOpenFeaturedConversations?: () => void;
   onOpenFeaturedDetail?: (featuredId: string) => void;
 }) {
-  const suggestedQuestions =
-    suggestedQuestionsByProductType[props.product.type] ?? [];
-  const hasSuggestedQuestions = suggestedQuestions.length > 0;
   const hasFeaturedCards = props.featuredCards.length > 0;
   const { reduce } = useMotionConfig();
 
   return (
-    <div className="h-full w-full overflow-y-auto px-6 md:px-12 lg:px-16">
+    <div className="h-full w-full overflow-hidden px-6 md:px-12 lg:px-16">
       <div
         className={classNames(
-          "mx-auto flex min-h-full w-full max-w-[1280px] flex-col items-center py-8 lg:py-10",
+          "mx-auto flex min-h-full w-full max-w-[1280px] flex-col items-center py-4 lg:py-5",
           hasFeaturedCards ? "justify-start" : "justify-center"
         )}
       >
         <div
           className={classNames(
             "flex w-full flex-col items-center",
-            // 欢迎态主视觉整体下移，避免标题和输入区过于贴近顶部。
-            hasFeaturedCards ? "pt-10 md:pt-12 lg:pt-16" : "pt-12 md:pt-16 lg:pt-20"
+            // 欢迎态内容保持紧凑，避免首页在常规窗口高度下出现纵向滚动。
+            hasFeaturedCards ? "pt-5 md:pt-6 lg:pt-8" : "pt-6 md:pt-8 lg:pt-10"
           )}
         >
-          <div className="mb-8 text-center lg:mb-10">
-            <div className="orb-intro mx-auto mb-5 flex justify-center">
+          <div className="mb-5 text-center lg:mb-6">
+            <div className="orb-intro mx-auto mb-4 flex justify-center">
               <AnimatedOrb size={88} />
             </div>
             <h1
@@ -78,39 +71,7 @@ export default function WelcomeView(props: {
             </h1>
           </div>
 
-          <motion.div
-            initial={false}
-            animate={{
-              opacity: hasSuggestedQuestions ? 1 : 0,
-              y: reduce ? 0 : hasSuggestedQuestions ? 0 : -8,
-            }}
-            transition={{
-              duration: reduce ? DURATION.reduced : 0.22,
-              ease: EASE_OUT,
-            }}
-            className={classNames(
-              "mx-auto w-full max-w-[1180px] overflow-visible",
-              hasSuggestedQuestions
-                ? "mb-8 pointer-events-auto lg:mb-10"
-                : "mb-0 max-h-0 pointer-events-none"
-            )}
-          >
-            <div className="flex flex-wrap justify-center gap-3">
-              {suggestedQuestions.map((item, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  className="flex max-w-full cursor-pointer items-center gap-2 rounded-[16px] bg-[oklch(0.955_0.002_90)] px-5 py-3 text-[14px] font-medium leading-none text-[var(--chat-text)] transition-colors duration-200 hover:bg-[oklch(0.925_0.003_90)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/25 md:text-[15px]"
-                  onClick={() => props.onSendQuestion(item)}
-                >
-                  {item.deepThink ? (
-                    <i className="font_family icon-shendusikao text-[12px] text-[var(--chat-text)]" />
-                  ) : null}
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </motion.div>
+          <Ai4sDailyToday onResearchHotspot={props.onResearchHotspot} />
 
           <motion.div
             initial={
@@ -132,7 +93,7 @@ export default function WelcomeView(props: {
               delay: reduce ? 0 : 0.08,
               ease: EASE_OUT,
             }}
-            className="mb-8 w-full max-w-[920px] lg:mb-10"
+            className="mb-5 w-full max-w-[920px] lg:mb-6"
           >
             <div className="w-full">
               <GeneralInput
