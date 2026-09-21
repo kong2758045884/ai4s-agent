@@ -1,3 +1,4 @@
+import { attentionLabel, evaluationLabel, judgementLabel, savedRosterPriority } from "./presentation";
 import {
   useCallback,
   useEffect,
@@ -197,7 +198,7 @@ function AttentionBadge({ level }: { level: AttentionLevel }) {
     <span
       className={`inline-flex min-w-[104px] items-center justify-center rounded-full border px-3 py-1 text-[12px] font-semibold ${attentionStyles[level] ?? attentionStyles["待核实"]}`}
     >
-      {level}
+      {attentionLabel(level)}
     </span>
   );
 }
@@ -262,6 +263,8 @@ function rankCandidateTeams(teams: Team[]): Team[] {
     if (attentionDelta !== 0) {
       return attentionDelta;
     }
+    const rosterDelta = savedRosterPriority(right) - savedRosterPriority(left);
+    if (rosterDelta !== 0) return rosterDelta;
     const updatedDelta = (right.updatedAt || "").localeCompare(left.updatedAt || "");
     if (updatedDelta !== 0) {
       return updatedDelta;
@@ -275,10 +278,10 @@ function teamOrganization(team: Team): string {
     .replace(/^\s*(?:\d{1,3}[.、)）:\-]?|[①②③④⑤⑥⑦⑧⑨⑩❶❷❸❹❺❻❼❽❾❿])\s*/, "")
     .trim();
   if (!value || /^(?:团队|机构|单位)\s*[A-Z0-9一二三四五六七八九十]*$/i.test(value)) {
-    return "机构信息待核实";
+    return "机构名称未填写";
   }
   if (/^(?:国家级?)?实验室$/.test(value)) {
-    return "具体实验室名称待核实";
+    return "实验室名称未填写";
   }
   return value;
 }
@@ -288,7 +291,7 @@ function teamDisplayName(team: Team): string {
     .replace(/^\s*(?:\d{1,3}[.、)）:\-]?|[①②③④⑤⑥⑦⑧⑨⑩❶❷❸❹❺❻❼❽❾❿])\s*/, "")
     .trim();
   if (!value || /^(?:团队|机构|单位)\s*[A-Z0-9一二三四五六七八九十]*$/i.test(value) || value === "相关团队线索") {
-    return "团队信息待核实";
+    return "团队名称未填写";
   }
   return value;
 }
@@ -999,12 +1002,12 @@ export default function StrategicMap() {
                         团队：{teamDisplayName(team)}
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-[var(--chat-text-muted)] sm:hidden">
-                        {team.dualJudgement}
+                        {judgementLabel(team.dualJudgement)}
                       </span>
                     </span>
                   </span>
                   <span className="hidden text-[14px] font-semibold text-[#2e668e] sm:block">
-                    {`${team.aiLevel} / ${team.scienceLevel}`}
+                    {`${evaluationLabel(team.aiLevel)} / ${evaluationLabel(team.scienceLevel)}`}
                   </span>
                   <span className="flex items-center justify-between gap-2 sm:block">
                     <AttentionBadge level={team.attention} />
@@ -1096,7 +1099,7 @@ export default function StrategicMap() {
                     <option value="重点关注">重点关注</option>
                     <option value="持续关注">持续关注</option>
                     <option value="一般关注">一般关注</option>
-                    <option value="待核实">待核实</option>
+                    <option value="待核实">未标记</option>
                   </select>
                 </label>
                 <label className="block text-[12px] font-semibold text-[#546b7d]">
@@ -1145,7 +1148,7 @@ export default function StrategicMap() {
                 <div className="font-semibold text-[#546b7d]">双高判断</div>
                 {teamEditing ? (
                   <input value={teamDetailsDraft.dualJudgement} onChange={(event) => setTeamDetailsDraft((current) => ({ ...current, dualJudgement: event.target.value }))} className="w-full rounded-lg border border-[#ccd9e4] bg-white px-2.5 py-2 text-[13px] font-medium text-[#304b61] outline-none focus:border-[#4c91bd]" maxLength={120} />
-                ) : <div className="font-semibold text-[#304b61]">{selectedTeam.dualJudgement}</div>}
+                ) : <div className="font-semibold text-[#304b61]">{judgementLabel(selectedTeam.dualJudgement)}</div>}
               </div>
             </div>
             <div className="flex items-start gap-4">
