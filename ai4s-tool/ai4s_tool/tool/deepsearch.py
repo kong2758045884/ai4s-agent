@@ -51,6 +51,17 @@ class ChapterState:
     error: str = ""
 
 
+def resolve_sse_doc_chars() -> int:
+    """兼容旧配置：SINGLE_PAGE_MAX_SIZE 的小整数原本表示 KiB，不是字符数。"""
+    explicit = os.getenv("DEEPSEARCH_SSE_DOC_CHARS", "").strip()
+    if explicit:
+        return min(12_000, max(256, int(explicit)))
+    legacy = int(os.getenv("SINGLE_PAGE_MAX_SIZE", "6"))
+    if legacy <= 64:
+        legacy *= 1024
+    return min(12_000, max(256, legacy))
+
+
 class DeepSearch:
     """深度搜索工具：章节拆解 + 并发分章研究 + 轻量反思 + 合并回答。"""
 
@@ -116,6 +127,7 @@ class DeepSearch:
             os.getenv("DEEPSEARCH_LIGHT_REFLECTION", "0")
         ).lower() in ("1", "true", "yes")
 
+        chapters: List[ChapterState] = []
         try:
             sub_queries = await asyncio.wait_for(
                 query_decompose(query=query),
@@ -162,7 +174,7 @@ class DeepSearch:
 
             await asyncio.sleep(0.1)
 
-            truncate_len = int(os.getenv("SINGLE_PAGE_MAX_SIZE", 200))
+            truncate_len = resolve_sse_doc_chars()
             flush_every = max(1, int(getattr(stream_mode, "token", None) or 5))
             async for event in self._iter_research_events(
                 query=query,
@@ -237,6 +249,17 @@ class DeepSearch:
                     ensure_ascii=False,
                 )
 
+            evidence_stats = self._evidence_stats(chapters)
+            retrieval_status = (
+                "complete"
+                if evidence_stats["documents"] > 0 and evidence_stats["failed_chapters"] == 0
+                else "limited"
+            )
+            limitations = []
+            if evidence_stats["documents"] == 0:
+                limitations.append("no_usable_sources")
+            if evidence_stats["failed_chapters"]:
+                limitations.append("chapter_research_incomplete")
             yield json.dumps(
                 {
                     "requestId": request_id,
@@ -245,6 +268,9 @@ class DeepSearch:
                     "answer": "" if stream else answer,
                     "isFinal": True,
                     "messageType": "report",
+                    "retrievalStatus": retrieval_status,
+                    "evidenceStats": evidence_stats,
+                    "limitations": limitations,
                 },
                 ensure_ascii=False,
             )
@@ -264,6 +290,9 @@ class DeepSearch:
                     "answer": fallback_answer,
                     "isFinal": True,
                     "messageType": "report",
+                    "retrievalStatus": "limited",
+                    "evidenceStats": self._evidence_stats(chapters),
+                    "limitations": ["total_timeout"],
                 },
                 ensure_ascii=False,
             )
@@ -450,6 +479,15 @@ class DeepSearch:
             chapter.status = "searched"
             await _emit_search()
 
+            if not docs:
+                chapter.status = "limited"
+                chapter.error = "no_usable_sources"
+                chapter.summary = (
+                    f"本轮未取得可核验来源，暂不能形成关于「{chapter.title}」的事实判断。"
+                )
+                await _emit_summary(chapter.summary, False)
+                return chapter
+
             acc = ""
             pending = 0
             stream = summarize_chapter_stream(
@@ -561,6 +599,31 @@ class DeepSearch:
                 lines.append(f"- {title}：{content}" + (f"（来源：{source}）" if source else ""))
         return "\n".join(lines) or "当前公开资料不足，暂未形成可靠判断。"
 
+    def _evidence_stats(self, chapters: List[ChapterState]) -> dict:
+        seen = set()
+        documents = full_text = snippets = 0
+        for chapter in chapters or []:
+            for doc in chapter.docs or []:
+                key = (doc.link or "").strip() or " ".join((doc.content or "").split())
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                documents += 1
+                if (doc.data or {}).get("content_scope") == "page_text":
+                    full_text += 1
+                else:
+                    snippets += 1
+        return {
+            "search_hits": documents,
+            "documents": documents,
+            "page_text_documents": full_text,
+            "snippet_only_documents": snippets,
+            "failed_chapters": sum(
+                1 for chapter in chapters or []
+                if chapter.status in {"failed", "limited"}
+            ),
+        }
+
     async def _search_queries_and_dedup(
         self,
         queries: List[str],
@@ -576,10 +639,19 @@ class DeepSearch:
 
         results = await asyncio.gather(*(_search_one(q) for q in queries))
         all_docs = [doc for docs in results for doc in docs]
-        seen_content = set()
+        seen_urls = set()
+        seen_contents = set()
         deduped_docs = []
         for doc in all_docs:
-            if doc.content and doc.content not in seen_content:
+            url_key = (doc.link or "").strip()
+            content_key = " ".join((doc.content or "").split()).lower()
+            if (
+                doc.content
+                and (not url_key or url_key not in seen_urls)
+                and content_key not in seen_contents
+            ):
                 deduped_docs.append(doc)
-                seen_content.add(doc.content)
+                if url_key:
+                    seen_urls.add(url_key)
+                seen_contents.add(content_key)
         return deduped_docs, results

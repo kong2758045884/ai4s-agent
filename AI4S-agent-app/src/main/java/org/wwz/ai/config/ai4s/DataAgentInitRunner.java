@@ -62,6 +62,7 @@ public class DataAgentInitRunner implements CommandLineRunner {
                 // 尝试执行data.sql，如果文件不存在或出错不影响启动
                 try {
                     ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/data.sql"));
+                    ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/ai4s-report-contract.sql"));
                 } catch (Exception e) {
                    log.warn("Execute data.sql failed or file not found, skipping data init: {}", e.getMessage());
                 }

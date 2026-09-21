@@ -37,7 +37,9 @@ public class WebSearchTool implements BaseTool {
     public static final String TOOL_NAME = "WebSearch";
 
     private static final int MAX_RESULTS = 8;
-    private static final long HTTP_TIMEOUT_SECONDS = 60L;
+    private static final long HTTP_TIMEOUT_SECONDS = 20L;
+    private static final long TOTAL_SEARCH_BUDGET_MILLIS = 65_000L;
+    private static final int MAX_CONFIGURED_PROVIDER_ATTEMPTS = 2;
     private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]+)]\\((https?://[^)]+)\\)");
     private static final Pattern BARE_URL = Pattern.compile("https?://[^\\s)>\"]+");
     private static final Pattern DDG_RESULT = Pattern.compile("(?is)<a[^>]*class=\\\"[^\\\"]*result__a[^\\\"]*\\\"[^>]*href=\\\"([^\\\"]+)\\\"[^>]*>(.*?)</a>");
@@ -117,28 +119,48 @@ public class WebSearchTool implements BaseTool {
             AI4SConfig config = requireAI4SConfig();
             List<ProviderPlan> plans = resolveProviderPlans(config);
             if (plans.isEmpty()) {
-                return failure("WebSearch 未配置。请配置 GPT/OpenAI（web_search.gpt_*）、Grok/xAI 或 exa/tavily/brave API key。");
+                return failure("WebSearch 已由配置禁用。", "configuration_disabled", List.of(), start);
             }
 
             Exception lastError = null;
-            // provider 按优先级逐个尝试；单个供应商超时或响应格式异常时，继续使用下一个可用后端。
+            int configuredAttempts = 0;
+            List<Map<String, Object>> failures = new ArrayList<>();
+            // 付费/有凭据 provider 最多尝试两个；始终为无 key 公共回退保留总预算。
             for (ProviderPlan plan : plans) {
+                boolean publicFallback = plan.provider() == Provider.PUBLIC_DDG;
+                if (!publicFallback && configuredAttempts >= MAX_CONFIGURED_PROVIDER_ATTEMPTS) {
+                    continue;
+                }
+                if (System.currentTimeMillis() - start >= TOTAL_SEARCH_BUDGET_MILLIS) {
+                    failures.add(Map.of("provider", plan.provider().name().toLowerCase(Locale.ROOT),
+                            "category", "total_budget_exhausted"));
+                    break;
+                }
+                if (!publicFallback) {
+                    configuredAttempts++;
+                }
+                long attemptStart = System.currentTimeMillis();
                 try {
                     SearchBundle bundle = executePlan(plan, query, allowedDomains, blockedDomains);
                     double durationSeconds = (System.currentTimeMillis() - start) / 1000.0;
                     return buildSuccess(query, plan.provider(), bundle, durationSeconds);
                 } catch (Exception e) {
                     lastError = e;
-                    log.warn("{} WebSearch provider {} failed, try next: {}",
-                            requestId(), plan.provider(), e.getMessage());
+                    String category = providerErrorCategory(e);
+                    long attemptMs = System.currentTimeMillis() - attemptStart;
+                    failures.add(Map.of(
+                            "provider", plan.provider().name().toLowerCase(Locale.ROOT),
+                            "category", category,
+                            "durationMs", attemptMs));
+                    log.warn("{} WebSearch provider={} category={} attemptMs={} fallback=true detail={}",
+                            requestId(), plan.provider(), category, attemptMs, e.getMessage());
                 }
             }
-            String msg = "WebSearch 全部 provider 失败"
-                    + (lastError == null ? "" : "：" + lastError.getMessage());
-            return failure(msg);
+            String category = lastError == null ? "search_unavailable" : providerErrorCategory(lastError);
+            return failure("WebSearch 未完成（" + category + "）", category, failures, start);
         } catch (Exception e) {
             log.error("{} WebSearch execute error, input={}", requestId(), input, e);
-            return failure("WebSearch 执行失败：" + StringUtils.defaultIfBlank(e.getMessage(), e.getClass().getSimpleName()));
+            return failure("WebSearch 未完成（internal_error）", "internal_error", List.of(), start);
         }
     }
 
@@ -810,6 +832,7 @@ public class WebSearchTool implements BaseTool {
         data.put("ok", Boolean.TRUE);
         data.put("query", query);
         data.put("provider", provider.name().toLowerCase(Locale.ROOT));
+        data.put("resultStatus", hits.isEmpty() && StringUtils.isBlank(bundle.summary()) ? "empty" : "ok");
         data.put("durationSec", Math.round(durationSeconds * 100.0) / 100.0);
         if (StringUtils.isNotBlank(bundle.summary())) {
             data.put("summary", bundle.summary().trim());
@@ -1077,6 +1100,46 @@ public class WebSearchTool implements BaseTool {
 
     private ToolResultPayload failure(String message) {
         return ToolResultPayload.failureFrom(message, null);
+    }
+
+    private ToolResultPayload failure(String message,
+                                      String category,
+                                      List<Map<String, Object>> failures,
+                                      long startedAt) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("tool", "web_search");
+        detail.put("ok", Boolean.FALSE);
+        detail.put("category", category);
+        detail.put("attempts", failures == null ? List.of() : failures);
+        detail.put("durationMs", Math.max(0L, System.currentTimeMillis() - startedAt));
+        return ToolResultPayload.failureFrom(message, detail);
+    }
+
+    private static String providerErrorCategory(Throwable error) {
+        Throwable cursor = error;
+        while (cursor.getCause() != null && cursor.getCause() != cursor) {
+            cursor = cursor.getCause();
+        }
+        String name = cursor.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+        String message = StringUtils.defaultString(cursor.getMessage()).toLowerCase(Locale.ROOT);
+        if (message.contains("401") || message.contains("403") || message.contains("unauthorized")
+                || message.contains("forbidden") || message.contains("api key")) {
+            return "configuration_or_auth";
+        }
+        if (message.contains("429") || message.contains("rate limit") || message.contains("too many requests")) {
+            return "rate_limited";
+        }
+        if (message.contains("no results") || message.contains("no content")) {
+            return "empty_result";
+        }
+        if (name.contains("timeout") || message.contains("timed out")) {
+            return "temporary_timeout";
+        }
+        if (name.contains("unknownhost") || name.contains("connect") || name.contains("socket")
+                || name.contains("io")) {
+            return "temporary_network";
+        }
+        return "provider_response_invalid";
     }
 
     @SuppressWarnings("unchecked")

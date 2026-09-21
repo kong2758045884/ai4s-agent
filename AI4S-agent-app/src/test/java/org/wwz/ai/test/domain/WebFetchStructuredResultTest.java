@@ -61,7 +61,7 @@ public class WebFetchStructuredResultTest {
     }
 
     @Test
-    public void shouldKeepHttpFailureDetailsInStructuredPayload() {
+    public void shouldKeepSafeHttpFailureDetailsInStructuredPayload() {
         RemoteHttpPort httpPort = new RemoteHttpPort() {
             @Override
             public String execute(RemoteHttpRequest request) {
@@ -98,10 +98,83 @@ public class WebFetchStructuredResultTest {
         Assert.assertEquals("web_fetch", detail.get("tool"));
         Assert.assertEquals(404, detail.get("status"));
         Assert.assertEquals("Not Found", detail.get("statusText"));
-        Assert.assertEquals("fund page is missing", detail.get("responseBody"));
+        Assert.assertEquals("http_error", detail.get("category"));
+        Assert.assertFalse(detail.containsKey("responseBody"));
 
         String observation = ToolObservationSerializer.serializePayload(payload);
         Assert.assertTrue(observation.contains("\"tool_ok\":false"));
         Assert.assertTrue(observation.contains("\"status\":404"));
+        Assert.assertFalse(observation.contains("fund page is missing"));
+    }
+
+    @Test
+    public void shouldFallbackDirectOnlyWhenProxyIsOptional() {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        RemoteHttpPort httpPort = new RemoteHttpPort() {
+            @Override
+            public String execute(RemoteHttpRequest request) {
+                return "";
+            }
+
+            @Override
+            public RemoteHttpResponse executeDetailed(RemoteHttpRequest request) throws java.io.IOException {
+                if (calls.incrementAndGet() == 1) {
+                    Assert.assertEquals("http://127.0.0.1:7890", request.getProxy());
+                    throw new java.io.IOException("proxy unavailable");
+                }
+                Assert.assertNull(request.getProxy());
+                return RemoteHttpResponse.builder()
+                        .statusCode(404)
+                        .statusText("Not Found")
+                        .headers(Map.of("Content-Type", "text/html"))
+                        .body("missing")
+                        .finalUrl(request.getUrl())
+                        .build();
+            }
+        };
+        AI4SConfig config = new AI4SConfig();
+        config.setWebFetchProxy("http://127.0.0.1:7890");
+        config.setWebFetchProxyRequired(false);
+        WebFetchTool tool = new WebFetchTool();
+        tool.setAgentContext(AgentContext.builder()
+                .requestId("req-web-fetch-direct-fallback")
+                .runtimeDependencies(AI4SRuntimeTestSupport.runtimeDependencies(config, httpPort))
+                .build());
+
+        tool.execute(Map.of("url", "https://example.com", "prompt", "extract title"));
+
+        Assert.assertEquals(2, calls.get());
+    }
+
+    @Test
+    public void shouldNotBypassRequiredProxy() {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        RemoteHttpPort httpPort = new RemoteHttpPort() {
+            @Override
+            public String execute(RemoteHttpRequest request) {
+                return "";
+            }
+
+            @Override
+            public RemoteHttpResponse executeDetailed(RemoteHttpRequest request) throws java.io.IOException {
+                calls.incrementAndGet();
+                throw new java.io.IOException("proxy unavailable");
+            }
+        };
+        AI4SConfig config = new AI4SConfig();
+        config.setWebFetchProxy("http://127.0.0.1:7890");
+        config.setWebFetchProxyRequired(true);
+        WebFetchTool tool = new WebFetchTool();
+        tool.setAgentContext(AgentContext.builder()
+                .requestId("req-web-fetch-required-proxy")
+                .runtimeDependencies(AI4SRuntimeTestSupport.runtimeDependencies(config, httpPort))
+                .build());
+
+        ToolResultPayload payload = (ToolResultPayload) tool.execute(
+                Map.of("url", "https://example.com", "prompt", "extract title"));
+
+        Assert.assertEquals(1, calls.get());
+        Assert.assertTrue(Boolean.TRUE.equals(payload.getFailed()));
+        Assert.assertEquals("proxy_unavailable", ((Map<?, ?>) payload.getLlmData()).get("category"));
     }
 }

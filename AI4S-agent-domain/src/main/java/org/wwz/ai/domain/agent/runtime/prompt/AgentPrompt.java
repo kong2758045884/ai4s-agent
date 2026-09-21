@@ -92,8 +92,9 @@ public class AgentPrompt {
              - 信息够了就停下并交付，不要无限深挖。
              - Smallest helpful response：先结论；禁止套话开场/收尾；短问一段话。
              - Cite what you did：动过文件/工具时，结尾摘要路径与关键数字；禁止重贴 tool 大输出、整表、HTML 正文。
-             - Surface failures clearly：写清工具名与错误要点；相同失败入参不反复重试。
-             - 只用当前会话提供给你的工具；不要假设未出现在工具列表中的能力。
+	             - Surface failures clearly：写清工具名与错误要点；相同失败入参不反复重试。
+	             - 只用当前会话提供给你的工具；不要假设未出现在工具列表中的能力。
+	             - 当用户要求 AI4S 研判报告、科学事件研判或同类正式研究报告时，在取证、分析或生成文件前必须先调用 `skill_tool` 加载 `ai4s-report-analysis`；按该 skill 的九章契约交付 HTML，不得把仅完成检索摘要或仅生成 Markdown/PDF 当作正式验收。
 
              # 并行工具调用
 

@@ -38,7 +38,7 @@ public class DeepSearchStructuredResultBuilder {
     /**
      * 每条文档摘要最大长度，避免再次膨胀成大 JSON。
      */
-    private static final int OBSERVATION_DOC_SUMMARY_MAX_LEN = 360;
+    private static final int OBSERVATION_DOC_SUMMARY_MAX_LEN = 1200;
 
     /**
      * 章节总结写入 observation 时的最大长度。
@@ -51,6 +51,9 @@ public class DeepSearchStructuredResultBuilder {
     private final LinkedHashMap<String, DeepSearchChapter> chapters = new LinkedHashMap<>();
     private String query;
     private String finalAnswer;
+    private String retrievalStatus = "unknown";
+    private Map<String, Object> evidenceStats = new LinkedHashMap<>();
+    private final LinkedHashSet<String> limitations = new LinkedHashSet<>();
 
     public DeepSearchStructuredResultBuilder(String query) {
         this.query = StringUtils.trimToEmpty(query);
@@ -86,7 +89,11 @@ public class DeepSearchStructuredResultBuilder {
 
     /** 是否已经收集到可供后续分析使用的证据或章节内容。 */
     public boolean hasEvidence() {
-        return !searchResults.isEmpty() || !chapters.isEmpty() || StringUtils.isNotBlank(finalAnswer);
+        boolean queryEvidence = searchResults.values().stream()
+                .anyMatch(items -> items != null && items.stream().anyMatch(this::isUsableDoc));
+        boolean chapterEvidence = chapters.values().stream()
+                .anyMatch(chapter -> CollectionUtils.isNotEmpty(chapter.getDocs()));
+        return queryEvidence || chapterEvidence;
     }
 
     /**
@@ -98,6 +105,29 @@ public class DeepSearchStructuredResultBuilder {
         }
         if (StringUtils.isNotBlank(answer)) {
             this.finalAnswer = answer;
+        }
+    }
+
+    public void recordTerminal(String status,
+                               Map<String, Object> stats,
+                               List<String> terminalLimitations) {
+        if (StringUtils.isNotBlank(status)) {
+            retrievalStatus = status.trim();
+        }
+        if (stats != null) {
+            evidenceStats = new LinkedHashMap<>(stats);
+        }
+        if (terminalLimitations != null) {
+            terminalLimitations.stream()
+                    .filter(StringUtils::isNotBlank)
+                    .forEach(limitations::add);
+        }
+    }
+
+    public void markPartial(String limitation) {
+        retrievalStatus = "limited";
+        if (StringUtils.isNotBlank(limitation)) {
+            limitations.add(limitation.trim());
         }
     }
 
@@ -124,6 +154,9 @@ public class DeepSearchStructuredResultBuilder {
                 .chapters(buildObservationChapters())
                 .results(buildObservationResults())
                 .answerSummary(normalizedAnswer)
+                .retrievalStatus(retrievalStatus)
+                .evidenceStats(new LinkedHashMap<>(evidenceStats))
+                .limitations(new ArrayList<>(limitations))
                 .build();
         return ToolResultPayload.fromData(observation, output);
     }
@@ -140,6 +173,9 @@ public class DeepSearchStructuredResultBuilder {
                 .chapters(buildObservationChapters())
                 .results(buildObservationResults())
                 .answerSummary(normalizedAnswer)
+                .retrievalStatus(retrievalStatus)
+                .evidenceStats(new LinkedHashMap<>(evidenceStats))
+                .limitations(new ArrayList<>(limitations))
                 .build();
         return JSON.toJSONString(observation);
     }
@@ -281,7 +317,15 @@ public class DeepSearchStructuredResultBuilder {
         if (StringUtils.isNotBlank(normalizedAnswer)) {
             stages.add(DeepSearchStage.report(normalizedAnswer));
         }
-        return DeepSearchToolOutput.of(query, normalizedAnswer, stages, orderedChapters());
+        return DeepSearchToolOutput.of(
+                query,
+                normalizedAnswer,
+                stages,
+                orderedChapters(),
+                retrievalStatus,
+                evidenceStats,
+                new ArrayList<>(limitations)
+        );
     }
 
     private List<DeepSearchChapter> orderedChapters() {
@@ -304,6 +348,7 @@ public class DeepSearchStructuredResultBuilder {
                 .content(doc.getContent())
                 .title(doc.getTitle())
                 .link(doc.getLink())
+                .data(doc.getData() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(doc.getData()))
                 .build();
     }
 
@@ -319,7 +364,8 @@ public class DeepSearchStructuredResultBuilder {
             docs.add(DeepSearchDoc.of(
                     StringUtils.defaultString(rawDoc.getTitle()),
                     StringUtils.defaultString(rawDoc.getLink()),
-                    StringUtils.defaultString(rawDoc.getContent())
+                    StringUtils.defaultString(rawDoc.getContent()),
+                    rawDoc.getData()
             ));
         }
         return docs;
@@ -342,6 +388,10 @@ public class DeepSearchStructuredResultBuilder {
                             .title(StringUtils.defaultString(rawDoc.getTitle()))
                             .link(StringUtils.defaultString(rawDoc.getLink()))
                             .summary(truncate(StringUtils.defaultString(rawDoc.getContent()), OBSERVATION_DOC_SUMMARY_MAX_LEN))
+                            .sourceId(metadata(rawDoc).get("source_id") == null ? null : String.valueOf(metadata(rawDoc).get("source_id")))
+                            .contentScope(metadata(rawDoc).get("content_scope") == null ? "unknown" : String.valueOf(metadata(rawDoc).get("content_scope")))
+                            .fetchedAt(stringMetadata(rawDoc, "fetched_at"))
+                            .sourceDate(stringMetadata(rawDoc, "source_date"))
                             .build());
                 }
             }
@@ -368,6 +418,10 @@ public class DeepSearchStructuredResultBuilder {
                         .title(StringUtils.defaultString(doc.getTitle()))
                         .link(StringUtils.defaultString(doc.getLink()))
                         .summary(truncate(StringUtils.defaultString(doc.getSummary()), OBSERVATION_DOC_SUMMARY_MAX_LEN))
+                        .sourceId(stringMetadata(doc, "source_id"))
+                        .contentScope(StringUtils.defaultIfBlank(stringMetadata(doc, "content_scope"), "unknown"))
+                        .fetchedAt(stringMetadata(doc, "fetched_at"))
+                        .sourceDate(stringMetadata(doc, "source_date"))
                         .build());
             }
             if (!docs.isEmpty()) {
@@ -403,6 +457,24 @@ public class DeepSearchStructuredResultBuilder {
         return normalized.substring(0, maxLen) + "...";
     }
 
+    private boolean isUsableDoc(DeepSearchrResponse.SearchDoc doc) {
+        return doc != null && StringUtils.isNotBlank(doc.getContent());
+    }
+
+    private Map<String, Object> metadata(DeepSearchrResponse.SearchDoc doc) {
+        return doc == null || doc.getData() == null ? Map.of() : doc.getData();
+    }
+
+    private String stringMetadata(DeepSearchrResponse.SearchDoc doc, String key) {
+        Object value = metadata(doc).get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String stringMetadata(DeepSearchDoc doc, String key) {
+        Object value = doc == null || doc.getMetadata() == null ? null : doc.getMetadata().get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -414,6 +486,9 @@ public class DeepSearchStructuredResultBuilder {
         private List<DeepSearchObservationChapter> chapters;
         private List<DeepSearchObservationQueryResult> results;
         private String answerSummary;
+        private String retrievalStatus;
+        private Map<String, Object> evidenceStats;
+        private List<String> limitations;
     }
 
     @Data
@@ -446,5 +521,9 @@ public class DeepSearchStructuredResultBuilder {
         private String title;
         private String link;
         private String summary;
+        private String sourceId;
+        private String contentScope;
+        private String fetchedAt;
+        private String sourceDate;
     }
 }

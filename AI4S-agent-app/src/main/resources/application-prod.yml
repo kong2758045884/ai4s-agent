@@ -142,6 +142,7 @@ autobots:
     multimodalagent_url: "http://127.0.0.1:1601"
     # 代理是可选项；未显式配置时直连，不能把开发机上的 127.0.0.1:7890 带进生产。
     web_fetch_proxy: "${AI4S_WEB_FETCH_PROXY:}"
+    web_fetch_proxy_required: "${AI4S_WEB_FETCH_PROXY_REQUIRED:false}"
     ai4s_daily:
       # AI4S Daily 是公开静态数据源，默认直连；需要时可用 AI4S_DAILY_PROXY 覆盖。
       proxy: "${AI4S_DAILY_PROXY:}"

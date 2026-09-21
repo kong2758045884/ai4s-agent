@@ -24,8 +24,7 @@ from ai4s_tool.util.log_util import timer
 # 普通问答的章节拆解行为；缺失的章节会带着专门的检索任务补入搜索计划。
 AI4S_REPORT_CHAPTERS = (
     ("事件概览", "梳理事件背景、触发时间线、参与机构、公开数字和当前状态。"),
-    ("科学问题", "说明研究对象、科学假设、评价指标、边界条件和待解决的核心问题。"),
-    ("技术路线", "拆解模型或方法、数据、训练/实验流程、输入输出和工程实现。"),
+    ("技术路线", "说明科学问题、评价指标和边界条件，并拆解模型或方法、数据、训练/实验流程、输入输出和工程实现。"),
     ("主要创新", "逐条比较相对前序工作的变化，说明每项创新的证据和适用边界。"),
     ("论文团队与机构", "核对论文、作者、研究机构、研究团队、代表成果及其关系。"),
     ("前序工作", "按时间顺序梳理继承、复用、演进和关键转折。"),
@@ -51,8 +50,7 @@ def _chapter_category(title: str) -> str | None:
     text = str(title or "").strip().lower()
     groups = {
         "事件概览": ("事件", "背景", "概览", "时间线", "发布", "进展"),
-        "科学问题": ("科学问题", "研究问题", "研究对象", "任务定义", "评价指标"),
-        "技术路线": ("技术路线", "架构", "模型", "方法", "算法", "数据流程"),
+        "技术路线": ("技术路线", "科学问题", "研究问题", "研究对象", "任务定义", "评价指标", "架构", "模型", "方法", "算法", "数据流程"),
         "主要创新": ("主要创新", "创新", "贡献", "改进"),
         "论文团队与机构": ("论文", "团队", "机构", "作者", "研究人员", "组织"),
         "前序工作": ("前序", "沿革", "历史", "演进", "发展", "继承"),
@@ -74,13 +72,10 @@ def ensure_ai4s_report_structure(chapters: list[dict], query: str) -> list[dict]
         return chapters
 
     assigned: dict[str, dict] = {}
-    extras: list[dict] = []
     for chapter in chapters or []:
         category = _chapter_category(chapter.get("title", ""))
         if category and category not in assigned:
             assigned[category] = dict(chapter)
-        else:
-            extras.append(dict(chapter))
 
     result: list[dict] = []
     for title, research_task in AI4S_REPORT_CHAPTERS:
@@ -100,8 +95,8 @@ def ensure_ai4s_report_structure(chapters: list[dict], query: str) -> list[dict]
                 item["search_queries"] = [f"{query} {title}"]
         result.append(item)
 
-    # 保留模型提出的额外专题，但放在固定章节之后；通常不会超过一个。
-    result.extend(extras)
+    # 正式报告是严格九章契约；模型提出的额外专题应并入最接近的固定章节，
+    # 不再作为第十章追加，避免检索计划和最终成品结构漂移。
     return result
 
 

@@ -8,6 +8,8 @@
 
 DeepSearch、WebFetch 等工具将网页结果统一封装为 Doc，便于后续切片、落盘与摘要。
 """
+import hashlib
+import html
 import uuid
 from typing import Literal, Any
 from dataclasses import dataclass, field
@@ -45,20 +47,25 @@ class Doc:
         """转为简单 HTML 片段，用于报告或预览嵌入。"""
         return (
             f"<div>\n"
-            f"  <p>文档类型:{self.doc_type}</p>\n"
-            f"  <p>文档标题:{self.title}</p>\n"
-            f"  <p>文档链接:{self.link}</p>\n"
-            f"  <p>文档内容:{self.content}</p>\n"
+            f"  <p>文档类型:{html.escape(self.doc_type)}</p>\n"
+            f"  <p>文档标题:{html.escape(self.title or '')}</p>\n"
+            f"  <p>文档链接:{html.escape(self.link or '')}</p>\n"
+            f"  <p>正文范围:{html.escape(str((self.data or {}).get('content_scope', 'unknown')))}</p>\n"
+            f"  <p>文档内容:{html.escape(self.content or '')}</p>\n"
             f"</div>"
         )
 
     def to_dict(self, truncate_len: int = 0):
         """序列化为字典；truncate_len>0 时截断 content，控制上下文长度。"""
         content = self.content[0:truncate_len] if truncate_len > 0 else self.content
+        metadata = dict(self.data or {})
+        identity = (self.link or self.unique_id).encode("utf-8", errors="ignore")
+        metadata.setdefault("source_id", "web-" + hashlib.sha256(identity).hexdigest()[:12])
+        metadata.setdefault("content_chars", len(self.content or ""))
         return {
             "doc_type": self.doc_type,
             "content": content,
             "title": self.title,
             "link": self.link,
-            "data": self.data,
+            "data": metadata,
         }

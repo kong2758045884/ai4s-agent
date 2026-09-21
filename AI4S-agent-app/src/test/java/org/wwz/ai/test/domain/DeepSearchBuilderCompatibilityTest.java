@@ -3,6 +3,8 @@ package org.wwz.ai.test.domain;
 import org.junit.Assert;
 import org.junit.Test;
 import org.wwz.ai.domain.agent.runtime.dto.DeepSearchrResponse;
+import org.wwz.ai.domain.agent.runtime.tool.ToolObservationSerializer;
+import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.runtime.tool.common.DeepSearchStructuredResultBuilder;
 
 import java.lang.reflect.Method;
@@ -67,10 +69,10 @@ public class DeepSearchBuilderCompatibilityTest {
         Object payload = buildPayload.invoke(builder, "fallback");
 
         Method getStructuredOutput = payload.getClass().getMethod("getStructuredOutput");
-        Method getLlmObservation = payload.getClass().getMethod("getLlmObservation");
 
         Assert.assertNotNull(getStructuredOutput.invoke(payload));
-        Assert.assertTrue(String.valueOf(getLlmObservation.invoke(payload)).contains("中国新能源车出口数据"));
+        Assert.assertTrue(ToolObservationSerializer.serializePayload((ToolResultPayload) payload)
+                .contains("中国新能源车出口数据"));
     }
 
     private static void invokeSetter(Class<?> type, Object target, String methodName, Class<?> argType, Object value)

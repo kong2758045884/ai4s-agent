@@ -43,7 +43,6 @@ class DeepSearchLlmConfigTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [
                 "事件概览",
-                "科学问题",
                 "技术路线",
                 "主要创新",
                 "论文团队与机构",
@@ -53,9 +52,10 @@ class DeepSearchLlmConfigTest(unittest.IsolatedAsyncioTestCase):
                 "待观察问题",
                 "来源证据",
             ],
-            titles[:10],
+            titles,
         )
-        self.assertTrue(all(chapter["search_queries"] for chapter in chapters[:10]))
+        self.assertEqual(9, len(chapters))
+        self.assertTrue(all(chapter["search_queries"] for chapter in chapters))
 
     def test_should_prefer_deepsearch_gateway_over_openai_defaults(self):
         with patch.dict(

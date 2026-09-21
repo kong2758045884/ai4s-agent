@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from ai4s_tool.model.document import Doc
 from ai4s_tool.tool.deepsearch import DeepSearch
+from ai4s_tool.tool.deepsearch import resolve_sse_doc_chars
 
 
 class DeepSearchEngineSelectionTest(unittest.TestCase):
@@ -21,6 +22,14 @@ class DeepSearchEngineSelectionTest(unittest.TestCase):
     def test_should_disable_jina_reader_for_deepsearch_by_default(self):
         search = DeepSearch(engines=["ddg"])
         self.assertFalse(search._search_single_query.keywords["use_jina_reader"])
+
+    def test_legacy_single_page_size_is_interpreted_as_kib(self):
+        with patch.dict(os.environ, {"SINGLE_PAGE_MAX_SIZE": "6", "DEEPSEARCH_SSE_DOC_CHARS": ""}, clear=False):
+            self.assertEqual(6144, resolve_sse_doc_chars())
+
+    def test_explicit_sse_doc_chars_wins(self):
+        with patch.dict(os.environ, {"SINGLE_PAGE_MAX_SIZE": "6", "DEEPSEARCH_SSE_DOC_CHARS": "2400"}, clear=False):
+            self.assertEqual(2400, resolve_sse_doc_chars())
 
     async def _run_search_without_blocking(self):
         search = DeepSearch(engines=["ddg"])

@@ -15,12 +15,16 @@ import org.wwz.ai.domain.agent.ai4s.config.AI4SConfig;
 
 import java.net.URI;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -44,6 +48,10 @@ public class WebFetchTool implements BaseTool {
     private static final Pattern TAG = Pattern.compile("(?is)<[^>]+>");
     private static final Pattern MULTI_SPACE = Pattern.compile("[ \\t\\x0B\\f\\r]+");
     private static final Pattern MULTI_NL = Pattern.compile("\\n{3,}");
+    private static final Pattern HTML_TITLE = Pattern.compile("(?is)<title[^>]*>(.*?)</title>");
+    private static final Pattern META_DATE = Pattern.compile(
+            "(?is)<meta[^>]+(?:name|property)=[\\\"'](?:article:published_time|date|datePublished|publication_date)[\\\"'][^>]+content=[\\\"']([^\\\"']+)[\\\"']");
+    private static final int SOURCE_EXCERPT_CHARS = 6000;
 
     private AgentContext agentContext;
 
@@ -137,6 +145,7 @@ public class WebFetchTool implements BaseTool {
             data.put("prompt", prompt);
             data.put("content", extracted.content());
             data.put("degraded", extracted.degraded());
+            data.put("source", sourceMetadata(fetch, markdown));
             if (extracted.degraded()) {
                 // 诊断信息只写日志；工具 observation 可能进入报告代理，不能把异常类名、代理地址
                 // 或连接堆栈当作事实资料暴露给最终用户。
@@ -144,16 +153,20 @@ public class WebFetchTool implements BaseTool {
             }
             return ToolResultPayload.fromData(data);
         } catch (FetchHttpException e) {
-            log.warn("{} WebFetch remote response failed, url={}, status={}", requestId(), e.url, e.statusCode);
-            Map<String, Object> detail = failureDetails(rawUrl, prompt);
+            long durationMs = System.currentTimeMillis() - start;
+            String category = httpCategory(e.statusCode);
+            log.warn("{} WebFetch failed stage=http category={} status={} durationMs={} url={}",
+                    requestId(), category, e.statusCode, durationMs, e.url);
+            Map<String, Object> detail = failureDetails(rawUrl, prompt, category, durationMs);
             detail.put("status", e.statusCode);
             detail.put("statusText", StringUtils.defaultString(e.statusText));
-            detail.put("responseBody", e.responseBody);
-            return ToolResultPayload.failureFrom("WebFetch 失败：" + e.getMessage(), detail);
+            return ToolResultPayload.failureFrom("WebFetch 未完成：目标页面返回 HTTP " + e.statusCode, detail);
         } catch (Exception e) {
-            log.error("{} WebFetch execute error, input={}", requestId(), input, e);
-            return failure("WebFetch 失败：" + StringUtils.defaultIfBlank(e.getMessage(), e.getClass().getSimpleName()),
-                    rawUrl, prompt);
+            long durationMs = System.currentTimeMillis() - start;
+            String category = errorCategory(e);
+            log.error("{} WebFetch failed stage=fetch category={} durationMs={} url={}",
+                    requestId(), category, durationMs, rawUrl, e);
+            return failure("WebFetch 未完成（" + category + "）", rawUrl, prompt, category, durationMs);
         }
     }
 
@@ -190,7 +203,9 @@ public class WebFetchTool implements BaseTool {
         String contentType = StringUtils.defaultString(headerIgnoreCase(response.getHeaders(), "Content-Type")).toLowerCase(Locale.ROOT);
         String body = StringUtils.defaultString(response.getBody());
         String content;
+        PageMetadata pageMetadata = PageMetadata.empty();
         if (contentType.contains("text/html") || looksLikeHtml(body)) {
+            pageMetadata = extractPageMetadata(body);
             content = htmlToText(body);
         } else {
             content = body;
@@ -199,7 +214,9 @@ public class WebFetchTool implements BaseTool {
             throw new IllegalStateException("Empty content from " + url);
         }
         String finalUrl = StringUtils.defaultIfBlank(response.getFinalUrl(), url);
-        return FetchResult.content(finalUrl, code, response.getStatusText(), content, content.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        return FetchResult.content(finalUrl, code, response.getStatusText(), content,
+                content.getBytes(StandardCharsets.UTF_8).length,
+                pageMetadata.title(), pageMetadata.sourceDate(), Instant.now().toString());
     }
 
     private ExtractOutcome applyPromptToContent(String prompt, String markdownContent) {
@@ -268,7 +285,12 @@ public class WebFetchTool implements BaseTool {
             try {
                 return requireRemoteHttpPort().executeDetailed(builder.proxy(proxy).build());
             } catch (Exception proxyFailure) {
-                log.warn("{} WebFetch proxy unavailable; retry direct url={}", requestId(), url);
+                log.warn("{} WebFetch transport failed stage=proxy category={} retry={} url={}",
+                        requestId(), errorCategory(proxyFailure),
+                        !Boolean.TRUE.equals(config.getWebFetchProxyRequired()), url);
+                if (Boolean.TRUE.equals(config.getWebFetchProxyRequired())) {
+                    throw new IOException("configured proxy is required but unavailable", proxyFailure);
+                }
             }
         }
         return requireRemoteHttpPort().executeDetailed(builder.proxy(null).build());
@@ -329,6 +351,30 @@ public class WebFetchTool implements BaseTool {
             return content;
         }
         return content.substring(0, MAX_MARKDOWN_LENGTH) + "\n\n[Content truncated due to length...]";
+    }
+
+    private static PageMetadata extractPageMetadata(String html) {
+        Matcher title = HTML_TITLE.matcher(StringUtils.defaultString(html));
+        Matcher date = META_DATE.matcher(StringUtils.defaultString(html));
+        return new PageMetadata(
+                title.find() ? htmlToText(title.group(1)) : "",
+                date.find() ? date.group(1).trim() : "unknown"
+        );
+    }
+
+    private Map<String, Object> sourceMetadata(FetchResult fetch, String content) {
+        Map<String, Object> source = new LinkedHashMap<>();
+        String url = StringUtils.defaultString(fetch.finalUrl());
+        source.put("sourceId", "web-" + UUID.nameUUIDFromBytes(url.getBytes(StandardCharsets.UTF_8)));
+        source.put("title", StringUtils.defaultIfBlank(fetch.title(), url));
+        source.put("url", url);
+        source.put("sourceType", "web_page");
+        source.put("contentScope", fetch.content().length() > MAX_MARKDOWN_LENGTH ? "page_text_truncated" : "page_text");
+        source.put("contentExcerpt", StringUtils.abbreviate(StringUtils.defaultString(content), SOURCE_EXCERPT_CHARS));
+        source.put("contentChars", fetch.content().length());
+        source.put("fetchedAt", fetch.fetchedAt());
+        source.put("sourceDate", StringUtils.defaultIfBlank(fetch.sourceDate(), "unknown"));
+        return source;
     }
 
     private static void validateUrl(String url) {
@@ -408,13 +454,27 @@ public class WebFetchTool implements BaseTool {
     }
 
     private ToolResultPayload failure(String message, String url, String prompt) {
-        return ToolResultPayload.failureFrom(message, failureDetails(url, prompt));
+        return failure(message, url, prompt, "invalid_request", 0L);
     }
 
-    private Map<String, Object> failureDetails(String url, String prompt) {
+    private ToolResultPayload failure(String message,
+                                      String url,
+                                      String prompt,
+                                      String category,
+                                      long durationMs) {
+        return ToolResultPayload.failureFrom(message, failureDetails(url, prompt, category, durationMs));
+    }
+
+    private Map<String, Object> failureDetails(String url,
+                                               String prompt,
+                                               String category,
+                                               long durationMs) {
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("type", "tool_error");
         detail.put("tool", "web_fetch");
+        detail.put("stage", "fetch");
+        detail.put("category", category);
+        detail.put("durationMs", durationMs);
         if (StringUtils.isNotBlank(url)) {
             detail.put("url", url);
         }
@@ -422,6 +482,41 @@ public class WebFetchTool implements BaseTool {
             detail.put("prompt", prompt);
         }
         return detail;
+    }
+
+    private static String httpCategory(int status) {
+        if (status == 401 || status == 403) {
+            return "access_denied";
+        }
+        if (status == 429) {
+            return "rate_limited";
+        }
+        if (status >= 500) {
+            return "upstream_unavailable";
+        }
+        return "http_error";
+    }
+
+    private static String errorCategory(Throwable error) {
+        Throwable cursor = error;
+        while (cursor.getCause() != null && cursor.getCause() != cursor) {
+            cursor = cursor.getCause();
+        }
+        String name = cursor.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+        String message = StringUtils.defaultString(cursor.getMessage()).toLowerCase(Locale.ROOT);
+        if (name.contains("timeout") || message.contains("timed out")) {
+            return "temporary_timeout";
+        }
+        if (message.contains("proxy")) {
+            return "proxy_unavailable";
+        }
+        if (name.contains("unknownhost") || name.contains("connect") || name.contains("socket") || name.contains("io")) {
+            return "network_unavailable";
+        }
+        if (name.contains("illegalargument")) {
+            return "invalid_request";
+        }
+        return "fetch_failed";
     }
 
     @SuppressWarnings("unchecked")
@@ -464,7 +559,7 @@ public class WebFetchTool implements BaseTool {
                                    String url,
                                    String statusText,
                                    String responseBody) {
-            super("HTTP " + statusCode + " for " + url + ": " + responseBody);
+            super("HTTP " + statusCode);
             this.statusCode = statusCode;
             this.url = url;
             this.statusText = statusText;
@@ -480,14 +575,26 @@ public class WebFetchTool implements BaseTool {
             int statusCode,
             String statusText,
             String content,
-            int bytes
+            int bytes,
+            String title,
+            String sourceDate,
+            String fetchedAt
     ) {
         static FetchResult redirect(String original, String redirect, int code) {
-            return new FetchResult(true, original, redirect, null, code, null, null, 0);
+            return new FetchResult(true, original, redirect, null, code, null, null, 0,
+                    null, "unknown", Instant.now().toString());
         }
 
-        static FetchResult content(String finalUrl, int code, String statusText, String content, int bytes) {
-            return new FetchResult(false, null, null, finalUrl, code, statusText, content, bytes);
+        static FetchResult content(String finalUrl, int code, String statusText, String content, int bytes,
+                                   String title, String sourceDate, String fetchedAt) {
+            return new FetchResult(false, null, null, finalUrl, code, statusText, content, bytes,
+                    title, sourceDate, fetchedAt);
+        }
+    }
+
+    private record PageMetadata(String title, String sourceDate) {
+        static PageMetadata empty() {
+            return new PageMetadata("", "unknown");
         }
     }
 }

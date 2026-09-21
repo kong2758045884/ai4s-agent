@@ -125,6 +125,8 @@ class SearchEngineIntegrationTest(unittest.IsolatedAsyncioTestCase):
         parsed = await SearchBase.parser(docs=docs, timeout=15)
 
         self.assertEqual("clean article body", parsed[0].content)
+        self.assertEqual("page_text", parsed[0].data["content_scope"])
+        self.assertIn("fetched_at", parsed[0].data)
         mock_direct.assert_not_awaited()
 
     @patch.object(SearchBase, "_fetch_content_with_direct_http", new_callable=AsyncMock)
@@ -144,6 +146,7 @@ class SearchEngineIntegrationTest(unittest.IsolatedAsyncioTestCase):
         parsed = await SearchBase.parser(docs=docs, timeout=15, use_jina_reader=False)
 
         self.assertEqual("fallback body", parsed[0].content)
+        self.assertEqual("page_text", parsed[0].data["content_scope"])
         mock_jina.assert_not_awaited()
         mock_direct.assert_awaited_once()
 
@@ -197,6 +200,13 @@ class SearchEngineIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(1, len(deduped))
         self.assertEqual("https://example.com/a", deduped[0].link)
+
+    @patch.object(DDGSearch, "search", new_callable=AsyncMock)
+    async def test_search_and_dedup_should_not_hide_unexpected_contract_errors(self, mock_search):
+        mock_search.side_effect = TypeError("provider contract changed")
+
+        with self.assertRaises(TypeError):
+            await DDGSearch().search_and_dedup("AI Agent", request_id="req-contract")
 
     @patch.object(DDGSearch, "search_and_dedup", new_callable=AsyncMock)
     async def test_mix_search_should_delegate_to_ddg_when_enabled(self, mock_ddg):

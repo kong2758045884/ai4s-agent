@@ -15,10 +15,11 @@ import html
 import json
 import os
 import urllib.request
+from datetime import datetime, timezone
 from loguru import logger
 from abc import ABC, abstractmethod
 from typing import Any, List
-from urllib.parse import quote, parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -45,6 +46,13 @@ def _configured_proxy() -> str | None:
     return proxy or None
 
 
+def _proxy_required() -> bool:
+    """显式强制代理时禁止直连回退；默认代理仅作为可选传输路径。"""
+    return os.getenv("AI4S_WEB_FETCH_PROXY_REQUIRED", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def _request_kwargs(**kwargs):
     """为 aiohttp 请求补充显式代理，避免依赖进程级代理环境变量。"""
     proxy = _configured_proxy()
@@ -58,9 +66,9 @@ class SearchBase(ABC):
 
     def __init__(self):
         self._count = int(os.getenv("SEARCH_COUNT", 10))
-        self._timeout = int(os.getenv("SEARCH_TIMEOUT", 99999))
+        self._timeout = min(60, max(3, int(os.getenv("SEARCH_TIMEOUT", 30))))
         # 单 URL 抓取超时（秒），过大会导致墙内访问 Reddit/Threads/X 等长时间挂起后卡死
-        self._parser_timeout = int(os.getenv("SEARCH_PARSER_TIMEOUT", 15))
+        self._parser_timeout = min(30, max(3, int(os.getenv("SEARCH_PARSER_TIMEOUT", 15))))
         self._use_jd_gateway = os.getenv("USE_JD_SEARCH_GATEWAY", "true") == "true"
 
     @abstractmethod
@@ -123,7 +131,7 @@ class SearchBase(ABC):
                     raw_bytes = await response.read()
         except Exception as e:
             # 本地代理经常只在开发机存在；代理失败后立即直连，避免命中结果被整体丢弃。
-            if "proxy" in request_kwargs:
+            if "proxy" in request_kwargs and not _proxy_required():
                 logger.warning(f"parser proxy unavailable, retry direct: {type(e).__name__}")
                 try:
                     async with aiohttp.ClientSession() as session:
@@ -155,7 +163,7 @@ class SearchBase(ABC):
     async def parser(docs: List[Doc], timeout: int = 15, **kwargs) -> List[Doc]:
         use_jina_reader = kwargs.get("use_jina_reader", True)
 
-        async def _resolve_content(doc: Doc) -> str:
+        async def _resolve_content(doc: Doc) -> tuple[str, str]:
             # Jina 负责清洗正文但属于外部依赖；空结果或异常时必须回退直连，不能丢弃搜索命中。
             # 深度搜索默认改为直连抓取，只有显式开启时才尝试 Jina Reader。
             if use_jina_reader:
@@ -164,19 +172,26 @@ class SearchBase(ABC):
                     doc.link, jina_timeout
                 )
                 if jina_content and jina_content.strip():
-                    return jina_content.strip()
+                    return jina_content.strip(), "jina_reader"
             direct_content = await SearchBase._fetch_content_with_direct_http(
                 doc.link, timeout
             )
-            return direct_content.strip() if direct_content else ""
+            return (direct_content.strip(), "direct_http") if direct_content else ("", "search_snippet")
 
         async with asyncio.TaskGroup() as tg:
             tasks = [tg.create_task(_resolve_content(doc)) for doc in docs]
 
         for doc, task in zip(docs, tasks):
-            result = task.result()
+            result, method = task.result()
+            doc.data = dict(doc.data or {})
             if result:
                 doc.content = result
+                doc.data["content_scope"] = "page_text"
+                doc.data["fetch_method"] = method
+                doc.data["fetched_at"] = datetime.now(timezone.utc).isoformat()
+            else:
+                doc.data.setdefault("content_scope", "search_snippet")
+            doc.data["content_chars"] = len(doc.content or "")
         return docs
 
     @timer()
@@ -202,12 +217,10 @@ class SearchBase(ABC):
                 f"{self.__class__.__name__} skipped due to request error: {e}"
             )
             return []
-        except Exception as e:
-            # 兜底保护，保证某个搜索引擎失败时不会中断整个深度搜索流程。
-            logger.exception(
-                f"{self.__class__.__name__} skipped due to unexpected error: {e}"
-            )
-            return []
+        except Exception:
+            # 编程错误、返回契约变化等未知异常不能伪装成“检索成功但无结果”。
+            logger.exception(f"{self.__class__.__name__} failed unexpectedly")
+            raise
         if kwargs.get("parse_content", True):
             docs = await self.parser(
                 docs=docs,
@@ -215,13 +228,30 @@ class SearchBase(ABC):
                 use_jina_reader=kwargs.get("use_jina_reader", True),
             )
 
-        seen_docs = set()
+        seen_urls = set()
+        seen_contents = set()
         deduped_docs = []
-        # 搜索引擎只返回有正文且正文未重复的文档，避免后续 LLM 上下文被同一页面重复占用。
+        # URL 优先去重；缺 URL 时再用规范化正文，避免同页不同摘要重复占用上下文。
         for doc in docs:
-            if doc.content and doc.content not in seen_docs:
+            doc.data = dict(doc.data or {})
+            doc.data.setdefault("content_scope", "search_snippet")
+            doc.data.setdefault("retrieved_at", datetime.now(timezone.utc).isoformat())
+            parsed = urlparse(doc.link or "")
+            query = urlencode(sorted(
+                (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                if not key.lower().startswith("utm_")
+            ))
+            canonical_url = urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), "", query, ""))
+            content_key = " ".join((doc.content or "").split()).lower()
+            if (
+                doc.content
+                and (not canonical_url or canonical_url not in seen_urls)
+                and content_key not in seen_contents
+            ):
                 deduped_docs.append(doc)
-                seen_docs.add(doc.content)
+                if canonical_url:
+                    seen_urls.add(canonical_url)
+                seen_contents.add(content_key)
         return deduped_docs
 
 
@@ -290,7 +320,7 @@ class DDGSearch(SearchBase):
         try:
             content = await _read(kwargs)
         except Exception as error:
-            if "proxy" not in kwargs:
+            if "proxy" not in kwargs or _proxy_required():
                 logger.debug(f"public DDG search failed: {type(error).__name__}")
                 content = ""
             else:
@@ -305,7 +335,7 @@ class DDGSearch(SearchBase):
         # the system resolver prefers an unreachable IPv6 route.  urllib's
         # synchronous opener has a more portable fallback; explicitly disable
         # environment proxies so a stale 127.0.0.1 proxy cannot intercept it.
-        if not content:
+        if not content and not _proxy_required():
             def _urllib_read() -> str:
                 request = urllib.request.Request(
                     url,

@@ -137,6 +137,11 @@ public class AI4SConfig {
     @Setter
     private String webFetchProxy;
 
+    /** 显式要求所有 WebFetch 流量必须经过代理；为 false 时代理连接失败可单请求直连回退。 */
+    @Value("${autobots.autoagent.web_fetch_proxy_required:false}")
+    @Setter
+    private Boolean webFetchProxyRequired;
+
     /**
      * WebSearch 模式：auto | gpt | grok | exa | tavily | brave | disabled。
      * auto 时优先 Grok/xAI 原生搜索，其次 GPT/OpenAI Responses API、Exa、Tavily、Brave。

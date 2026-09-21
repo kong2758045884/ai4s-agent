@@ -244,6 +244,10 @@ public class DeepSearchTool implements ContextIsolatableTool {
                                 resultRef.set("搜索结果为空");
                                 return;
                             }
+                            resultBuilder.recordTerminal(
+                                    searchResponse.getRetrievalStatus(),
+                                    searchResponse.getEvidenceStats(),
+                                    searchResponse.getLimitations());
                             resultBuilder.recordFinalAnswer(searchResponse.getQuery(), searchResponse.getAnswer());
                              uploadFinalAnswerWithRetry(ctx, artifactSource, finalReportFileName,
                                      searchResponse.getAnswer(), ai4sConfig, fileArtifactUploader, finalAnswerUploaded);
@@ -331,6 +335,8 @@ public class DeepSearchTool implements ContextIsolatableTool {
                     if (StringUtils.isNotBlank(stringBuilderAll)) {
                         resultBuilder.recordFinalAnswer(searchRequest.getQuery(), stringBuilderAll.toString());
                         resultRef.set(stringBuilderAll.toString());
+                    } else if (resultBuilder.hasEvidence()) {
+                        resultBuilder.markPartial("report_stream_incomplete");
                     }
                     uploadFinalAnswerWithRetry(ctx, artifactSource, finalReportFileName,
                             stringBuilderAll.toString(), ai4sConfig, fileArtifactUploader, finalAnswerUploaded);
@@ -356,6 +362,7 @@ public class DeepSearchTool implements ContextIsolatableTool {
                         // 上游可能在 search/chapter_summary 后断开；保留已收集证据，不能把整次
                         // 调研降级成只有异常文本的失败结果。
                         if (resultBuilder.hasEvidence()) {
+                            resultBuilder.markPartial("upstream_stream_failure");
                             future.complete(resultBuilder.buildPayload(stringBuilderAll.toString()));
                         } else {
                             future.completeExceptionally(throwable instanceof Exception

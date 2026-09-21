@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * DeepSearch 工具响应模型，承载搜索阶段结果、章节总结和最终摘要。
@@ -29,6 +30,9 @@ public class DeepSearchrResponse {
     private Integer chapterOrder;
     private String chapterSummary;
     private Boolean chapterStreaming;
+    private String retrievalStatus;
+    private Map<String, Object> evidenceStats;
+    private List<String> limitations;
 
     @Data
     @Builder
@@ -61,5 +65,6 @@ public class DeepSearchrResponse {
         private String content;
         private String title;
         private String link;
+        private Map<String, Object> data;
     }
 }

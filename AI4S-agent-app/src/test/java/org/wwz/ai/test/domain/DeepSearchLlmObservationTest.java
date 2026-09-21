@@ -39,7 +39,7 @@ public class DeepSearchLlmObservationTest {
                 .searchResult(DeepSearchrResponse.SearchResult.builder()
                         .query(List.of("中国新能源车出口数据", "欧洲市场需求变化"))
                         .docs(List.of(
-                                List.of(doc("海关总署：出口量创新高", "https://example.com/customs", repeat("出口量持续增长，", 30))),
+                                List.of(docWithMetadata("海关总署：出口量创新高", "https://example.com/customs", repeat("出口量持续增长，", 30))),
                                 List.of(doc("欧洲汽车协会：需求回暖", "https://example.com/eu", repeat("欧洲市场正在恢复，", 20)))
                         ))
                         .build())
@@ -56,6 +56,7 @@ public class DeepSearchLlmObservationTest {
                         .build())
                 .build());
         builder.recordFinalAnswer("新能源车出口趋势", "综合多个来源，新能源车出口继续增长，欧洲需求回暖。");
+        builder.recordTerminal("complete", Map.of("documents", 2, "page_text_documents", 1), List.of());
 
         ToolResultPayload payload = builder.buildPayload("fallback");
         DeepSearchToolOutput structuredOutput = (DeepSearchToolOutput) payload.getStructuredOutput();
@@ -75,8 +76,11 @@ public class DeepSearchLlmObservationTest {
         Assert.assertEquals(2, llmObservation.getJSONArray("results").size());
         Assert.assertEquals(1, llmObservation.getJSONArray("chapters").size());
         Assert.assertFalse(payload.getFailed());
+        Assert.assertEquals("complete", structuredOutput.getRetrievalStatus());
+        Assert.assertEquals("complete", llmObservation.getString("retrievalStatus"));
         Assert.assertTrue(JSON.toJSONString(payload.getLlmData()).contains("海关总署：出口量创新高"));
         Assert.assertTrue(JSON.toJSONString(payload.getLlmData()).contains("https://example.com/customs"));
+        Assert.assertTrue(JSON.toJSONString(payload.getLlmData()).contains("page_text"));
     }
 
     @Test
@@ -108,7 +112,7 @@ public class DeepSearchLlmObservationTest {
         JSONArray docs = results.getJSONObject(0).getJSONArray("docs");
 
         Assert.assertEquals(4, docs.size());
-        Assert.assertTrue(docs.getJSONObject(0).getString("summary").length() <= 363);
+        Assert.assertTrue(docs.getJSONObject(0).getString("summary").length() <= 1203);
         // 总结文章全量返回，不再截断
         Assert.assertEquals(fullAnswer, llmObservation.getString("answerSummary"));
     }
@@ -160,6 +164,19 @@ public class DeepSearchLlmObservationTest {
                 .title(title)
                 .link(link)
                 .content(content)
+                .build();
+    }
+
+    private DeepSearchrResponse.SearchDoc docWithMetadata(String title, String link, String content) {
+        return DeepSearchrResponse.SearchDoc.builder()
+                .title(title)
+                .link(link)
+                .content(content)
+                .data(Map.of(
+                        "source_id", "web-customs",
+                        "content_scope", "page_text",
+                        "fetched_at", "2026-09-21T00:00:00Z"
+                ))
                 .build();
     }
 
