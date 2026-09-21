@@ -933,7 +933,7 @@ export default function StrategicMap() {
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[18px] font-semibold text-[#174f70] sm:text-[20px]">国内优势团队候选池</h2>
                 <span className="rounded-full border border-[#c2d9eb] bg-[#eef7fd] px-2.5 py-1 text-[11px] font-semibold text-[#2c6a98]">
-                  {visibleTeams.length} 支候选 · 重点 {priorityCount}
+                  {visibleTeams.filter((team) => team.verificationStatus !== "legacy_unverified").length} 支候选 · 重点 {priorityCount}
                 </span>
               </div>
               <p className="mt-1 text-[12px] text-[var(--chat-text-muted)]">
@@ -947,8 +947,13 @@ export default function StrategicMap() {
           </div>
 
           <div ref={teamScrollRef} onScroll={(event) => recordScroll("teams", event)} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 pt-4">
+            {visibleTeams.some((team) => team.verificationStatus === "legacy_unverified") ? (
+              <p role="note" className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                保留了 {visibleTeams.filter((team) => team.verificationStatus === "legacy_unverified").length} 条历史待审核线索，尚未通过新版证据审核，不计入已核实候选。原关注、联系和人工研判信息仍保留。
+              </p>
+            ) : null}
             <div className="hidden grid-cols-[1fr_112px_178px] items-center gap-3 border-b border-[#dfe8ef] px-3 py-2 text-[11px] font-semibold tracking-[0.06em] text-[#75899a] sm:grid">
-              <span>优势团队</span>
+              <span>团队 / 历史线索</span>
               <span>AI / 科学</span>
               <span>关注与联系</span>
             </div>
@@ -998,13 +1003,14 @@ export default function StrategicMap() {
                       <span className="mt-1 block break-words text-[12px] font-medium text-[#6a8194] sm:truncate">
                         团队：{teamDisplayName(team)}
                       </span>
+                      {team.verificationStatus === "legacy_unverified" ? <span className="block text-[11px] text-amber-700">历史线索 · 待审核</span> : null}
                       <span className="mt-0.5 block truncate text-[11px] text-[var(--chat-text-muted)] sm:hidden">
-                        {team.dualJudgement}
+                        {team.verificationStatus === "legacy_unverified" ? "历史研判待审核" : team.dualJudgement}
                       </span>
                     </span>
                   </span>
                   <span className="hidden text-[14px] font-semibold text-[#2e668e] sm:block">
-                    {team.aiLevel} / {team.scienceLevel}
+                    {team.verificationStatus === "legacy_unverified" ? "待审核" : `${team.aiLevel} / ${team.scienceLevel}`}
                   </span>
                   <span className="flex items-center justify-between gap-2 sm:block">
                     <AttentionBadge level={team.attention} />
@@ -1052,6 +1058,7 @@ export default function StrategicMap() {
           <h3 className="shrink-0 border-b border-[#e6edf4] py-4 text-[#174f70]">
             <span className="block text-[19px] font-semibold">{teamOrganization(selectedTeam)}</span>
             <span className="mt-1 block text-[14px] font-medium text-[#6a8194]">团队：{teamDisplayName(selectedTeam)}</span>
+            {selectedTeam.verificationStatus === "legacy_unverified" ? <p role="note" className="mt-2 text-[12px] text-amber-700">历史线索 · 待审核。以下为原有记录，尚未通过新版证据审核。</p> : null}
           </h3>
 
           <div className="shrink-0 border-b border-[#e6edf4] py-3">

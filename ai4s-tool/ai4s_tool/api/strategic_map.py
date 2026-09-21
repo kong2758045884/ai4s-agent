@@ -204,6 +204,12 @@ def _ensure_team_schema() -> None:
                 connection.exec_driver_sql(
                     f"ALTER TABLE strategic_map_team ADD COLUMN {name} {definition}"
                 )
+        if "verification_status" not in existing:
+            # Preserve access to pre-review records without promoting their
+            # unreviewed claims into the evidence-backed candidate pool.
+            connection.exec_driver_sql(
+                "UPDATE strategic_map_team SET verification_status = 'legacy_unverified'"
+            )
         # Backfill old rows conservatively.  ``focus`` is a research lead, so
         # it is not copied to team_name; the normalizer will supply an explicit
         # "not stated" label when a source does not name a team.
@@ -609,7 +615,7 @@ def _domain_query(session: Session, parent_id: str | None = None) -> list[Strate
     return query.order_by(StrategicDomainRow.sort_order.asc(), StrategicDomainRow.created_at.asc()).all()
 
 
-def _domain_to_dict(session: Session, domain: StrategicDomainRow) -> dict[str, Any]:
+def _domain_to_dict(session: Session, domain: StrategicDomainRow, *, include_legacy: bool = False) -> dict[str, Any]:
     # A selectable subdomain must have at least one current candidate. Empty
     # buckets make the map look artificial and can never produce a useful
     # filtered view, so hide them from the navigation payload.
@@ -618,7 +624,9 @@ def _domain_to_dict(session: Session, domain: StrategicDomainRow) -> dict[str, A
         if session.query(StrategicTeamRow.id).filter(
             StrategicTeamRow.subdomain_id == child.id,
             StrategicTeamRow.deleted.is_(False),
-            StrategicTeamRow.verification_status == "verified",
+            StrategicTeamRow.verification_status.in_(
+                ("verified", "legacy_unverified") if include_legacy else ("verified",)
+            ),
         ).first()
     ]
     return {
@@ -3001,7 +3009,9 @@ def start_strategic_map_scheduler() -> None:
 def get_strategic_map(
     refresh: bool = Query(False),
     domain_id: str | None = Query(None),
+    include_legacy: bool = Query(False),
 ) -> dict[str, Any]:
+    include_legacy = include_legacy is True
     with _SESSION_FACTORY() as session:
         roots = _domain_query(session)
         target = _get_domain(session, domain_id) if domain_id else (roots[0] if roots else None)
@@ -3017,11 +3027,13 @@ def get_strategic_map(
                 _record_refresh_failure(session, root, exc)
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             source["refreshed"] = True
-        domains = [_domain_to_dict(session, domain) for domain in _domain_query(session)]
+        domains = [_domain_to_dict(session, domain, include_legacy=include_legacy) for domain in _domain_query(session)]
         teams = [
             _team_to_dict(team, session)
             for team in session.query(StrategicTeamRow)
-            .filter(StrategicTeamRow.deleted.is_(False), StrategicTeamRow.verification_status == "verified")
+            .filter(StrategicTeamRow.deleted.is_(False), StrategicTeamRow.verification_status.in_(
+                ("verified", "legacy_unverified") if include_legacy else ("verified",)
+            ))
             .order_by(StrategicTeamRow.updated_at.desc())
             .all()
         ]
@@ -3227,7 +3239,9 @@ def list_domain_teams(
     domain_id: str,
     refresh: bool = Query(False),
     subdomain_id: str | None = Query(None),
+    include_legacy: bool = Query(False),
 ) -> dict[str, Any]:
+    include_legacy = include_legacy is True
     # The handler is called directly by the sync endpoint and by a few
     # internal tests; FastAPI's ``Query(None)`` default is otherwise passed to
     # SQLAlchemy as an object instead of Python ``None``.
@@ -3249,7 +3263,9 @@ def list_domain_teams(
         query = session.query(StrategicTeamRow).filter(
             StrategicTeamRow.domain_id == domain.id,
             StrategicTeamRow.deleted.is_(False),
-            StrategicTeamRow.verification_status == "verified",
+            StrategicTeamRow.verification_status.in_(
+                ("verified", "legacy_unverified") if include_legacy else ("verified",)
+            ),
         )
         if subdomain_id:
             query = query.filter(StrategicTeamRow.subdomain_id == subdomain_id)
@@ -3259,7 +3275,7 @@ def list_domain_teams(
             "source": source,
             # Refresh can create or remove populated subdomains; return the
             # filtered domain so the left navigation stays aligned immediately.
-            "domain": _domain_to_dict(session, domain),
+            "domain": _domain_to_dict(session, domain, include_legacy=include_legacy),
         })
 
 

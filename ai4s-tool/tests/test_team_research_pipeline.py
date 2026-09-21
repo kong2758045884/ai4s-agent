@@ -69,6 +69,43 @@ class PipelineTest(unittest.TestCase):
     def detail(self):
         return self.client.get('/v1/strategic-map/teams/t').json()['data']
 
+    def test_legacy_migration_preserves_records_and_does_not_promote(self):
+        from sqlalchemy import create_engine
+        engine = create_engine('sqlite://')
+        with engine.begin() as c:
+            c.exec_driver_sql('CREATE TABLE strategic_map_team (id TEXT PRIMARY KEY, name TEXT, evidence_summary TEXT, attention TEXT, contact_record TEXT)')
+            c.exec_driver_sql("INSERT INTO strategic_map_team VALUES ('stable-id','历史机构','原始线索','重点关注','人工记录')")
+        with patch.object(sm, '_ENGINE', engine):
+            sm._ensure_team_schema()
+            sm._ensure_team_schema()
+        with engine.connect() as c:
+            row = c.exec_driver_sql('SELECT id,name,evidence_summary,attention,contact_record,verification_status FROM strategic_map_team').one()
+            self.assertEqual(('stable-id','历史机构','原始线索','重点关注','人工记录','legacy_unverified'), tuple(row))
+        engine.dispose()
+
+    def test_legacy_records_are_explicit_opt_in_with_subdomain_and_stable_detail(self):
+        with sm._SESSION_FACTORY() as s:
+            s.add(sm.StrategicDomainRow(id='sub', parent_id='d', name='旧子领域'))
+            team = s.get(sm.StrategicTeamRow, 't')
+            team.verification_status = 'legacy_unverified'
+            team.subdomain_id = 'sub'
+            team.contact_record = '人工记录'
+            s.add(sm.StrategicTeamRow(id='conflict',domain_id='d',name='冲突记录',verification_status='conflict'))
+            s.commit()
+        normal = self.client.get('/v1/strategic-map').json()['data']
+        self.assertEqual([], normal['teams'])
+        self.assertEqual([], normal['domains'][0]['subdomains'])
+        legacy = self.client.get('/v1/strategic-map?include_legacy=true').json()['data']
+        self.assertEqual(['t'], [t['id'] for t in legacy['teams']])
+        self.assertEqual('legacy_unverified', legacy['teams'][0]['verificationStatus'])
+        self.assertEqual('sub', legacy['domains'][0]['subdomains'][0]['id'])
+        filtered = self.client.get('/v1/strategic-map/domains/d/teams?include_legacy=true&subdomain_id=sub').json()['data']
+        self.assertEqual(['t'], [t['id'] for t in filtered['teams']])
+        self.assertEqual('人工记录', self.detail()['team']['contactRecord'])
+        self.assertTrue(self.save(run()))
+        self.assertEqual('verified', self.detail()['team']['verificationStatus'])
+        self.assertEqual('人工记录', self.detail()['team']['contactRecord'])
+
     def test_incremental_preserves_ids_people_and_manual_fields(self):
         self.assertTrue(self.save(run()))
         before=self.detail()

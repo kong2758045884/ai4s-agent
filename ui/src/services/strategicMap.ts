@@ -31,6 +31,7 @@ export type StrategicTeam = {
   researchDirections?: string[];
   location?: string;
   isDomestic?: boolean;
+  verificationStatus?: string;
   focus: string;
   aiLevel: string;
   scienceLevel: string;
@@ -213,6 +214,7 @@ function mapTeam(rawValueItem: unknown): StrategicTeam {
       ? rawDirections.map((item) => text(item)).filter(Boolean)
       : [],
     location: text(raw.location),
+    verificationStatus: text(raw.verificationStatus || raw.verification_status),
     isDomestic: raw.isDomestic == null && raw.is_domestic == null
       ? undefined
       : Boolean(raw.isDomestic ?? raw.is_domestic),
@@ -331,6 +333,7 @@ export async function loadStrategicMap(options?: {
   signal?: AbortSignal;
 }): Promise<StrategicMapSnapshot> {
   const params = new URLSearchParams();
+  params.set("include_legacy", "true");
   if (options?.refresh) params.set("refresh", "true");
   if (options?.domainId) params.set("domain_id", options.domainId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
@@ -342,6 +345,7 @@ export async function loadStrategicDomainTeams(
   options?: { refresh?: boolean; subdomainId?: string },
 ): Promise<{ teams: StrategicTeam[]; source: StrategicMapSource; domain?: StrategicDomain }> {
   const params = new URLSearchParams();
+  params.set("include_legacy", "true");
   if (options?.refresh) params.set("refresh", "true");
   if (options?.subdomainId) params.set("subdomain_id", options.subdomainId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
