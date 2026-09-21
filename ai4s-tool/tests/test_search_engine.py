@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
+import asyncio
+import base64
+import threading
+import time
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -8,10 +12,40 @@ from ai4s_tool.tool.search_component.search_engine import (
     DDGSearch,
     MixSearch,
     SearchBase,
+    _bounded_search_call,
 )
 
 
 class SearchEngineIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_exhausted_library_and_ddg_reach_existing_public_bing_fallback(self):
+        expected=[Doc(doc_type='web_page',link='https://example.org/team',title='团队',content='snippet')]
+        with patch('ai4s_tool.tool.search_component.search_engine.DDGS',None), \
+             patch.object(DDGSearch,'_search_public_html',new=AsyncMock(return_value=[])), \
+             patch.object(DDGSearch,'_search_public_bing',new=AsyncMock(return_value=expected)) as fallback:
+            self.assertEqual(expected,await DDGSearch().search('团队 query'))
+        fallback.assert_awaited_once_with('团队 query')
+
+    async def test_bounded_thread_does_not_delay_event_loop_shutdown(self):
+        event=threading.Event();started=time.monotonic()
+        try:
+            with self.assertRaises(asyncio.TimeoutError):
+                await _bounded_search_call(lambda:event.wait(2),0.01)
+            self.assertLess(time.monotonic()-started,0.5)
+        finally:event.set()
+
+    async def test_bing_public_decodes_tracking_and_marks_snippet(self):
+        url='https://example.org/team'
+        encoded=base64.urlsafe_b64encode(url.encode()).decode().rstrip('=')
+        docs=DDGSearch()._parse_public_bing('<li class="b_algo"><h2><a href="https://www.bing.com/ck/a?u=a1'+encoded+'">公开团队</a></h2><div class="b_caption"><p>来源摘要</p></div></li>')
+        self.assertEqual(url,docs[0].link)
+        self.assertEqual('bing-public',docs[0].data['search_engine'])
+        self.assertEqual('search_snippet',docs[0].data['content_scope'])
+
+    async def test_required_proxy_never_falls_back_to_direct_bing(self):
+        with patch.dict(os.environ,{'AI4S_WEB_FETCH_PROXY_REQUIRED':'true','AI4S_WEB_FETCH_PROXY':''}):
+            with self.assertRaisesRegex(RuntimeError,'required proxy'):
+                await DDGSearch()._search_public_bing('query')
+
     @patch("ai4s_tool.tool.search_component.search_engine.DDGS", None)
     @patch.object(DDGSearch, "_search_public_html", new_callable=AsyncMock)
     async def test_should_use_public_html_when_ddgs_dependency_is_missing(

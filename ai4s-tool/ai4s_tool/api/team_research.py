@@ -249,7 +249,7 @@ def fetch_page(url: str, cached_page: dict[str, Any] | None = None) -> dict[str,
                         break
                     response.raise_for_status()
                     kind = response.headers.get('content-type', '').lower()
-                    if not any(k in kind for k in ('html', 'text/plain', 'xml')):
+                    if not any(k in kind for k in ('html', 'text/plain', 'text/markdown', 'xml')):
                         raise ValueError('unsupported body type: ' + kind)
                     body = bytearray()
                     for chunk in response.iter_content(16384):
@@ -257,7 +257,13 @@ def fetch_page(url: str, cached_page: dict[str, Any] | None = None) -> dict[str,
                         if len(body) > 2_000_000 or time.monotonic() - started > 25:
                             raise TimeoutError('body budget exceeded')
                     # Let the HTML-declared encoding win over HTTP's Latin-1 default.
-                    soup = BeautifulSoup(bytes(body), 'html.parser')
+                    if 'text/markdown' in kind:
+                        # Daily publishes Markdown with real source links.
+                        # Render only for DOM/text extraction; never execute it.
+                        from markdown_it import MarkdownIt
+                        soup = BeautifulSoup(MarkdownIt('commonmark', {'html': False}).render(bytes(body).decode('utf-8-sig')), 'html.parser')
+                    else:
+                        soup = BeautifulSoup(bytes(body), 'html.parser')
                     page['final_url'] = current
                     page['etag'] = response.headers.get('ETag', '')
                     page['last_modified'] = response.headers.get('Last-Modified', '')

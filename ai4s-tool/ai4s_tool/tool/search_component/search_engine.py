@@ -11,9 +11,11 @@ MixSearch 并发调用并去重，供 DeepSearch 使用。
 """
 
 import asyncio
+import base64
 import html
 import json
 import os
+import threading
 import urllib.request
 from datetime import datetime, timezone
 from loguru import logger
@@ -59,6 +61,28 @@ def _request_kwargs(**kwargs):
     if proxy:
         kwargs["proxy"] = proxy
     return kwargs
+
+
+async def _bounded_search_call(function, seconds):
+    """Keep third-party synchronous search retries out of asyncio shutdown.
+
+    asyncio.to_thread is joined by asyncio.run even after cancellation. A
+    short-lived daemon plus bounded socket timeouts lets the caller's total
+    budget remain authoritative without leaving a blocking executor behind.
+    """
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    def deliver(value, error):
+        if not future.done():
+            if error is not None: future.set_exception(error)
+            else: future.set_result(value)
+    def run():
+        try: value, error = function(), None
+        except Exception as exc: value, error = None, exc
+        try: loop.call_soon_threadsafe(deliver, value, error)
+        except RuntimeError: pass  # The bounded caller's loop already closed.
+    threading.Thread(target=run, name='bounded-public-search', daemon=True).start()
+    return await asyncio.wait_for(future, timeout=seconds)
 
 
 class SearchBase(ABC):
@@ -123,7 +147,7 @@ class SearchBase(ABC):
                 async with session.get(source_url, **request_kwargs) as response:
                     content_type = (response.content_type or "").lower()
                     if content_type not in [
-                        "text/html", "text/plain", "text/xml", "application/json",
+                        "text/html", "text/plain", "text/markdown", "text/xml", "application/json",
                         "application/xml", "application/octet-stream",
                     ]:
                         logger.debug(f"parser content-type not supported: {response.content_type}")
@@ -138,7 +162,7 @@ class SearchBase(ABC):
                         async with session.get(source_url, timeout=client_timeout) as response:
                             content_type = (response.content_type or "").lower()
                             if content_type not in [
-                                "text/html", "text/plain", "text/xml", "application/json",
+                                "text/html", "text/plain", "text/markdown", "text/xml", "application/json",
                                 "application/xml", "application/octet-stream",
                             ]:
                                 return ""
@@ -265,13 +289,8 @@ class DDGSearch(SearchBase):
     async def search(
         self, query: str, request_id: str = None, *args, **kwargs
     ) -> List[Doc]:
-        if DDGS is None:
-            # 公开 HTML 端点不依赖 ddgs 包或 API key；依赖缺失也必须继续走兜底。
-            logger.warning("ddgs library not installed, retry public HTML")
-            return await self._search_public_html(query)
-
         def _run_text_search() -> List[dict]:
-            client_kwargs: dict[str, Any] = {"timeout": self._timeout}
+            client_kwargs: dict[str, Any] = {"timeout": min(5, self._timeout)}
             proxy = _configured_proxy()
             if proxy:
                 client_kwargs["proxy"] = proxy
@@ -281,16 +300,25 @@ class DDGSearch(SearchBase):
                 region=self._region,
                 safesearch=self._safesearch,
                 max_results=self._count,
+                backend="duckduckgo",
             )
             return list(results) if results else []
 
         try:
-            raw_results = await asyncio.to_thread(_run_text_search)
+            raw_results = await _bounded_search_call(_run_text_search, min(5, self._timeout)) if DDGS else []
         except Exception as error:
             logger.warning(f"DDG library search failed, retry public HTML: {type(error).__name__}")
-            return await self._search_public_html(query)
+            raw_results = []
         if not raw_results:
-            return await self._search_public_html(query)
+            try:
+                public = await asyncio.wait_for(self._search_public_html(query), timeout=8)
+            except (asyncio.TimeoutError, OSError):
+                public = []
+            if public:
+                return public
+            # The project already uses Bing's public index as DDG fallback.
+            # Keep this path reachable inside strategic-map's 25s total budget.
+            return await self._search_public_bing(query)
         return [
             Doc(
                 doc_type="web_page",
@@ -307,7 +335,7 @@ class DDGSearch(SearchBase):
         """公开 DDG HTML 兜底，不依赖 ddgs 包或 API key。"""
         url = "https://html.duckduckgo.com/html/?q=" + quote(query, safe="")
         kwargs = _request_kwargs(
-            timeout=aiohttp.ClientTimeout(connect=10, total=max(20, self._parser_timeout))
+            timeout=aiohttp.ClientTimeout(connect=3, total=min(6, self._timeout))
         )
 
         async def _read(request_kwargs):
@@ -344,11 +372,11 @@ class DDGSearch(SearchBase):
                 opener = urllib.request.build_opener(
                     urllib.request.ProxyHandler({})
                 )
-                with opener.open(request, timeout=max(20, self._parser_timeout)) as response:
-                    return response.read().decode("utf-8", errors="ignore")
+                with opener.open(request, timeout=min(4, self._timeout)) as response:
+                    return response.read(2_000_000).decode("utf-8", errors="ignore")
 
             try:
-                content = await asyncio.to_thread(_urllib_read)
+                content = await _bounded_search_call(_urllib_read, min(4, self._timeout))
             except Exception as direct_error:
                 logger.debug(f"public DDG urllib direct search failed: {type(direct_error).__name__}")
                 return []
@@ -374,6 +402,45 @@ class DDGSearch(SearchBase):
                 link=href,
                 data={"search_engine": "ddg-public"},
             ))
+        return docs
+
+    async def _search_public_bing(self, query: str) -> List[Doc]:
+        url = "https://www.bing.com/search?q=" + quote(query, safe="")
+        proxy = _configured_proxy()
+        if _proxy_required() and not proxy:
+            raise RuntimeError("public search unavailable: required proxy is not configured")
+        def read():
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler(
+                {"http": proxy, "https": proxy} if proxy else {}
+            ))
+            request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 AI4SAgentWebSearch/1.0"})
+            with opener.open(request, timeout=5) as response:
+                return response.read(2_000_000).decode('utf-8', errors='ignore')
+        try:
+            content = await _bounded_search_call(read, 6)
+        except Exception as exc:
+            # Never present exhausted/unavailable transports as a true empty hit.
+            raise RuntimeError('public search unavailable: ' + type(exc).__name__) from exc
+        return self._parse_public_bing(content)
+
+    def _parse_public_bing(self, content: str) -> List[Doc]:
+        docs = []
+        for block in BeautifulSoup(content, 'html.parser').select('li.b_algo'):
+            anchor = block.select_one('h2 a[href]')
+            if anchor is None: continue
+            url = anchor.get('href', '')
+            parsed = urlparse(url)
+            if parsed.hostname and (parsed.hostname == 'bing.com' or parsed.hostname.endswith('.bing.com')):
+                encoded = parse_qs(parsed.query).get('u', [''])[0]
+                if encoded.startswith('a1'):
+                    try: url = base64.urlsafe_b64decode(encoded[2:] + '=' * (-len(encoded[2:]) % 4)).decode()
+                    except (ValueError, UnicodeError): continue
+            if not _search_url_ok(url): continue
+            snippet = block.select_one('.b_caption p, p')
+            docs.append(Doc(doc_type='web_page', title=anchor.get_text(' ', strip=True), link=url,
+                content=snippet.get_text(' ', strip=True) if snippet else '',
+                data={'search_engine':'bing-public','content_scope':'search_snippet'}))
+            if len(docs) >= self._count: break
         return docs
 
 

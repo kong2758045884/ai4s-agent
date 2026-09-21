@@ -321,6 +321,18 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(QUOTE,page['text'])
         self.assertNotEqual(cached['fetched_at'],page['validated_at'])
 
+    def test_daily_markdown_retains_body_and_source_links(self):
+        response=tr.requests.Response();response.status_code=200;response.url=URL
+        response.headers['Content-Type']='text/markdown; charset=utf-8'
+        response._content='# 科研线索\n\n[机构原文](https://example.org/official)\n\n团队公开材料'.encode()
+        response._content_consumed=True
+        with patch.object(tr,'_public_url',return_value=URL),patch.object(tr.requests,'Session') as factory:
+            factory.return_value.__enter__.return_value.get.return_value=response
+            page=tr.fetch_page(URL)
+        self.assertEqual('ok',page['status'])
+        self.assertIn('团队公开材料',page['text'])
+        self.assertIn({'url':'https://example.org/official','label':'机构原文'},page['links'])
+
     def test_deepsearch_markdown_is_a_report_not_json_or_raw_evidence(self):
         class Agent:
             current_docs=[type('Doc',(),{'link':URL,'content':'search snippet'})()]
