@@ -60,9 +60,6 @@ function TeamBasics({ team }: { team: StrategicTeam }) {
   const directions = team.researchDirections?.length ? team.researchDirections : [team.focus].filter(Boolean);
   return (
     <section className="rounded-2xl border border-[#d5e3ec] bg-white p-5 shadow-[0_4px_16px_rgba(27,64,96,0.05)] sm:p-6">
-      {team.verificationStatus === "legacy_unverified" ? (
-        <p role="note" className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800">历史线索 · 待审核。以下为原有记录，尚未通过新版证据审核；原人工信息已保留。</p>
-      ) : null}
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="break-words text-[13px] font-medium text-[#668096]">{team.institutionName || team.organization || team.name}</p>
@@ -156,15 +153,15 @@ export default function StrategicTeamDetail() {
                 <h2 className="text-[19px] font-semibold text-[#174f70]">团队负责人</h2>
               </div>
               <div className="mt-4 min-w-0">
-                {detail.leader ? <PersonCard person={detail.leader} leader /> : <p className="rounded-xl border border-dashed border-[#cbdde8] bg-white px-4 py-5 text-[13px] leading-6 text-[#718797]">当前资料尚未可靠确认负责人，页面不会根据机构名称推测个人。</p>}
+                {(detail.leaders ?? (detail.leader ? [detail.leader] : [])).length ? (detail.leaders ?? [detail.leader!]).map((person) => <PersonCard key={person.id} person={person} leader />) : <p className="rounded-xl border border-dashed border-[#cbdde8] bg-white px-4 py-5 text-[13px] leading-6 text-[#718797]">暂无负责人资料。</p>}
               </div>
             </section>
             <section className="min-w-0 rounded-2xl border border-[#d5e3ec] bg-white p-5 shadow-[0_4px_16px_rgba(27,64,96,0.04)] sm:p-6">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                 <h2 className="text-[19px] font-semibold text-[#174f70]">核心成员</h2>
-                <span className="text-[12px] text-[#718797]">已确认 {detail.members.length} 人</span>
+                <span className="text-[12px] text-[#718797]">共 {detail.members.length} 人</span>
               </div>
-              {detail.members.length ? <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">{visibleMembers.map((member) => <PersonCard key={member.id} person={member} />)}</div> : <p className="mt-4 rounded-xl border border-dashed border-[#d2e0e8] bg-[#fbfdff] px-4 py-5 text-[13px] leading-6 text-[#718797]">暂无能够确认属于该团队的核心成员。</p>}
+              {detail.members.length ? <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">{visibleMembers.map((member) => <PersonCard key={member.id} person={member} />)}</div> : <p className="mt-4 rounded-xl border border-dashed border-[#d2e0e8] bg-[#fbfdff] px-4 py-5 text-[13px] leading-6 text-[#718797]">暂无成员资料。</p>}
               {detail.members.length > 6 ? <button type="button" onClick={() => setShowAll((value) => !value)} className="mt-4 rounded-lg border border-[#cbdde8] px-3.5 py-2 text-[12px] font-semibold text-[#2e7096] hover:bg-[#f2f8fc]">{showAll ? "收起成员" : `查看更多（${detail.members.length - 6}）`}</button> : null}
             </section>
             <div className="flex flex-wrap items-center gap-2 text-[12px] text-[#718797]">

@@ -624,9 +624,6 @@ def _domain_to_dict(session: Session, domain: StrategicDomainRow, *, include_leg
         if session.query(StrategicTeamRow.id).filter(
             StrategicTeamRow.subdomain_id == child.id,
             StrategicTeamRow.deleted.is_(False),
-            StrategicTeamRow.verification_status.in_(
-                ("verified", "legacy_unverified") if include_legacy else ("verified",)
-            ),
         ).first()
     ]
     return {
@@ -670,8 +667,8 @@ def _person_to_dict(person: StrategicPersonRow) -> dict[str, Any]:
         "evidence": person.evidence,
         "verificationStatus": person.verification_status,
         "verification_status": person.verification_status,
-        "sourceType": person.source_type,
-        "source_type": person.source_type,
+        "sourceType": (person.source_type or '').replace('·独立审核', ''),
+        "source_type": (person.source_type or '').replace('·独立审核', ''),
         "lastVerifiedAt": person.last_verified_at.isoformat() if person.last_verified_at else "",
         "last_verified_at": person.last_verified_at.isoformat() if person.last_verified_at else "",
         "isLeader": bool(person.is_leader),
@@ -679,22 +676,15 @@ def _person_to_dict(person: StrategicPersonRow) -> dict[str, Any]:
     }
 
 
-def _team_people(session: Session, team_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+def _team_people(session: Session, team_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return all saved, non-deleted people; evidence status is not a display gate."""
     people = session.query(StrategicPersonRow).filter(
         StrategicPersonRow.team_id == team_id,
         StrategicPersonRow.deleted.is_(False),
-        StrategicPersonRow.verification_status == "verified",
     ).order_by(StrategicPersonRow.is_leader.desc(), StrategicPersonRow.updated_at.desc()).all()
     values = [_person_to_dict(person) for person in people]
     leaders = [person for person in values if person["isLeader"]]
-    leader = leaders[0] if len(leaders) == 1 else None
-    def core_verified(person):
-        try:
-            evidence = json.loads(person.get('evidence') or '{}')
-            return (evidence.get('core_membership') or {}).get('status') == 'verified'
-        except (ValueError, TypeError, AttributeError):
-            return False
-    return leader, [person for person in values if not person["isLeader"] and core_verified(person)]
+    return leaders, [person for person in values if not person["isLeader"]]
 
 
 def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dict[str, Any]:
@@ -720,17 +710,17 @@ def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dic
         "isDomestic": bool(team.is_domestic),
         "is_domestic": bool(team.is_domestic),
         "focus": team.focus,
-        "aiLevel": "待核实",
-        "scienceLevel": "待核实",
+        "aiLevel": team.ai_level,
+        "scienceLevel": team.science_level,
         "attention": team.attention,
         "contact": team.contact,
         "coreDirection": team.core_direction,
         "dualJudgement": team.dual_judgement,
         "contactRecord": team.contact_record,
         "internalReview": team.internal_review,
-        "recentUpdate": "" if team.recent_update == "近期" else team.recent_update,
+        "recentUpdate": team.recent_update,
         "nextAction": team.next_action,
-        "source": team.source,
+        "source": (team.source or '').replace('·独立审核', ''),
         "sourceUrls": list(team.source_urls or []),
         "evidenceUrls": list(team.evidence_urls or team.source_urls or []),
         "evidence_urls": list(team.evidence_urls or team.source_urls or []),
@@ -758,8 +748,10 @@ def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dic
     if "internal_review" not in protected and team.internal_review == "已完成候选资料汇总、二次结构化整理、国内过滤和去重；仍建议人工抽查来源。":
         payload["internalReview"] = "待补充研判"
     if session is not None:
-        leader, members = _team_people(session, team.id)
+        leaders, members = _team_people(session, team.id)
+        leader = leaders[0] if leaders else None
         payload["leader"] = leader
+        payload["leaders"] = leaders
         payload["members"] = members
         payload["leader_id"] = leader["id"] if leader else ""
         payload["leaderId"] = leader["id"] if leader else ""
@@ -3011,7 +3003,7 @@ def get_strategic_map(
     domain_id: str | None = Query(None),
     include_legacy: bool = Query(False),
 ) -> dict[str, Any]:
-    include_legacy = include_legacy is True
+    # Retained for old clients only: all non-deleted saved records are visible.
     with _SESSION_FACTORY() as session:
         roots = _domain_query(session)
         target = _get_domain(session, domain_id) if domain_id else (roots[0] if roots else None)
@@ -3031,9 +3023,7 @@ def get_strategic_map(
         teams = [
             _team_to_dict(team, session)
             for team in session.query(StrategicTeamRow)
-            .filter(StrategicTeamRow.deleted.is_(False), StrategicTeamRow.verification_status.in_(
-                ("verified", "legacy_unverified") if include_legacy else ("verified",)
-            ))
+            .filter(StrategicTeamRow.deleted.is_(False))
             .order_by(StrategicTeamRow.updated_at.desc())
             .all()
         ]
@@ -3241,7 +3231,7 @@ def list_domain_teams(
     subdomain_id: str | None = Query(None),
     include_legacy: bool = Query(False),
 ) -> dict[str, Any]:
-    include_legacy = include_legacy is True
+    # Evidence status never controls whether an existing record is displayed.
     # The handler is called directly by the sync endpoint and by a few
     # internal tests; FastAPI's ``Query(None)`` default is otherwise passed to
     # SQLAlchemy as an object instead of Python ``None``.
@@ -3263,9 +3253,6 @@ def list_domain_teams(
         query = session.query(StrategicTeamRow).filter(
             StrategicTeamRow.domain_id == domain.id,
             StrategicTeamRow.deleted.is_(False),
-            StrategicTeamRow.verification_status.in_(
-                ("verified", "legacy_unverified") if include_legacy else ("verified",)
-            ),
         )
         if subdomain_id:
             query = query.filter(StrategicTeamRow.subdomain_id == subdomain_id)
@@ -3281,7 +3268,7 @@ def list_domain_teams(
 
 @router.get("/teams/{team_id}")
 def get_team_detail(team_id: str) -> dict[str, Any]:
-    """Read a team, its verified leader and core members from SQLite."""
+    """Read a team and all its saved leaders/members from SQLite."""
     with _SESSION_FACTORY() as session:
         team = session.query(StrategicTeamRow).filter(
             StrategicTeamRow.id == team_id,
@@ -3289,7 +3276,8 @@ def get_team_detail(team_id: str) -> dict[str, Any]:
         ).first()
         if not team:
             raise HTTPException(status_code=404, detail="团队不存在")
-        leader, members = _team_people(session, team.id)
+        leaders, members = _team_people(session, team.id)
+        leader = leaders[0] if leaders else None
         domain = _get_root_domain(session, team.domain_id)
         subdomain = None
         if team.subdomain_id:
@@ -3300,6 +3288,7 @@ def get_team_detail(team_id: str) -> dict[str, Any]:
         return _response({
             "team": _team_to_dict(team, session),
             "leader": leader,
+            "leaders": leaders,
             "members": members,
             "domain": _domain_to_dict(session, domain),
             "subdomain": {

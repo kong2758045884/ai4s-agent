@@ -434,9 +434,6 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                     run=old['payload']['run']
                 else:
                     run=research.run(context,domain_name)
-                available=min(deadline-time.monotonic()-45, team_seconds-(time.monotonic()-team_started))
-                if run.get('status')=='reviewed':
-                    run=review_qualification(run,domain_name,sm._shared_agent_llm_text,seconds=max(1,min(90,int(available))),cache=cache,existing=context,scope=scope)
                 storage_started=time.monotonic()
                 with factory() as s:
                     s.execute(text('BEGIN IMMEDIATE'))
@@ -450,13 +447,21 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                         append_history(s,team_id,'concurrent_change',{'run':run,'published':False})
                         s.commit(); state='concurrent_change'; published=False
                     else:
-                        if row is None and qualified(run):
+                        from .team_research_store import collected_identity
+                        if row is None and run.get('extracted') and collected_identity(run):
+                            value=run['extracted']
+                            row=sm.StrategicTeamRow(id=team_id,domain_id=domain_id,
+                                name=value['institution_name']['value'],institution_name=value['institution_name']['value'],
+                                team_name=value['team_name']['value'])
+                            s.add(row);s.flush()
+                            published=persist(s,row,run)
+                        elif row is None and qualified(run):
                             published=apply_reviewed_run(s,team_id,run,allowed_domains={domain_name},domain_id=domain_id)
                         else:
                             published=bool(row is not None and persist(s,row,run))
                             if row is None: append_history(s,team_id,'pending',{'run':run,'published':False})
                         s.commit()
-                        state='blocked_provider' if cache.unavailable else ('complete' if qualified(run) and published else 'needs_review')
+                        state='blocked_provider' if cache.unavailable else ('complete' if published else 'no_new_data')
                 storage_seconds=round(time.monotonic()-storage_started,3)
                 save_job(factory,job_id,domain_id,team_id,state,{'context':context,'run':run,
                     'missing_fields':missing_fields(run)})
@@ -523,15 +528,13 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 dedupe_run={'decision':decision,'trace':reviewer.trace,'counts':reviewer.counts,'errors':reviewer.errors}
             except Exception as exc:
                 dedupe_run={'error':type(exc).__name__,'counts':reviewer.counts,'errors':reviewer.errors}
-        qualified_ids=[r['team_id'] for r in results if r['state'] in ('complete','reused_complete') and qualified(r.get('run',{}))]
+        qualified_ids=[r['team_id'] for r in results if r['state'] in ('complete','reused_complete')]
         count=len(set(qualified_ids))
         with factory() as s:
             published_people=[sm._team_people(s,i) for i in qualified_ids]
-        evidence_leaders={r['team_id']:(r.get('run',{}).get('qualification_review',{}).get('decision',{}).get('leadership_review') or {}) for r in results}
-        summary={'provider':'公开网页原文·独立审核','pipeline':'resumable-domain→team-evidence→independent-review→incremental',
+        summary={'provider':'公开来源','pipeline':'resumable-domain→team-evidence→incremental',
             'teamCount':count,'namedTeamCount':count,'candidateCount':len(results),'reportCount':0,
-            'leaderCount':sum(bool(leader) and bool(evidence_leaders[i].get('current_exact_team_head')) and
-                evidence_leaders[i].get('name')==leader['name'] for i,(leader,members) in zip(qualified_ids,published_people)),
+            'leaderCount':sum(bool(leaders) for leaders,members in published_people),
             'memberTeamCount':sum(bool(members) for leader,members in published_people),
             'memberCount':sum(len(members) for leader,members in published_people),
             'pendingCount':sum(r['state'] not in ('complete','reused_complete','duplicate') for r in results),
@@ -546,7 +549,7 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
         session.expire_all()
         if incomplete:
             provider_reason=('；原模型服务不可用：'+str(cache.unavailable.get('provider_code','authorization'))) if cache.unavailable else ''
-            raise sm._SyncQualityError(f'{domain_name} 已保存逐队结果；本轮仅 {count} 个有完整领域资格证据的团队，未宣布完成{provider_reason}；详见持久化任务记录')
+            raise sm._SyncQualityError(f'{domain_name} 已保存本轮 {count} 个团队的资料，部分资料获取尚未完成{provider_reason}；已有数据保持展示')
         return {k:v for k,v in summary.items() if k not in ('results','discovery','deduplication','scope','scope_run')}
     finally:
         release(factory,key,owner)

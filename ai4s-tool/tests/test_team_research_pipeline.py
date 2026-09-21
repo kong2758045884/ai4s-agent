@@ -83,7 +83,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(('stable-id','历史机构','原始线索','重点关注','人工记录','legacy_unverified'), tuple(row))
         engine.dispose()
 
-    def test_legacy_records_are_explicit_opt_in_with_subdomain_and_stable_detail(self):
+    def test_all_saved_records_are_visible_without_review_or_opt_in(self):
         with sm._SESSION_FACTORY() as s:
             s.add(sm.StrategicDomainRow(id='sub', parent_id='d', name='旧子领域'))
             team = s.get(sm.StrategicTeamRow, 't')
@@ -93,11 +93,11 @@ class PipelineTest(unittest.TestCase):
             s.add(sm.StrategicTeamRow(id='conflict',domain_id='d',name='冲突记录',verification_status='conflict'))
             s.commit()
         normal = self.client.get('/v1/strategic-map').json()['data']
-        self.assertEqual([], normal['teams'])
-        self.assertEqual([], normal['domains'][0]['subdomains'])
+        self.assertEqual({'t','conflict'}, {t['id'] for t in normal['teams']})
+        self.assertEqual('sub', normal['domains'][0]['subdomains'][0]['id'])
         legacy = self.client.get('/v1/strategic-map?include_legacy=true').json()['data']
-        self.assertEqual(['t'], [t['id'] for t in legacy['teams']])
-        self.assertEqual('legacy_unverified', legacy['teams'][0]['verificationStatus'])
+        self.assertEqual({'t','conflict'}, {t['id'] for t in legacy['teams']})
+        self.assertEqual('legacy_unverified', next(t for t in legacy['teams'] if t['id']=='t')['verificationStatus'])
         self.assertEqual('sub', legacy['domains'][0]['subdomains'][0]['id'])
         filtered = self.client.get('/v1/strategic-map/domains/d/teams?include_legacy=true&subdomain_id=sub').json()['data']
         self.assertEqual(['t'], [t['id'] for t in filtered['teams']])
@@ -136,10 +136,10 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(before,self.detail())
         with sm._SESSION_FACTORY() as s:self.assertEqual(5,len(store.history(s,'t')))
 
-    def test_conflict_hides_both_leaders_and_retains_history(self):
+    def test_conflict_keeps_both_saved_leaders_visible_and_retains_history(self):
         self.save(run()); changed=run(); changed['reviewed']['leader']=person('丙')
         self.save(changed)
-        self.assertIsNone(self.detail()['leader'])
+        self.assertEqual({'甲','丙'}, {p['name'] for p in self.detail()['leaders']})
         with sm._SESSION_FACTORY() as s:
             leaders=s.query(sm.StrategicPersonRow).filter_by(team_id='t',is_leader=True).all()
             self.assertEqual({'conflict'},{p.verification_status for p in leaders})
@@ -173,12 +173,12 @@ class PipelineTest(unittest.TestCase):
         self.save(empty);self.save(empty)
         self.assertEqual(['方向一'],self.detail()['team']['researchDirections'])
 
-    def test_rejected_old_member_is_hidden_without_deleting_history(self):
+    def test_evidence_status_does_not_hide_saved_member_or_delete_history(self):
         self.save(run());old=self.detail()['members'][0]['id'];value=run()
         value['reviewed']['members']=[]
         value['reviewed']['old_people']=[{'person_id':old,'decision':'rejected','reason':'不属于团队','citations':CITE}]
         self.save(value)
-        self.assertEqual([],self.detail()['members'])
+        self.assertEqual(old,self.detail()['members'][0]['id'])
         with sm._SESSION_FACTORY() as s:
             self.assertFalse(s.get(sm.StrategicPersonRow,old).deleted)
             self.assertEqual('rejected',s.get(sm.StrategicPersonRow,old).verification_status)
@@ -191,11 +191,11 @@ class PipelineTest(unittest.TestCase):
         self.save(value)
         self.assertEqual(old,self.detail()['members'][0]['id'])
 
-    def test_pending_person_not_exposed(self):
+    def test_pending_person_is_visible_without_approval(self):
         with sm._SESSION_FACTORY() as s:
             sm._upsert_team_people(s,s.get(sm.StrategicTeamRow,'t'),{'name':'未核验','role':'主任','confidence':1},[])
             s.commit()
-        self.assertIsNone(self.detail()['leader'])
+        self.assertEqual('未核验',self.detail()['leader']['name'])
 
     def test_get_no_dml_or_timestamp_changes_even_legacy_dates(self):
         statements=[]
@@ -209,8 +209,44 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(before,self.detail())
             self.assertFalse(any(s.lstrip().upper().startswith(('UPDATE','INSERT','DELETE','CREATE','ALTER')) for s in statements))
         finally:event.remove(sm._ENGINE,'before_cursor_execute',observe)
-        self.assertEqual('待核实',before['team']['aiLevel'])
-        self.assertEqual('',before['team']['recentUpdate'])
+        self.assertEqual('较高',before['team']['aiLevel'])
+        self.assertEqual('近期',before['team']['recentUpdate'])
+
+    def test_collected_data_is_published_without_review(self):
+        value=run()
+        value.update(status='collected',extracted=value.pop('reviewed'),reviewed=None)
+        for key in ('institution_name','team_name','description'):
+            value['extracted'][key]['status']='pending'
+        value['extracted']['leader']['status']='pending'
+        value['extracted']['members'][0]['status']='pending'
+        value['extracted']['members'][0]['core_membership']['status']='pending'
+        self.assertTrue(self.save(value))
+        detail=self.detail()
+        self.assertEqual('甲',detail['leader']['name'])
+        self.assertEqual('乙',detail['members'][0]['name'])
+        self.assertEqual('collected',detail['team']['verificationStatus'])
+        self.assertEqual('collected',detail['leader']['verificationStatus'])
+
+    def test_collected_data_keeps_source_validation_and_manual_fields(self):
+        value=run();value.update(status='collected',extracted=value.pop('reviewed'),reviewed=None)
+        response=self.client.put('/v1/strategic-map/teams/t',json={'attention':'重点关注','contact':'已联系','contact_record':'人工联系','core_direction':'人工方向'})
+        self.assertEqual(200,response.status_code)
+        value['extracted']['members'][0]['citations']=[{'url':URL,'quote':'不在实际网页中的虚构引文'}]
+        self.assertTrue(self.save(value))
+        self.assertEqual([],self.detail()['members'])
+        self.assertEqual('人工联系',self.detail()['team']['contactRecord'])
+        self.assertEqual('人工方向',self.detail()['team']['coreDirection'])
+
+    def test_deleted_person_stays_deleted_and_multiple_leaders_stay_visible(self):
+        with sm._SESSION_FACTORY() as s:
+            for n,status in enumerate(('pending','conflict','rejected','historical')):
+                s.add(sm.StrategicPersonRow(id=f'p{n}',team_id='t',name=f'人员{n}',role='负责人' if n<2 else '成员',is_leader=n<2,verification_status=status))
+            s.add(sm.StrategicPersonRow(id='deleted',team_id='t',name='已删除',role='成员',deleted=True))
+            s.commit()
+        detail=self.detail()
+        self.assertEqual(2,len(detail['leaders']))
+        self.assertEqual(2,len(detail['members']))
+        self.assertEqual({'p0','p1','p2','p3'},{p['id'] for p in detail['leaders']+detail['members']})
 
     def test_refresh_endpoint_reuses_active_task_and_returns_immediately(self):
         with patch.object(sm, '_launch_refresh_task') as launch:

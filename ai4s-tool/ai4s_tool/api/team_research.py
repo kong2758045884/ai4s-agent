@@ -697,17 +697,12 @@ class Research:
                 outcome = 'fetch_failed'
             else:
                 wire_extracted = WireResult.model_validate(resume_wire) if resume_stage and resume_wire else self.call('extract', WireResult, {**context, 'pages': self.evidence(),
-                    'instruction_detail': '仅统一抽取本轮网页事实，old_people 必须为空数组（历史比较由下一独立审核负责），不要重复数据库旧证据。保留所有明确归属的研究组长/成员，不以个人职称缺失漏掉。研究方向逐项输出；不要用旧简介替代正文。未审核状态为 pending。'})
+                    'instruction_detail': '仅抽取本轮网页中的团队、负责人和成员资料，old_people 必须为空数组，不删除或覆盖旧人员。保留来源中已有的人员及实际角色，不以职称或简介缺失漏掉姓名。研究方向逐项输出；不得用记忆补编。每项资料附原文引用，缺失字段留空。'})
                 extracted = wire_extracted.canonical()
                 self.validate_evidence(extracted)
-                if os.getenv('STRATEGIC_MAP_VERIFY_LLM', 'true').lower() not in {'1', 'true', 'yes'}:
-                    self.errors.append({'stage': 'independent-review', 'kind': 'review_disabled'})
-                    raise RuntimeError('independent review disabled; no publication')
-                review = self.call('independent-review', WireResult, {**context, 'existing': existing, 'pages': self.evidence(),
-                    'extraction': wire_extracted.model_dump(exclude_defaults=True), 'instruction_detail': '独立核对原文并返回修正后的完整扁平结构。团队字段与每个人的具体团队关系分别审核，支持才标 verified；个人 title/research_direction/bio/tenure 通过才列入 verified_fields。保留所有已支持的成员，不要缩减名单。局部不足只影响相关字段；错误可依据原文修正。对 existing.people 逐一审实际角色与任期，用 old_people 指明 claim。充分证据才判 historical/rejected；缺少本轮证据应 retain，不能因没搜到就否定旧记录。委员会角色不得冒充科研负责人。'})
-                reviewed = review.canonical()
-                self.validate_evidence(reviewed)
-                outcome = 'reviewed'
+                # Collection is immediately publishable; no approval workflow.
+                # Keep deterministic source/quote validation and old-data safety.
+                outcome = 'collected'
         except Exception as exc:
             outcome = 'budget_exhausted' if time.monotonic() >= self.deadline else (self.errors[-1]['kind'] if self.errors else 'research_failed')
             self.event('failed', error=type(exc).__name__, outcome=outcome)

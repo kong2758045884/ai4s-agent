@@ -279,11 +279,11 @@ class DomainTest(unittest.TestCase):
                 with self.assertRaises(sm._SyncQualityError):dr.sync_domain(s,s.get(sm.StrategicDomainRow,'d'),seconds=120)
             self.assertEqual(1,research.call_count)
 
-    def test_legacy_verified_person_is_not_automatically_core(self):
+    def test_saved_person_is_visible_without_new_core_review(self):
         with sm._SESSION_FACTORY() as s:
             s.add(sm.StrategicPersonRow(id='old',team_id='t',name='旧人员',role='成员',verification_status='verified',evidence='{}'))
             s.commit()
-            self.assertEqual([],sm._team_people(s,'t')[1])
+            self.assertEqual('old',sm._team_people(s,'t')[1][0]['id'])
 
     def test_controlled_import_blocks_changed_people_and_wrong_scope(self):
         value=valid()
@@ -329,7 +329,7 @@ class DomainTest(unittest.TestCase):
         with sm._SESSION_FACTORY() as s:
             s.add(sm.StrategicPersonRow(id='old',team_id='t',name='未核实人名',role='负责人',is_leader=True,verification_status='pending'))
             s.commit();store.persist(s,s.get(sm.StrategicTeamRow,'t'),valid());s.commit()
-            self.assertEqual('甲',sm._team_people(s,'t')[0]['name'])
+            self.assertEqual('甲',sm._team_people(s,'t')[0][0]['name'])
             self.assertEqual('pending',s.get(sm.StrategicPersonRow,'old').verification_status)
 
     def test_rollback_preserves_concurrent_manual_edit(self):

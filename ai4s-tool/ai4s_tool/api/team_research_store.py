@@ -66,7 +66,7 @@ def _person_value(person, run):
             'verification_status': person['status'], 'source_type': '公开网页原文·独立审核'}
 
 
-def upsert_people(session, team, leader, members):
+def upsert_people(session, team, leader, members, *, preserve_existing=False):
     """No inferred roles/status, no blank overwrite, stable team+person identity."""
     from .strategic_map import StrategicPersonRow, _now
     rows = session.query(StrategicPersonRow).filter_by(team_id=team.id).all()
@@ -76,6 +76,13 @@ def upsert_people(session, team, leader, members):
             continue
         name = value['name'].strip()
         person = by_name.get(name.casefold())
+        if person is not None and preserve_existing:
+            if not person.deleted:
+                for field in ('title', 'research_direction', 'bio', 'profile_url', 'avatar_url', 'evidence', 'source_type'):
+                    if value.get(field) and not getattr(person, field):
+                        setattr(person, field, value[field])
+                person.source_urls = list(dict.fromkeys([*(person.source_urls or []), *(value.get('source_urls') or [])]))
+            continue
         incoming = value.get('verification_status', 'pending')
         if person is not None and person.verification_status == 'verified' and incoming != 'verified':
             continue
@@ -102,6 +109,8 @@ def persist(session, team, run):
     Does not commit: caller owns the team, people and history transaction.
     """
     from .strategic_map import StrategicPersonRow, _now, _team_to_dict
+    if run.get('extracted') and not run.get('reviewed'):
+        return persist_collected(session, team, run)
     before = _team_to_dict(team, session)
     reviewed = run.get('reviewed') or {}
     accepted = (run.get('status') == 'reviewed'
@@ -212,6 +221,62 @@ def persist(session, team, run):
     team.updated_at = _now()
     append_history(session, team.id, status, {'run': run, 'before': before, 'published': True,
                    'managed_recent_update': team.recent_update if 'recent_update' not in protected else None})
+    return True
+
+
+def collected_identity(run):
+    """Require source-backed names, not a review status, before creating a team."""
+    from .team_research import Research
+    value = run.get('extracted') or {}
+    guard = Research(lambda **kwargs: '', seconds=1)
+    guard.pages = {p['url']: p for p in run.get('pages', [])}
+    return all(value.get(k, {}).get('value') and guard.citations_valid(value[k].get('citations', []))
+               for k in ('institution_name', 'team_name'))
+
+
+def persist_collected(session, team, run):
+    """Add sourced discoveries immediately without approval or destructive replacement."""
+    from .strategic_map import _now, _team_to_dict
+    from .team_research import Research
+    value = run.get('extracted') or {}
+    before = _team_to_dict(team, session)
+    guard = Research(lambda **kwargs: '', seconds=1)
+    guard.pages = {p['url']: p for p in run.get('pages', [])}
+    def sourced(fact):
+        return fact.get('value', '') if fact and guard.citations_valid(fact.get('citations', [])) else ''
+    if not collected_identity(run) or value.get('entity_relation') in ('different', 'successor'):
+        append_history(session, team.id, 'collected', {'run': run, 'before': before, 'published': False})
+        return False
+    # Never attach a different named entity to an existing stable identity.
+    unknown = ('', '公开资料未注明具体团队')
+    if team.team_name not in unknown and team.team_name != sourced(value.get('team_name')) and value.get('entity_relation') != 'rename':
+        append_history(session, team.id, 'identity_conflict', {'run': run, 'before': before, 'published': False})
+        return False
+    for field in ('institution_name', 'team_name', 'description', 'location'):
+        incoming = sourced(value.get(field))
+        if incoming and (field in ('institution_name', 'team_name') or not getattr(team, field)):
+            setattr(team, field, incoming)
+    team.name = team.institution_name
+    team.research_directions = list(dict.fromkeys([*(team.research_directions or []),
+        *(sourced(v) for v in value.get('research_directions', []) if sourced(v))]))
+    def person(p):
+        if not p or not p.get('name') or not p.get('role') or not guard.citations_valid(p.get('citations', [])):
+            return None
+        item = _person_value(p, run)
+        item.update({k: sourced(p.get(k)) for k in ('title', 'research_direction', 'bio')})
+        item.update(verification_status='collected', confidence=0.0, source_type='公开来源')
+        return item
+    leader = person(value.get('leader'))
+    members = [v for p in value.get('members', []) if (v := person(p)) and (not leader or v['name'] != leader['name'])]
+    upsert_people(session, team, leader, members, preserve_existing=True)
+    urls = [c['url'] for key in ('institution_name', 'team_name', 'description', 'location')
+            for c in (value.get(key) or {}).get('citations', []) if sourced(value.get(key))]
+    team.source_urls = list(dict.fromkeys([*(team.source_urls or []), *urls]))
+    team.evidence_urls = list(dict.fromkeys([*(team.evidence_urls or []), *team.source_urls]))
+    team.verification_status = 'collected'
+    team.source = '公开来源'
+    team.updated_at = _now()
+    append_history(session, team.id, 'collected', {'run': run, 'before': before, 'published': True})
     return True
 
 

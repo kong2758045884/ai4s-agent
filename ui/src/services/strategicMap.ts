@@ -50,6 +50,7 @@ export type StrategicTeam = {
   reportTitle: string;
   updatedAt: string;
   leader?: StrategicPerson | null;
+  leaders?: StrategicPerson[];
   members?: StrategicPerson[];
   leaderId?: string;
 };
@@ -73,6 +74,7 @@ export type StrategicPerson = {
 export type StrategicTeamDetail = {
   team: StrategicTeam;
   leader: StrategicPerson | null;
+  leaders?: StrategicPerson[];
   members: StrategicPerson[];
   domain?: StrategicDomain;
   subdomain?: StrategicSubdomain | null;
@@ -241,6 +243,7 @@ function mapTeam(rawValueItem: unknown): StrategicTeam {
     reportTitle: text(raw.reportTitle || raw.report_title),
     updatedAt: text(raw.updatedAt || raw.updated_at),
     leader: leaderValue ? mapPerson(leaderValue, id) : null,
+    leaders: Array.isArray(raw.leaders) ? raw.leaders.map((item) => mapPerson(item, id)) : leaderValue ? [mapPerson(leaderValue, id)] : [],
     members: Array.isArray(membersValue) ? membersValue.map((item) => mapPerson(item, id)) : [],
     leaderId: text(raw.leaderId || raw.leader_id),
   };
@@ -333,7 +336,6 @@ export async function loadStrategicMap(options?: {
   signal?: AbortSignal;
 }): Promise<StrategicMapSnapshot> {
   const params = new URLSearchParams();
-  params.set("include_legacy", "true");
   if (options?.refresh) params.set("refresh", "true");
   if (options?.domainId) params.set("domain_id", options.domainId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
@@ -345,7 +347,6 @@ export async function loadStrategicDomainTeams(
   options?: { refresh?: boolean; subdomainId?: string },
 ): Promise<{ teams: StrategicTeam[]; source: StrategicMapSource; domain?: StrategicDomain }> {
   const params = new URLSearchParams();
-  params.set("include_legacy", "true");
   if (options?.refresh) params.set("refresh", "true");
   if (options?.subdomainId) params.set("subdomain_id", options.subdomainId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
@@ -372,6 +373,7 @@ export async function loadStrategicTeamDetail(
   return {
     team,
     leader,
+    leaders: Array.isArray(raw.leaders) ? raw.leaders.map((item) => mapPerson(item, team.id)) : team.leaders ?? (leader ? [leader] : []),
     members,
     domain: raw.domain ? mapDomain(raw.domain) : undefined,
     subdomain: raw.subdomain
