@@ -14,6 +14,7 @@ const FeaturedConversationDetail = React.lazy(
 );
 const WorkspaceMRag = React.lazy(() => import('@/pages/WorkspaceMRag'));
 const StrategicMap = React.lazy(() => import('@/pages/StrategicMap'));
+const StrategicTeamDetail = React.lazy(() => import('@/pages/StrategicTeamDetail'));
 const WorkspaceImageGeneration = React.lazy(() => import('@/pages/WorkspaceImageGeneration'));
 const WorkspaceSop = React.lazy(() => import('@/pages/WorkspaceSop'));
 const SubAgentAdmin = React.lazy(() => import('@/pages/SubAgentAdmin'));
@@ -60,6 +61,14 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<Loading loading={true} className="h-full"/>}>
             <StrategicMap />
+          </Suspense>
+        ),
+      },
+      {
+        path: ROUTES.STRATEGIC_TEAM_DETAIL,
+        element: (
+          <Suspense fallback={<Loading loading={true} className="h-full"/>}>
+            <StrategicTeamDetail />
           </Suspense>
         ),
       },

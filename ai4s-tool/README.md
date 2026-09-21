@@ -1,4 +1,4 @@
-# AI4S Tool
+# AI4S 研判系统工具服务
 
 `python >= 3.11`
 
@@ -64,7 +64,7 @@ cd ai4s-tool
 
 ## 登录态只读平台
 
-AI4S 内置了三个独立的只读工具，不依赖 Agent Reach。先在 `.env` 中配置环境变量，真实值不要提交到仓库：
+AI4S 研判系统内置了三个独立的只读工具，不依赖 Agent Reach。先在 `.env` 中配置环境变量，真实值不要提交到仓库：
 
 ```dotenv
 AI4S_TWITTER_AUTH_TOKEN=
@@ -73,7 +73,7 @@ AI4S_REDDIT_SESSION=
 AI4S_XUEQIU_COOKIE=
 ```
 
-Twitter 需要本机安装 `twitter-cli`（例如 `uv tool install twitter-cli`）；Reddit 和雪球由 AI4S Python 直接发起 HTTP 请求。三者都不会读取浏览器 Cookie、`rdt-cli` credential 文件或 Agent Reach 配置。
+Twitter 需要本机安装 `twitter-cli`（例如 `uv tool install twitter-cli`）；Reddit 和雪球由 AI4S 研判系统的 Python 服务直接发起 HTTP 请求。三者都不会读取浏览器 Cookie、`rdt-cli` credential 文件或 Agent Reach 配置。
 
 如果 Twitter 初始化时报 `ClientTransaction` 超时，需要为 `AI4S_TWITTER_PROXY` 配置能访问 `x.com` 的 HTTP 或 SOCKS5 代理；普通 `HTTPS_PROXY` 不一定会被 `twitter-cli` 使用。
 

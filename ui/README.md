@@ -1,6 +1,6 @@
-# AI4S UI
+# AI4S 研判系统前端
 
-AI4S UI 是一个基于 React、TypeScript 和 Vite 的现代化项目。
+AI4S 研判系统前端是一个基于 React、TypeScript 和 Vite 的现代化项目。
 
 ## 功能特性
 

@@ -14,6 +14,7 @@ import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.ai4s.config.AI4SConfig;
 
 import java.net.URI;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -137,8 +138,9 @@ public class WebFetchTool implements BaseTool {
             data.put("content", extracted.content());
             data.put("degraded", extracted.degraded());
             if (extracted.degraded()) {
-                data.put("extractError", extracted.errorSummary());
-                data.put("hint", "Page fetch succeeded; model extract failed, returned truncated page text.");
+                // 诊断信息只写日志；工具 observation 可能进入报告代理，不能把异常类名、代理地址
+                // 或连接堆栈当作事实资料暴露给最终用户。
+                data.put("hint", "页面抓取成功，以下内容为页面正文摘录，未完成模型提炼。");
             }
             return ToolResultPayload.fromData(data);
         } catch (FetchHttpException e) {
@@ -160,20 +162,7 @@ public class WebFetchTool implements BaseTool {
             throw new IllegalStateException("Too many redirects (exceeded " + MAX_SAME_HOST_REDIRECTS + ")");
         }
 
-        RemoteHttpResponse response = requireRemoteHttpPort().executeDetailed(RemoteHttpRequest.builder()
-                .method("GET")
-                .url(url)
-                .headers(Map.of(
-                        "Accept", "text/markdown, text/html, text/plain, */*",
-                        "User-Agent", USER_AGENT
-                ))
-                .connectTimeoutSeconds(30L)
-                .readTimeoutSeconds(FETCH_TIMEOUT_SECONDS)
-                .writeTimeoutSeconds(FETCH_TIMEOUT_SECONDS)
-                .callTimeoutSeconds(FETCH_TIMEOUT_SECONDS)
-                .proxy(StringUtils.trimToEmpty(requireAI4SConfig().getWebFetchProxy()))
-                .followRedirects(false)
-                .build());
+        RemoteHttpResponse response = executeFetchRequest(url);
 
         int code = response.getStatusCode();
         if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
@@ -246,15 +235,43 @@ public class WebFetchTool implements BaseTool {
             String root = rootCauseSummary(e);
             log.warn("{} WebFetch model extract failed, degrade to page text, root={}", requestId(), root, e);
             String degraded = """
-                    [WebFetch degraded: model extract failed]
-                    error: %s
-                    prompt: %s
+                    页面已成功抓取，但未能完成二次提炼。
+                    提取要求：%s
 
-                    page text:
+                    页面正文摘录：
                     %s
-                    """.formatted(root, prompt, markdownContent);
+                    """.formatted(prompt, markdownContent);
             return ExtractOutcome.degraded(degraded, root);
         }
+    }
+
+    /**
+     * 代理是可选优化项，不是访问前提。代理连接失败时记录诊断并立即直连重试，避免把本机
+     * Clash/7890 之类的部署细节传播到工具结果或正式报告。
+     */
+    private RemoteHttpResponse executeFetchRequest(String url) throws IOException {
+        AI4SConfig config = requireAI4SConfig();
+        String proxy = StringUtils.trimToNull(config.getWebFetchProxy());
+        var builder = RemoteHttpRequest.builder()
+                .method("GET")
+                .url(url)
+                .headers(Map.of(
+                        "Accept", "text/markdown, text/html, text/plain, */*",
+                        "User-Agent", USER_AGENT
+                ))
+                .connectTimeoutSeconds(30L)
+                .readTimeoutSeconds(FETCH_TIMEOUT_SECONDS)
+                .writeTimeoutSeconds(FETCH_TIMEOUT_SECONDS)
+                .callTimeoutSeconds(FETCH_TIMEOUT_SECONDS)
+                .followRedirects(false);
+        if (proxy != null) {
+            try {
+                return requireRemoteHttpPort().executeDetailed(builder.proxy(proxy).build());
+            } catch (Exception proxyFailure) {
+                log.warn("{} WebFetch proxy unavailable; retry direct url={}", requestId(), url);
+            }
+        }
+        return requireRemoteHttpPort().executeDetailed(builder.proxy(null).build());
     }
 
     private static String rootCauseSummary(Throwable error) {

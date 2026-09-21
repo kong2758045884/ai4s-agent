@@ -33,12 +33,12 @@ public class DeepSearchStructuredResultBuilder {
     /**
      * 每个子查询最多保留多少条命中文档到主智能体 observation。
      */
-    private static final int OBSERVATION_DOC_LIMIT_PER_QUERY = 3;
+    private static final int OBSERVATION_DOC_LIMIT_PER_QUERY = 5;
 
     /**
      * 每条文档摘要最大长度，避免再次膨胀成大 JSON。
      */
-    private static final int OBSERVATION_DOC_SUMMARY_MAX_LEN = 180;
+    private static final int OBSERVATION_DOC_SUMMARY_MAX_LEN = 360;
 
     /**
      * 章节总结写入 observation 时的最大长度。
@@ -82,6 +82,11 @@ public class DeepSearchStructuredResultBuilder {
         if ("report".equals(messageType)) {
             recordReportChunk(response.getAnswer());
         }
+    }
+
+    /** 是否已经收集到可供后续分析使用的证据或章节内容。 */
+    public boolean hasEvidence() {
+        return !searchResults.isEmpty() || !chapters.isEmpty() || StringUtils.isNotBlank(finalAnswer);
     }
 
     /**
@@ -181,6 +186,9 @@ public class DeepSearchStructuredResultBuilder {
     }
 
     private void recordChapterSummary(DeepSearchrResponse response) {
+        // 某些上游只在 chapter_summary 事件携带 docs；先归并进全局 query 结果，避免
+        // 章节总结存在但主 Agent 的 results 为空。
+        recordSearch(response.getSearchResult());
         String chapterId = StringUtils.defaultIfBlank(response.getChapterId(),
                 "C" + (chapters.size() + 1));
         String title = StringUtils.defaultIfBlank(response.getChapterTitle(), chapterId);
@@ -319,6 +327,7 @@ public class DeepSearchStructuredResultBuilder {
 
     private List<DeepSearchObservationQueryResult> buildObservationResults() {
         List<DeepSearchObservationQueryResult> results = new ArrayList<>();
+        Set<String> emittedQueries = new HashSet<>();
         for (Map.Entry<String, List<DeepSearchrResponse.SearchDoc>> entry : searchResults.entrySet()) {
             List<DeepSearchObservationDoc> docs = new ArrayList<>();
             List<DeepSearchrResponse.SearchDoc> rawDocs = entry.getValue();
@@ -340,6 +349,33 @@ public class DeepSearchStructuredResultBuilder {
                     .query(entry.getKey())
                     .docs(docs)
                     .build());
+            emittedQueries.add(entry.getKey());
+        }
+        // 章节补搜可能只落在 chapter.docs，补一份按章节查询组织的证据。
+        for (DeepSearchChapter chapter : orderedChapters()) {
+            String fallbackQuery = StringUtils.defaultIfBlank(chapter.getTitle(), chapter.getChapterId());
+            if (emittedQueries.contains(fallbackQuery) || CollectionUtils.isEmpty(chapter.getDocs())) {
+                continue;
+            }
+            List<DeepSearchObservationDoc> docs = new ArrayList<>();
+            int limit = Math.min(chapter.getDocs().size(), OBSERVATION_DOC_LIMIT_PER_QUERY);
+            for (int idx = 0; idx < limit; idx++) {
+                DeepSearchDoc doc = chapter.getDocs().get(idx);
+                if (doc == null) {
+                    continue;
+                }
+                docs.add(DeepSearchObservationDoc.builder()
+                        .title(StringUtils.defaultString(doc.getTitle()))
+                        .link(StringUtils.defaultString(doc.getLink()))
+                        .summary(truncate(StringUtils.defaultString(doc.getSummary()), OBSERVATION_DOC_SUMMARY_MAX_LEN))
+                        .build());
+            }
+            if (!docs.isEmpty()) {
+                results.add(DeepSearchObservationQueryResult.builder()
+                        .query(fallbackQuery)
+                        .docs(docs)
+                        .build());
+            }
         }
         return results;
     }

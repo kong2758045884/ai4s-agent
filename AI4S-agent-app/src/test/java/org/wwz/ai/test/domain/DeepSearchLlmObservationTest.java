@@ -59,7 +59,7 @@ public class DeepSearchLlmObservationTest {
 
         ToolResultPayload payload = builder.buildPayload("fallback");
         DeepSearchToolOutput structuredOutput = (DeepSearchToolOutput) payload.getStructuredOutput();
-        JSONObject llmObservation = JSON.parseObject(payload.getLlmObservation());
+        JSONObject llmObservation = JSON.parseObject(JSON.toJSONString(payload.getLlmData()));
 
         Assert.assertNotNull(structuredOutput);
         Assert.assertEquals("deep_search", structuredOutput.getToolName());
@@ -75,8 +75,8 @@ public class DeepSearchLlmObservationTest {
         Assert.assertEquals(2, llmObservation.getJSONArray("results").size());
         Assert.assertEquals(1, llmObservation.getJSONArray("chapters").size());
         Assert.assertFalse(payload.getFailed());
-        Assert.assertTrue(payload.getLlmObservation().contains("海关总署：出口量创新高"));
-        Assert.assertTrue(payload.getLlmObservation().contains("https://example.com/customs"));
+        Assert.assertTrue(JSON.toJSONString(payload.getLlmData()).contains("海关总署：出口量创新高"));
+        Assert.assertTrue(JSON.toJSONString(payload.getLlmData()).contains("https://example.com/customs"));
     }
 
     @Test
@@ -103,12 +103,12 @@ public class DeepSearchLlmObservationTest {
                 .build());
         builder.recordFinalAnswer("AI 芯片供应链", fullAnswer);
 
-        JSONObject llmObservation = JSON.parseObject(builder.buildPayload("fallback").getLlmObservation());
+        JSONObject llmObservation = JSON.parseObject(JSON.toJSONString(builder.buildPayload("fallback").getLlmData()));
         JSONArray results = llmObservation.getJSONArray("results");
         JSONArray docs = results.getJSONObject(0).getJSONArray("docs");
 
-        Assert.assertEquals(3, docs.size());
-        Assert.assertTrue(docs.getJSONObject(0).getString("summary").length() <= 183);
+        Assert.assertEquals(4, docs.size());
+        Assert.assertTrue(docs.getJSONObject(0).getString("summary").length() <= 363);
         // 总结文章全量返回，不再截断
         Assert.assertEquals(fullAnswer, llmObservation.getString("answerSummary"));
     }

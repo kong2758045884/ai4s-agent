@@ -9,6 +9,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { Menu } from "lucide-react";
 import classNames from "classnames";
+import { useLocation, useNavigate } from "react-router-dom";
 import ChatView from "@/components/ChatView";
 import { DURATION, EASE_OUT, useMotionConfig } from "@/lib/motion";
 import WorkspaceMRag from "@/pages/WorkspaceMRag";
@@ -75,6 +76,7 @@ import {
 } from "@/utils/ai4sDailyHome";
 import ConversationSidebar from "./ConversationSidebar";
 import type { PanelItemType } from "@/components/ActionPanel";
+import { removeStrategicMapParams } from "@/router/strategicMapNavigation";
 import {
   workspaceFileKey,
   type WorkspaceFileItem,
@@ -99,6 +101,30 @@ type SidebarView =
   | "models"
   | "capabilities"
   | "featured";
+
+const SIDEBAR_VIEWS = new Set<SidebarView>([
+  "chat",
+  "strategic-map",
+  "mrag",
+  "image-generation",
+  "sop",
+  "sub-agents",
+  "models",
+  "capabilities",
+  "featured",
+]);
+
+function homeViewFromSearch(search: string): SidebarView {
+  const view = new URLSearchParams(search).get("view") as SidebarView | null;
+  return view && SIDEBAR_VIEWS.has(view) ? view : "chat";
+}
+
+function buildHomeViewPath(search: string, view: SidebarView): string {
+  const params = new URLSearchParams(removeStrategicMapParams(search));
+  if (view !== "chat") params.set("view", view);
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
+}
 
 type InitialState = {
   productType: string;
@@ -178,6 +204,8 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   // Home 持有跨页面的会话壳状态：当前 conversation 负责聊天，侧栏/工作区
   // 状态负责视图切换，访客 bootstrap 则决定哪些受保护数据可以开始加载。
   const initialRef = useRef<InitialState>(createInitialState());
+  const location = useLocation();
+  const navigate = useNavigate();
   const initializedVisitorIdRef = useRef<string | null>(null);
   const conversationBootstrapResolvedRef = useRef(false);
   const {
@@ -190,7 +218,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   >([]);
   const localRecentConversationsRef = useRef<CHAT.ConversationHistory[]>([]);
   const localRecentSummaryRef = useRef<Map<string, string>>(new Map());
-  const [activeView, setActiveView] = useState<SidebarView>("chat");
+  const [activeView, setActiveView] = useState<SidebarView>(() => homeViewFromSearch(location.search));
   const [sidebarPanel, setSidebarPanel] = useState<"sessions" | "task-files">(
     "sessions"
   );
@@ -238,6 +266,22 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
     bootstrapLoading: visitorBootstrapLoading,
     visitorNamed: visitorBootstrap?.named,
   });
+
+  const activateView = useCallback((view: SidebarView) => {
+    setActiveView(view);
+    const path = buildHomeViewPath(location.search, view);
+    const currentPath = `${location.pathname}${location.search}`;
+    if (path !== currentPath) {
+      navigate(path, {
+        replace: true,
+        preventScrollReset: true,
+      });
+    }
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    setActiveView(homeViewFromSearch(location.search));
+  }, [location.search]);
 
   const closeMobileSidebar = useCallback(() => {
     setMobileSidebarOpen(false);
@@ -474,7 +518,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       // 已存在的 session 元数据，默认路径始终生成新的 sessionId。
       const nextSessionId = override?.sessionId || createSessionId();
       const nextProductType = override?.productType || product.type;
-      setActiveView("chat");
+      activateView("chat");
       const nextConversation = createConversation({
         sessionId: nextSessionId,
         productType: nextProductType,
@@ -485,7 +529,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       upsertLocalRecentSession(nextConversation);
       resetInput();
     },
-    [product.type, resetInput, upsertLocalRecentSession]
+    [activateView, product.type, resetInput, upsertLocalRecentSession]
   );
 
   const updateCurrentConversationMeta = useCallback(
@@ -512,7 +556,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       );
       if (localConversation) {
         setCurrentConversation(localConversation);
-        setActiveView("chat");
+        activateView("chat");
         resetInput();
         void restoreHitlForSession(localConversation).then((restored) => {
           setCurrentConversation(restored);
@@ -529,14 +573,14 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
           const hydrated = hydrateConversationFromReplayFrames(detail);
           const restored = await restoreHitlForSession(hydrated);
           setCurrentConversation(restored);
-          setActiveView("chat");
+          activateView("chat");
           resetInput();
         })
         .catch((error) => {
           console.error("加载历史会话详情失败", error);
         });
     },
-    [resetInput]
+    [activateView, resetInput]
   );
 
   const handleDeleteSession = useCallback(
@@ -554,7 +598,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
         if (currentConversation.sessionId === session.sessionId) {
           // 清空当前视图，但不要把一个空白的“新对话”重新塞回任务列表；
           // 用户下一次真正输入时，updateConversation 会再把它加入本地列表。
-          setActiveView("chat");
+          activateView("chat");
           setCurrentConversation(createConversation({ productType: product.type }));
           resetInput();
         }
@@ -566,7 +610,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
         showMessage()?.error("删除会话失败，请稍后重试");
       }
     },
-    [currentConversation.sessionId, product.type, refreshRecentSessions, resetInput]
+    [activateView, currentConversation.sessionId, product.type, refreshRecentSessions, resetInput]
   );
 
   useEffect(() => {
@@ -858,17 +902,17 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       setSidebarPanel("sessions");
       setWorkspaceImmersive(false);
       closeMobileSidebar();
-      setActiveView(view);
+      activateView(view);
     },
-    [closeMobileSidebar]
+    [activateView, closeMobileSidebar]
   );
 
   const handleSidebarOpenTaskFiles = useCallback(() => {
-    setActiveView("chat");
+    activateView("chat");
     setWorkspaceImmersive(false);
     setSidebarPanel("task-files");
     setDesktopSidebarCollapsed(false);
-  }, []);
+  }, [activateView]);
 
   const handleSidebarCloseTaskFiles = useCallback(() => {
     setSidebarPanel("sessions");
@@ -1091,11 +1135,11 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
                       featuredCards={featuredCards}
                       onOpenFeaturedConversations={() => {
                         setFeaturedEntryId("");
-                        setActiveView("featured");
+                        activateView("featured");
                       }}
                       onOpenFeaturedDetail={(featuredId) => {
                         setFeaturedEntryId(featuredId);
-                        setActiveView("featured");
+                        activateView("featured");
                       }}
                     />
                   </motion.div>

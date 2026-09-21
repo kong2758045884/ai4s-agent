@@ -10,6 +10,53 @@ from ai4s_tool.util.llm_util import resolve_openai_compat_env
 
 
 class DeepSearchLlmConfigTest(unittest.IsolatedAsyncioTestCase):
+    async def test_ai4s_report_query_gets_fixed_evidence_chapters(self):
+        responses = iter(
+            [
+                '[{"title":"技术路线","content":"研究架构",'
+                '"search_queries":["AlphaFold 3 architecture"]}]'
+            ]
+        )
+
+        async def fake_ask_llm(*args, **kwargs):
+            yield next(responses)
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DEEPSEARCH_BASE_URL": "https://deepsearch.example.com/v1/chat/completions",
+                    "DEEPSEARCH_API_KEY": "deepsearch-key",
+                },
+                clear=False,
+            ),
+            patch(
+                "ai4s_tool.tool.search_component.query_process.ask_llm",
+                new=fake_ask_llm,
+            ),
+        ):
+            chapters = await query_decompose(
+                "AlphaFold 3 技术路线与竞争格局研判报告"
+            )
+
+        titles = [chapter["title"] for chapter in chapters]
+        self.assertEqual(
+            [
+                "事件概览",
+                "科学问题",
+                "技术路线",
+                "主要创新",
+                "论文团队与机构",
+                "前序工作",
+                "竞争路线",
+                "AI4S意义",
+                "待观察问题",
+                "来源证据",
+            ],
+            titles[:10],
+        )
+        self.assertTrue(all(chapter["search_queries"] for chapter in chapters[:10]))
+
     def test_should_prefer_deepsearch_gateway_over_openai_defaults(self):
         with patch.dict(
             os.environ,

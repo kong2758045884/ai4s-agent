@@ -537,9 +537,29 @@ class DeepSearch:
             chapter.status = "failed"
             chapter.error = str(exc)
             if not chapter.summary:
-                chapter.summary = f"章节「{chapter.title}」研究失败：{exc}"
+                if chapter.docs:
+                    # 失败原因留在日志和内部状态，报告只保留已经拿到的事实证据。
+                    chapter.summary = self._evidence_only_summary(chapter.docs)
+                else:
+                    chapter.summary = (
+                        f"当前公开资料不足，暂未形成关于「{chapter.title}」的可靠判断。"
+                    )
             await _emit_summary(chapter.summary, False)
             return chapter
+
+
+    def _evidence_only_summary(self, docs: List[Doc]) -> str:
+        """模型提炼失败时的事实保底，禁止把异常文本拼进正式报告。"""
+        lines = []
+        for doc in (docs or [])[:5]:
+            title = (doc.title or "未命名来源").strip()
+            content = " ".join((doc.content or "").split())
+            if len(content) > 420:
+                content = content[:420].rstrip() + "…"
+            source = (doc.link or "").strip()
+            if content:
+                lines.append(f"- {title}：{content}" + (f"（来源：{source}）" if source else ""))
+        return "\n".join(lines) or "当前公开资料不足，暂未形成可靠判断。"
 
     async def _search_queries_and_dedup(
         self,

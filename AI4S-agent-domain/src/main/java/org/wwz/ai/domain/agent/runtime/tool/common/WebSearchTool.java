@@ -15,7 +15,9 @@ import org.wwz.ai.domain.agent.runtime.tool.ToolResultPayload;
 import org.wwz.ai.domain.agent.ai4s.config.AI4SConfig;
 
 import java.net.URLEncoder;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,6 +40,8 @@ public class WebSearchTool implements BaseTool {
     private static final long HTTP_TIMEOUT_SECONDS = 60L;
     private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]+)]\\((https?://[^)]+)\\)");
     private static final Pattern BARE_URL = Pattern.compile("https?://[^\\s)>\"]+");
+    private static final Pattern DDG_RESULT = Pattern.compile("(?is)<a[^>]*class=\\\"[^\\\"]*result__a[^\\\"]*\\\"[^>]*href=\\\"([^\\\"]+)\\\"[^>]*>(.*?)</a>");
+    private static final Pattern DDG_SNIPPET = Pattern.compile("(?is)<(?:a|div)[^>]*class=\\\"[^\\\"]*result__snippet[^\\\"]*\\\"[^>]*>(.*?)</(?:a|div)>");
 
     private AgentContext agentContext;
 
@@ -148,8 +152,158 @@ public class WebSearchTool implements BaseTool {
             case EXA -> new SearchBundle(searchExa(query, allowedDomains, blockedDomains, plan), null);
             case TAVILY -> new SearchBundle(searchTavily(query, allowedDomains, blockedDomains, plan.apiKey()), null);
             case BRAVE -> new SearchBundle(searchBrave(query, allowedDomains, blockedDomains, plan.apiKey()), null);
+            case PUBLIC_DDG -> new SearchBundle(searchPublicDdg(query, allowedDomains, blockedDomains), null);
             case DISABLED -> throw new IllegalStateException("disabled");
         };
+    }
+
+    /** 无 API key 时使用公开 DuckDuckGo HTML 结果作为最后一级兜底。 */
+    private List<SearchHit> searchPublicDdg(String query,
+                                             List<String> allowedDomains,
+                                             List<String> blockedDomains) throws Exception {
+        String filteredQuery = applyDomainFiltersToQuery(query, allowedDomains, blockedDomains);
+        String url = "https://html.duckduckgo.com/html/?q="
+                + URLEncoder.encode(filteredQuery, StandardCharsets.UTF_8) + "&kl=wt-wt";
+        String html;
+        try {
+            html = publicGet(url);
+        } catch (Exception ddgError) {
+            // Some JVM/DNS combinations prefer an unreachable IPv6 route for
+            // html.duckduckgo.com.  Keep the no-key public fallback alive by
+            // switching to a second public HTML index instead of returning an
+            // internal connection error to the agent.
+            log.warn("{} public DuckDuckGo failed, fallback Bing HTML: {}",
+                    requestId(), ddgError.getClass().getSimpleName());
+            return searchPublicBing(filteredQuery, allowedDomains, blockedDomains);
+        }
+
+        List<String> snippets = new ArrayList<>();
+        Matcher snippetMatcher = DDG_SNIPPET.matcher(StringUtils.defaultString(html));
+        while (snippetMatcher.find() && snippets.size() < MAX_RESULTS) {
+            snippets.add(cleanHtml(snippetMatcher.group(1)));
+        }
+        List<SearchHit> hits = new ArrayList<>();
+        Matcher resultMatcher = DDG_RESULT.matcher(StringUtils.defaultString(html));
+        while (resultMatcher.find() && hits.size() < MAX_RESULTS) {
+            String resultUrl = decodeDdgUrl(resultMatcher.group(1));
+            String title = cleanHtml(resultMatcher.group(2));
+            String snippet = hits.size() < snippets.size() ? snippets.get(hits.size()) : "";
+            SearchHit hit = normalizeHit(title, resultUrl, snippet);
+            if (hit != null) {
+                hits.add(hit);
+            }
+        }
+        if (hits.isEmpty()) {
+            return searchPublicBing(filteredQuery, allowedDomains, blockedDomains);
+        }
+        return dedupeHits(hits);
+    }
+
+    private String publicGet(String url) throws Exception {
+        return requireRemoteHttpPort().execute(RemoteHttpRequest.builder()
+                .method("GET")
+                .url(url)
+                .headers(Map.of("Accept", "text/html,application/xhtml+xml",
+                        "User-Agent", "AI4SAgentWebSearch/1.0"))
+                .connectTimeoutSeconds(HTTP_TIMEOUT_SECONDS)
+                .readTimeoutSeconds(HTTP_TIMEOUT_SECONDS)
+                .writeTimeoutSeconds(HTTP_TIMEOUT_SECONDS)
+                .callTimeoutSeconds(HTTP_TIMEOUT_SECONDS)
+                .build());
+    }
+
+    /** Bing 的公开 HTML 页面作为 DDG 不可达时的第二级无 key fallback。 */
+    private List<SearchHit> searchPublicBing(String query,
+                                              List<String> allowedDomains,
+                                              List<String> blockedDomains) throws Exception {
+        String filteredQuery = applyDomainFiltersToQuery(query, allowedDomains, blockedDomains);
+        String url = "https://www.bing.com/search?q="
+                + URLEncoder.encode(filteredQuery, StandardCharsets.UTF_8);
+        String content = publicGet(url);
+        List<SearchHit> hits = new ArrayList<>();
+        Matcher resultMatcher = Pattern.compile(
+                "(?is)<li[^>]*class=\\\"[^\\\"]*b_algo[^\\\"]*\\\"[^>]*>(.*?)</li>")
+                .matcher(StringUtils.defaultString(content));
+        while (resultMatcher.find() && hits.size() < MAX_RESULTS) {
+            String block = resultMatcher.group(1);
+            Matcher linkMatcher = Pattern.compile(
+                    "(?is)<h2[^>]*>\\s*<a[^>]*href=\\\"([^\\\"]+)\\\"[^>]*>(.*?)</a>")
+                    .matcher(block);
+            if (!linkMatcher.find()) {
+                continue;
+            }
+            String resultUrl = decodeBingUrl(linkMatcher.group(1));
+            String title = cleanHtml(linkMatcher.group(2));
+            Matcher snippetMatcher = Pattern.compile(
+                    "(?is)<(?:p|div)[^>]*class=\\\"[^\\\"]*b_caption[^\\\"]*\\\"[^>]*>(.*?)</(?:p|div)>")
+                    .matcher(block);
+            String snippet = snippetMatcher.find() ? cleanHtml(snippetMatcher.group(1)) : "";
+            SearchHit hit = normalizeHit(title, resultUrl, snippet);
+            if (hit != null) {
+                hits.add(hit);
+            }
+        }
+        if (hits.isEmpty()) {
+            throw new IllegalStateException("public web search returned no results");
+        }
+        return dedupeHits(hits);
+    }
+
+    private static String decodeBingUrl(String value) {
+        String url = htmlDecode(StringUtils.trimToEmpty(value));
+        int marker = url.indexOf("u=");
+        if (marker >= 0) {
+            String encoded = url.substring(marker + 2);
+            int amp = encoded.indexOf('&');
+            if (amp >= 0) {
+                encoded = encoded.substring(0, amp);
+            }
+            try {
+                byte[] decoded = Base64.getUrlDecoder().decode(encoded);
+                String candidate = new String(decoded, StandardCharsets.UTF_8);
+                if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+                    return candidate;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // 保留 Bing tracking URL，normalizeHit 会继续校验。
+            }
+        }
+        return url;
+    }
+
+    private static String decodeDdgUrl(String value) {
+        String url = StringUtils.trimToEmpty(value);
+        int uddg = url.indexOf("uddg=");
+        if (uddg >= 0) {
+            url = url.substring(uddg + 5);
+            int amp = url.indexOf('&');
+            if (amp >= 0) {
+                url = url.substring(0, amp);
+            }
+        }
+        try {
+            url = URLDecoder.decode(url, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            // 保留原始值，后续 normalizeHit 会继续校验。
+        }
+        return htmlDecode(url);
+    }
+
+    private static String cleanHtml(String value) {
+        return htmlDecode(StringUtils.defaultString(value)
+                .replaceAll("(?is)<[^>]+>", " "))
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private static String htmlDecode(String value) {
+        return StringUtils.defaultString(value)
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&#x27;", "'")
+                .replace("&#39;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">");
     }
 
     /**
@@ -687,30 +841,35 @@ public class WebSearchTool implements BaseTool {
             if (grok != null) {
                 plans.add(grok);
             }
+            addPublicFallback(plans);
             return plans;
         }
         if ("gpt".equals(mode) || "openai".equals(mode)) {
             if (gpt != null) {
                 plans.add(gpt);
             }
+            addPublicFallback(plans);
             return plans;
         }
         if ("exa".equals(mode)) {
             if (exa != null) {
                 plans.add(exa);
             }
+            addPublicFallback(plans);
             return plans;
         }
         if ("tavily".equals(mode)) {
             if (tavilyKey != null) {
                 plans.add(new ProviderPlan(Provider.TAVILY, tavilyKey, null, null, null));
             }
+            addPublicFallback(plans);
             return plans;
         }
         if ("brave".equals(mode)) {
             if (braveKey != null) {
                 plans.add(new ProviderPlan(Provider.BRAVE, braveKey, null, null, null));
             }
+            addPublicFallback(plans);
             return plans;
         }
 
@@ -730,7 +889,15 @@ public class WebSearchTool implements BaseTool {
         if (braveKey != null) {
             plans.add(new ProviderPlan(Provider.BRAVE, braveKey, null, null, null));
         }
+        addPublicFallback(plans);
         return plans;
+    }
+
+    private void addPublicFallback(List<ProviderPlan> plans) {
+        if (plans.stream().noneMatch(plan -> plan.provider() == Provider.PUBLIC_DDG)) {
+            plans.add(new ProviderPlan(Provider.PUBLIC_DDG, null,
+                    "https://html.duckduckgo.com/html/", null, null));
+        }
     }
 
     private ProviderPlan resolveGptPlan(AI4SConfig config) {
@@ -965,6 +1132,7 @@ public class WebSearchTool implements BaseTool {
         EXA,
         TAVILY,
         BRAVE,
+        PUBLIC_DDG,
         DISABLED
     }
 

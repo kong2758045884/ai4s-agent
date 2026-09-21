@@ -1,4 +1,4 @@
-# AI4S E2B Template（含 Playwright）
+# AI4S 研判系统 E2B Template（含 Playwright）
 
 基于官方 `code-interpreter-v1`（保留 `run_code` 内核），预装：
 

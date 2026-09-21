@@ -133,7 +133,7 @@ public class ShellAndWebSearchToolTest {
     }
 
     @Test
-    public void webSearchShouldFailWhenNoApiKey() {
+    public void webSearchShouldUsePublicFallbackWhenNoApiKey() {
         AI4SConfig config = new AI4SConfig();
         ReflectionTestUtils.setField(config, "webSearchMode", "auto");
         ReflectionTestUtils.setField(config, "webSearchGrokApiKey", "");
@@ -143,18 +143,29 @@ public class ShellAndWebSearchToolTest {
         ReflectionTestUtils.setField(config, "webSearchTavilyApiKey", "");
         ReflectionTestUtils.setField(config, "webSearchBraveApiKey", "");
 
+        RemoteHttpPort httpPort = request -> {
+            Assert.assertEquals("GET", request.getMethod());
+            Assert.assertTrue(request.getUrl().contains("duckduckgo.com/html"));
+            return """
+                    <html><body>
+                      <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpaper">AlphaFold 3 paper</a>
+                      <a class="result__snippet">A peer-reviewed paper describes the model and its training data.</a>
+                    </body></html>
+                    """;
+        };
         AgentContext context = AgentContext.builder()
                 .requestId("req-ws-001")
                 .sessionId("session-ws-001")
-                .runtimeDependencies(AI4SRuntimeTestSupport.runtimeDependencies(config))
+                .runtimeDependencies(AI4SRuntimeTestSupport.runtimeDependencies(config, httpPort))
                 .build();
         WebSearchTool tool = new WebSearchTool();
         tool.setAgentContext(context);
 
         ToolResultPayload payload = (ToolResultPayload) tool.execute(Map.of("query", "Spring AI"));
-        Assert.assertTrue(Boolean.TRUE.equals(payload.getFailed()));
-        Assert.assertTrue(payload.getErrorMsg().contains("未配置")
-                || payload.getLlmObservation().contains("未配置"));
+        Assert.assertFalse(Boolean.TRUE.equals(payload.getFailed()));
+        String observation = JSON.toJSONString(payload.getLlmData());
+        Assert.assertTrue(observation.contains("https://example.com/paper"));
+        Assert.assertTrue(observation.contains("AlphaFold 3 paper"));
     }
 
     @Test

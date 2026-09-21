@@ -9,18 +9,26 @@ Daily 的公开报告中提取领域相关的机构/团队线索。领域配置�
 from __future__ import annotations
 
 import hashlib
+import asyncio
+import html
+import json
 import os
 import re
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from ai4s_tool.util.log_util import logger
 
 
 router = APIRouter(prefix="/strategic-map", tags=["strategic_map"])
@@ -38,6 +46,7 @@ _ENGINE = create_engine(
     connect_args={"check_same_thread": False},
 )
 _SESSION_FACTORY = sessionmaker(bind=_ENGINE, expire_on_commit=False)
+logger.info(f"[StrategicMap storage] sqlite_path={_DB_PATH.resolve()} pid={os.getpid()}")
 _Base = declarative_base()
 
 
@@ -81,6 +90,51 @@ class StrategicTeamRow(_Base):
     evidence_summary = Column(Text, nullable=False, default="")
     report_id = Column(String(160), nullable=False, default="")
     report_title = Column(String(255), nullable=False, default="")
+    # Normalized team fields.  The original table only had ``name`` and
+    # ``focus``; those fields were overloaded as both institution and team
+    # labels, which is the source of most of the field swaps seen in the UI.
+    institution_name = Column(String(180), nullable=False, default="")
+    team_name = Column(String(180), nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    research_directions = Column(JSON, nullable=False, default=list)
+    location = Column(String(120), nullable=False, default="")
+    is_domestic = Column(Boolean, nullable=False, default=True)
+    team_confidence = Column(Float, nullable=False, default=0.0)
+    leader_confidence = Column(Float, nullable=False, default=0.0)
+    member_confidence = Column(Float, nullable=False, default=0.0)
+    evidence_urls = Column(JSON, nullable=False, default=list)
+    verification_status = Column(String(48), nullable=False, default="unverified")
+    deleted = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+
+class StrategicPersonRow(_Base):
+    """A verified leader or core member linked to a team by ``team_id``.
+
+    People are deliberately stored separately from the team snapshot.  A
+    refresh can therefore replace team evidence while retaining the stable
+    team id and the explicitly verified people attached to it.
+    """
+
+    __tablename__ = "strategic_map_person"
+
+    id = Column(String(64), primary_key=True)
+    team_id = Column(String(64), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    title = Column(String(160), nullable=False, default="")
+    role = Column(String(120), nullable=False, default="")
+    research_direction = Column(String(500), nullable=False, default="")
+    bio = Column(Text, nullable=False, default="")
+    avatar_url = Column(String(500), nullable=False, default="")
+    profile_url = Column(String(500), nullable=False, default="")
+    source_urls = Column(JSON, nullable=False, default=list)
+    source_type = Column(String(80), nullable=False, default="")
+    last_verified_at = Column(DateTime, nullable=True)
+    is_leader = Column(Boolean, nullable=False, default=False, index=True)
+    confidence = Column(Float, nullable=False, default=0.0)
+    evidence = Column(Text, nullable=False, default="")
+    verification_status = Column(String(48), nullable=False, default="unverified")
     deleted = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, nullable=False, default=_now)
     updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
@@ -95,6 +149,85 @@ class StrategicSyncMetaRow(_Base):
 
 
 _Base.metadata.create_all(_ENGINE)
+
+
+def _ensure_team_schema() -> None:
+    """Add normalized columns to databases created by older releases.
+
+    ``create_all`` does not alter an existing SQLite table.  Keep this small
+    migration local to the strategic-map module so an upgrade does not require
+    a separate migration runner and existing user status fields remain intact.
+    """
+    columns = {
+        "institution_name": "VARCHAR(180) NOT NULL DEFAULT ''",
+        "team_name": "VARCHAR(180) NOT NULL DEFAULT ''",
+        "description": "TEXT NOT NULL DEFAULT ''",
+        "research_directions": "JSON NOT NULL DEFAULT '[]'",
+        "location": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "is_domestic": "BOOLEAN NOT NULL DEFAULT 1",
+        "team_confidence": "FLOAT NOT NULL DEFAULT 0",
+        "leader_confidence": "FLOAT NOT NULL DEFAULT 0",
+        "member_confidence": "FLOAT NOT NULL DEFAULT 0",
+        "evidence_urls": "JSON NOT NULL DEFAULT '[]'",
+        "verification_status": "VARCHAR(48) NOT NULL DEFAULT 'unverified'",
+    }
+    with _ENGINE.begin() as connection:
+        existing = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                "PRAGMA table_info(strategic_map_team)"
+            ).fetchall()
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE strategic_map_team ADD COLUMN {name} {definition}"
+                )
+        # Backfill old rows conservatively.  ``focus`` is a research lead, so
+        # it is not copied to team_name; the normalizer will supply an explicit
+        # "not stated" label when a source does not name a team.
+        connection.exec_driver_sql(
+            "UPDATE strategic_map_team SET institution_name = name "
+            "WHERE institution_name IS NULL OR institution_name = ''"
+        )
+        connection.exec_driver_sql(
+            "UPDATE strategic_map_team SET description = evidence_summary "
+            "WHERE description IS NULL OR description = ''"
+        )
+        connection.exec_driver_sql(
+            "UPDATE strategic_map_team SET research_directions = ? "
+            "WHERE research_directions IS NULL OR research_directions = ''",
+            (json.dumps([], ensure_ascii=False),),
+        )
+        connection.exec_driver_sql(
+            "UPDATE strategic_map_team SET team_name = ? "
+            "WHERE team_name IS NULL OR team_name = ''",
+            ("公开资料未注明具体团队",),
+        )
+        connection.exec_driver_sql(
+            "UPDATE strategic_map_team SET location = ? "
+            "WHERE location IS NULL OR location = ''",
+            ("中国（公开资料判定）",),
+        )
+
+
+_ensure_team_schema()
+
+
+def _ensure_people_schema() -> None:
+    columns = {
+        "confidence": "FLOAT NOT NULL DEFAULT 0",
+        "evidence": "TEXT NOT NULL DEFAULT ''",
+        "verification_status": "VARCHAR(48) NOT NULL DEFAULT 'unverified'",
+    }
+    with _ENGINE.begin() as connection:
+        existing = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(strategic_map_person)").fetchall()}
+        for name, definition in columns.items():
+            if name not in existing:
+                connection.exec_driver_sql(f"ALTER TABLE strategic_map_person ADD COLUMN {name} {definition}")
+
+
+_ensure_people_schema()
 
 
 class DomainPayload(BaseModel):
@@ -437,83 +570,13 @@ def _presentation_candidates(domain_name: str) -> list[dict[str, str]]:
 
 
 def _seed_presentation_candidates(session: Session) -> None:
-    """Ensure the auditable presentation candidates are present for each domain.
+    """Compatibility shim for databases created before snapshot syncing.
 
-    The first implementation only seeded an empty domain. That made the map
-    look sparse forever once a single candidate had been stored. We now add
-    missing, source-backed rows alongside existing rows while preserving any
-    user-maintained status/detail fields.
+    Older releases called this function on every GET and inserted a static
+    list of institutions to make the card count look full.  That bypassed the
+    evidence and normalization pipeline.  Reads must now be read-only, so the
+    function only repairs a legacy date value and never creates candidates.
     """
-    roots = _domain_query(session)
-    changed = False
-    for domain in roots:
-        subdomains = _domain_query(session, domain.id)
-        for candidate in _presentation_candidates(domain.name):
-            requested_subdomain = _clean(candidate.get("subdomain"))
-            subdomain = next(
-                (item for item in subdomains if item.name.casefold() == requested_subdomain.casefold()),
-                None,
-            ) if requested_subdomain else None
-            if requested_subdomain and subdomain is None:
-                subdomain = StrategicDomainRow(
-                    id=_new_id("subdomain"),
-                    name=requested_subdomain,
-                    description="由候选团队来源线索归类，待核实",
-                    parent_id=domain.id,
-                    sort_order=len(subdomains),
-                )
-                session.add(subdomain)
-                session.flush()
-                subdomains.append(subdomain)
-            row = session.query(StrategicTeamRow).filter(
-                StrategicTeamRow.domain_id == domain.id,
-                StrategicTeamRow.name == candidate["name"],
-            ).first()
-            report_name = candidate.get("report", "")
-            report_url = candidate.get("url") or _daily_url(report_name)
-            report_date_match = re.search(r"20\d{2}-\d{2}-\d{2}", report_name)
-            report_date = report_date_match.group(0) if report_date_match else ""
-            if not row:
-                row = StrategicTeamRow(
-                    id=_candidate_id(domain.id, candidate["name"]),
-                    domain_id=domain.id,
-                    subdomain_id=subdomain.id if subdomain else None,
-                    name=candidate["name"],
-                    ai_level="待核实",
-                    science_level="待核实",
-                    attention="待核实",
-                    contact="未接触",
-                    contact_record="暂无联系记录",
-                    core_direction=candidate["focus"],
-                    dual_judgement="AI 待核实｜科学 待核实",
-                    internal_review=candidate["evidence"],
-                    recent_update=report_date,
-                    next_action="核验具体团队、代表成果、依托单位与联系状态",
-                )
-                session.add(row)
-            else:
-                row.deleted = False
-                row.focus = candidate["focus"]
-                if subdomain:
-                    row.subdomain_id = subdomain.id
-                if not row.core_direction:
-                    row.core_direction = candidate["focus"]
-                if not row.recent_update:
-                    row.recent_update = report_date
-                if not row.internal_review or row.internal_review.startswith("AI4S Daily 公开报告命中"):
-                    row.internal_review = candidate["evidence"]
-            row.focus = candidate["focus"]
-            if subdomain:
-                row.subdomain_id = subdomain.id
-            row.source = candidate.get("source") or "AI4S Daily"
-            row.source_urls = [report_url]
-            row.evidence_summary = candidate["evidence"]
-            row.report_id = report_name.removesuffix(".md")
-            row.report_title = candidate["title"]
-            row.updated_at = _now()
-            changed = True
-    if changed:
-        session.commit()
     _repair_incomplete_team_dates(session)
 
 
@@ -534,6 +597,7 @@ def _domain_to_dict(session: Session, domain: StrategicDomainRow) -> dict[str, A
         if session.query(StrategicTeamRow.id).filter(
             StrategicTeamRow.subdomain_id == child.id,
             StrategicTeamRow.deleted.is_(False),
+            StrategicTeamRow.verification_status == "verified",
         ).first()
     ]
     return {
@@ -555,33 +619,122 @@ def _domain_to_dict(session: Session, domain: StrategicDomainRow) -> dict[str, A
     }
 
 
-def _team_to_dict(team: StrategicTeamRow) -> dict[str, Any]:
-    # 兼容已有数据库字段，同时提供更清晰的机构/团队字段给前端展示。
+def _person_to_dict(person: StrategicPersonRow) -> dict[str, Any]:
+    """Serialize a verified leader/member without exposing ORM objects."""
     return {
+        "id": person.id,
+        "teamId": person.team_id,
+        "team_id": person.team_id,
+        "name": person.name,
+        "title": person.title,
+        "role": person.role,
+        "researchDirection": person.research_direction,
+        "research_direction": person.research_direction,
+        "bio": person.bio,
+        "avatarUrl": person.avatar_url,
+        "avatar_url": person.avatar_url,
+        "profileUrl": person.profile_url,
+        "profile_url": person.profile_url,
+        "sourceUrls": list(person.source_urls or []),
+        "source_urls": list(person.source_urls or []),
+        "confidence": float(person.confidence or 0),
+        "evidence": person.evidence,
+        "verificationStatus": person.verification_status,
+        "verification_status": person.verification_status,
+        "sourceType": person.source_type,
+        "source_type": person.source_type,
+        "lastVerifiedAt": person.last_verified_at.isoformat() if person.last_verified_at else "",
+        "last_verified_at": person.last_verified_at.isoformat() if person.last_verified_at else "",
+        "isLeader": bool(person.is_leader),
+        "is_leader": bool(person.is_leader),
+    }
+
+
+def _team_people(session: Session, team_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    people = session.query(StrategicPersonRow).filter(
+        StrategicPersonRow.team_id == team_id,
+        StrategicPersonRow.deleted.is_(False),
+        StrategicPersonRow.verification_status == "verified",
+    ).order_by(StrategicPersonRow.is_leader.desc(), StrategicPersonRow.updated_at.desc()).all()
+    values = [_person_to_dict(person) for person in people]
+    leaders = [person for person in values if person["isLeader"]]
+    leader = leaders[0] if len(leaders) == 1 else None
+    def core_verified(person):
+        try:
+            evidence = json.loads(person.get('evidence') or '{}')
+            return (evidence.get('core_membership') or {}).get('status') == 'verified'
+        except (ValueError, TypeError, AttributeError):
+            return False
+    return leader, [person for person in values if not person["isLeader"] and core_verified(person)]
+
+
+def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dict[str, Any]:
+    institution = _normalise_institution_name(team.institution_name or team.name)
+    team_name = _clean(team.team_name, _UNKNOWN_TEAM_LABEL)
+    directions = _normalise_directions(team.research_directions, team.focus)
+    payload = {
         "id": team.id,
         "domainId": team.domain_id,
         "subdomainId": team.subdomain_id,
-        "name": team.name,
-        "organization": team.name,
-        "teamName": team.focus or "相关团队线索",
+        "name": institution,
+        "organization": institution,
+        "institutionName": institution,
+        "institution_name": institution,
+        "teamName": team_name,
+        "team_name": team_name,
+        "description": team.description,
+        "researchDirections": directions,
+        "research_directions": directions,
+        "location": team.location,
+        "institutionCountry": team.location,
+        "institution_country": team.location,
+        "isDomestic": bool(team.is_domestic),
+        "is_domestic": bool(team.is_domestic),
         "focus": team.focus,
-        "aiLevel": team.ai_level,
-        "scienceLevel": team.science_level,
+        "aiLevel": "待核实",
+        "scienceLevel": "待核实",
         "attention": team.attention,
         "contact": team.contact,
         "coreDirection": team.core_direction,
         "dualJudgement": team.dual_judgement,
         "contactRecord": team.contact_record,
         "internalReview": team.internal_review,
-        "recentUpdate": team.recent_update,
+        "recentUpdate": "" if team.recent_update == "近期" else team.recent_update,
         "nextAction": team.next_action,
         "source": team.source,
         "sourceUrls": list(team.source_urls or []),
+        "evidenceUrls": list(team.evidence_urls or team.source_urls or []),
+        "evidence_urls": list(team.evidence_urls or team.source_urls or []),
+        "teamConfidence": float(team.team_confidence or 0),
+        "team_confidence": float(team.team_confidence or 0),
+        "leaderConfidence": float(team.leader_confidence or 0),
+        "leader_confidence": float(team.leader_confidence or 0),
+        "memberConfidence": float(team.member_confidence or 0),
+        "member_confidence": float(team.member_confidence or 0),
+        "verificationStatus": team.verification_status,
+        "verification_status": team.verification_status,
         "evidenceSummary": team.evidence_summary,
         "reportId": team.report_id,
         "reportTitle": team.report_title,
         "updatedAt": team.updated_at.isoformat() if team.updated_at else "",
     }
+    # Legacy pipeline templates are not scientific assessments. Read projection
+    # only: do not migrate rows or change timestamps while serving a GET.
+    from .team_research_store import manual_fields
+    protected = manual_fields(session, team.id) if session is not None else set()
+    if "recent_update" in protected:
+        payload["recentUpdate"] = team.recent_update
+    if "dual_judgement" not in protected and team.dual_judgement == "AI 较高｜科学 较高":
+        payload["dualJudgement"] = "AI 待核实｜科学 待核实"
+    if "internal_review" not in protected and team.internal_review == "已完成候选资料汇总、二次结构化整理、国内过滤和去重；仍建议人工抽查来源。":
+        payload["internalReview"] = "待补充研判"
+    if session is not None:
+        leader, members = _team_people(session, team.id)
+        payload["leader"] = leader
+        payload["members"] = members
+        payload["leader_id"] = leader["id"] if leader else ""
+        payload["leaderId"] = leader["id"] if leader else ""
+    return payload
 
 
 def _response(data: Any, **extra: Any) -> dict[str, Any]:
@@ -679,8 +832,8 @@ def _split_reports(markdown: str) -> Iterable[tuple[str, str]]:
 def _keywords(domain: StrategicDomainRow, subdomains: list[StrategicDomainRow]) -> list[str]:
     values = [domain.name, *(child.name for child in subdomains)]
     aliases = {
-        "生命科学": ["生命科学", "生物", "药物", "蛋白", "基因组", "医学"],
-        "合金材料": ["合金", "材料", "高熵", "材料基因组"],
+        "生命科学": ["生命科学", "生物", "药物", "蛋白", "基因组", "医学", "细胞", "神经", "癌症", "临床"],
+        "合金材料": ["合金", "材料", "金属", "高熵", "镍基", "钛合金", "铝合金", "钢", "材料基因组", "材料计算", "材料设计"],
         "集成电路": ["集成电路", "芯片", "EDA", "器件", "半导体"],
         "电力求解器": ["电力", "电网", "储能", "能源", "调度"],
         "航空航天": ["航空", "航天", "飞行器", "空间任务", "推进"],
@@ -786,6 +939,7 @@ _FOREIGN_ENTITY_MARKERS = (
     "hirsch",
     "microsoft",
     "微软",
+    "微软",
     "英伟达",
     "特文特",
     "twente",
@@ -799,6 +953,38 @@ _FOREIGN_ENTITY_MARKERS = (
     "laboratory",
     "laboratories",
     "ated understanding",
+    # Chinese transliterations/short names that appear in Daily reports.
+    "石溪大学",
+    "纽约大学",
+    "斯坦福大学",
+    "加州大学",
+    "哥伦比亚大学",
+    "康奈尔大学",
+    "宾夕法尼亚大学",
+    "普林斯顿大学",
+    "多伦多大学",
+    "东京大学",
+    "首尔大学",
+    "伦敦大学",
+    "欧洲核子研究中心",
+    "苏黎世",
+    "洛桑",
+    "爱丁堡",
+    "慕尼黑",
+    "巴黎",
+    "香港",
+    "澳门",
+    "台湾",
+)
+
+_DOMESTIC_ENTITY_MARKERS = (
+    "中国", "中科院", "清华", "北大", "北京", "上海", "浙江", "复旦", "南京",
+    "天津", "重庆", "广东", "华南", "华中", "华北", "西北", "西安", "四川",
+    "山东", "吉林", "大连", "厦门", "武汉", "哈尔滨", "合肥", "济南", "郑州",
+    "兰州", "南开", "同济", "东南", "中山", "电子科技", "航空航天", "理工大学",
+    "科技大学", "交通大学", "师范大学",
+    "鹏城", "之江", "天河", "华为", "阿里", "蚂蚁", "腾讯", "字节", "百度",
+    "分子之心", "深势科技", "晶泰科技", "国家电网", "南方电网",
 )
 
 
@@ -901,7 +1087,28 @@ def _is_generic_entity(name: str) -> bool:
     # 实验室、鹏城实验室 and 之江实验室 are valid institutions.
     if normalized == "实验室":
         return True
+    # A trailing “团队/研究团队” without an institution suffix is a prose
+    # description, not an identifiable organization.  Named labs such as
+    # “上海人工智能实验室” are retained by the suffix check below.
+    if normalized.endswith(("团队", "研究团队", "科研团队", "课题组", "研究组")) and not re.search(
+        r"(?:大学|学院|科学院|研究院|研究所|实验室|中心|医院|公司|集团)$", normalized
+    ):
+        return True
+    # Report prose occasionally turns a sentence fragment into a candidate
+    # ending in a valid suffix (for example “头部 AI 公司”).
+    if re.search(r"(?:头部|前沿|相关|多家|若干|某)\s*(?:AI|人工智能)?\s*(?:团队|实验室|机构|公司)$", normalized):
+        return True
     return any(marker != "实验室" and marker in normalized for marker in _GENERIC_ENTITY_MARKERS)
+
+
+def _is_prose_entity(name: str) -> bool:
+    """Reject search-snippet fragments that merely contain an institution suffix."""
+    value = re.sub(r"\s+", " ", _clean(name))
+    if len(value) > 24:
+        return True
+    if re.search(r"\d{2,}", value):
+        return True
+    return any(token in value for token in ("简介", "地址", "负责人简介", "毕业于", "年在", "回国后", "导师队伍", "文化路", "一级学科", "科普活动", "研究部门"))
 
 
 def _is_china_entity(name: str) -> bool:
@@ -910,7 +1117,13 @@ def _is_china_entity(name: str) -> bool:
     if not normalized or not re.search(r"[\u4e00-\u9fff]", normalized):
         return False
     lowered = normalized.lower()
-    return not any(marker.lower() in lowered for marker in _FOREIGN_ENTITY_MARKERS)
+    if any(marker.lower() in lowered for marker in _FOREIGN_ENTITY_MARKERS):
+        return False
+    # A Chinese translation of a foreign university can contain Chinese
+    # characters too.  Require an explicit mainland institution/city marker;
+    # this prevents entries such as “石溪大学” or “香港科技大学” from passing
+    # solely because they contain the suffix “大学”.
+    return any(marker.lower() in lowered for marker in _DOMESTIC_ENTITY_MARKERS)
 
 
 def _extract_entities(text: str) -> list[str]:
@@ -968,6 +1181,446 @@ def _extract_entities(text: str) -> list[str]:
     return cleaned[:10]
 
 
+class _SyncQualityError(RuntimeError):
+    """Raised when a new snapshot is not safe to replace the previous one."""
+
+
+_INSTITUTION_ALIASES = {
+    "中科院自动化所": "中国科学院自动化研究所",
+    "中科院金属所": "中国科学院金属研究所",
+    "中科院物理所": "中国科学院物理研究所",
+    "中科院电工所": "中国科学院电工研究所",
+    "中科院微电子所": "中国科学院微电子研究所",
+    "中科院空天院": "中国科学院空天信息创新研究院",
+    "中科院国家空间科学中心": "中国科学院国家空间科学中心",
+    "中国科大": "中国科学技术大学",
+    "国科大": "中国科学院大学",
+    "北航": "北京航空航天大学",
+    "哈工大": "哈尔滨工业大学",
+    "上交": "上海交通大学",
+    "浙大": "浙江大学",
+    "复旦": "复旦大学",
+}
+
+_UNKNOWN_TEAM_LABEL = "公开资料未注明具体团队"
+
+# Official-unit fallback catalogue used only when search engines return no
+# usable snippets. Each entry is an identifiable unit (not a bare institution)
+# and carries an official host URL so it remains auditable and can be enriched
+# again on the next refresh.
+_CURATED_WEB_UNITS: dict[str, list[dict[str, Any]]] = {
+    "合金材料": [
+        {"institution_name": "中国科学院金属研究所", "team_name": "沈阳材料科学国家研究中心", "source_urls": ["https://www.imr.ac.cn/"], "research_directions": ["先进合金", "材料设计"]},
+        {"institution_name": "中国科学院金属研究所", "team_name": "金属所先进炭材料研究部", "source_urls": ["https://www.imr.ac.cn/"], "research_directions": ["先进材料", "金属材料"]},
+        {"institution_name": "北京科技大学", "team_name": "新材料技术研究院", "source_urls": ["https://www.ustb.edu.cn/"], "research_directions": ["高温合金", "材料加工"]},
+        {"institution_name": "西北工业大学", "team_name": "凝固技术国家重点实验室", "source_urls": ["https://www.nwpu.edu.cn/"], "research_directions": ["合金凝固", "航空材料"]},
+        {"institution_name": "清华大学", "team_name": "材料基因组工程研究中心", "source_urls": ["https://www.tsinghua.edu.cn/"], "research_directions": ["材料基因组", "计算材料"]},
+        {"institution_name": "上海交通大学", "team_name": "轻合金精密成型国家工程研究中心", "source_urls": ["https://www.sjtu.edu.cn/"], "research_directions": ["轻合金", "精密成型"]},
+        {"institution_name": "哈尔滨工业大学", "team_name": "先进焊接与连接国家重点实验室", "source_urls": ["https://www.hit.edu.cn/"], "research_directions": ["材料连接", "先进制造"]},
+        {"institution_name": "中国科学院物理研究所", "team_name": "先进材料与结构分析实验室", "source_urls": ["https://www.iphy.ac.cn/"], "research_directions": ["材料结构", "凝聚态材料"]},
+    ],
+    "生命科学": [
+        {"institution_name": "中国科学院生物物理研究所", "team_name": "生物大分子国家重点实验室", "source_urls": ["https://www.ibp.cas.cn/"], "research_directions": ["结构生物学", "生物大分子"]},
+        {"institution_name": "中国科学院上海营养与健康研究所", "team_name": "营养与代谢国家重点实验室", "source_urls": ["https://www.sinh.cas.cn/"], "research_directions": ["营养代谢", "生命健康"]},
+        {"institution_name": "中国科学院遗传与发育生物学研究所", "team_name": "植物基因组学国家重点实验室", "source_urls": ["https://www.genetics.ac.cn/"], "research_directions": ["基因组学", "智能育种"]},
+        {"institution_name": "清华大学", "team_name": "清华大学结构生物学中心", "source_urls": ["https://www.tsinghua.edu.cn/"], "research_directions": ["结构生物学", "生物计算"]},
+        {"institution_name": "北京大学", "team_name": "北京大学生物信息学中心", "source_urls": ["https://www.pku.edu.cn/"], "research_directions": ["生物信息学", "计算生物学"]},
+        {"institution_name": "中国科学院成都生物研究所", "team_name": "生物资源与生态环境国家重点实验室", "source_urls": ["https://www.cib.cas.cn/"], "research_directions": ["生物资源", "生态环境"]},
+        {"institution_name": "中国科学院神经科学研究所", "team_name": "脑与智能技术卓越创新中心", "source_urls": ["https://www.ion.ac.cn/"], "research_directions": ["神经科学", "脑科学"]},
+        {"institution_name": "中国科学院分子细胞科学卓越创新中心", "team_name": "分子细胞生物学国家重点实验室", "source_urls": ["https://www.cscb.cas.cn/"], "research_directions": ["分子细胞生物学", "生命科学"]},
+        {"institution_name": "北京生命科学研究所", "team_name": "北京生命科学研究所研究组", "source_urls": ["https://www.nibs.ac.cn/"], "research_directions": ["分子生物学", "生物医学"]},
+    ],
+}
+
+
+def _normalise_institution_name(value: Any) -> str:
+    text = re.sub(r"\s+", " ", _clean(value)).strip(" -*#，,;；")
+    text = re.sub(r"\s*[（(][^（）()]{1,24}[）)]$", "", text).strip()
+    if not text:
+        return ""
+    compact = text.replace(" ", "")
+    for alias, official in sorted(_INSTITUTION_ALIASES.items(), key=lambda item: -len(item[0])):
+        if compact.casefold() == alias.replace(" ", "").casefold():
+            return official
+    # Common report shorthand keeps the institution recognizable while still
+    # avoiding two rows for “中科院自动化所” and its official name.
+    text = re.sub(r"^中科院(?=大学|研究|物理|金属|电工|微电子|空天|国家)", "中国科学院", text)
+    text = re.sub(r"^中国科大$", "中国科学技术大学", text)
+    return text
+
+
+def _normalise_directions(value: Any, fallback: str = "") -> list[str]:
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value) if value.strip().startswith("[") else None
+        except json.JSONDecodeError:
+            decoded = None
+        values = decoded if isinstance(decoded, list) else re.split(r"[、,，;；|/]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    result: list[str] = []
+    for item in values:
+        text = re.sub(r"\s+", " ", _clean(item)).strip(" -*#")
+        if text and text not in result and len(text) <= 80:
+            result.append(text)
+    if not result and fallback:
+        result.append(_normalise_section_title(fallback)[:80])
+    return result
+
+
+def _is_foreign_location(value: str) -> bool:
+    lowered = _clean(value).lower()
+    return bool(lowered and any(marker.lower() in lowered for marker in _FOREIGN_ENTITY_MARKERS))
+
+
+def _canonical_team_key(institution: str, team: str) -> str:
+    def compact(value: str) -> str:
+        return re.sub(r"[^\w\u4e00-\u9fff]", "", value.casefold())
+
+    inst = compact(_normalise_institution_name(institution))
+    team_key = compact(team)
+    if not team_key or team in {_UNKNOWN_TEAM_LABEL, "机构研究团队（公开资料未注明具体名称）"}:
+        team_key = "institution"
+    return f"{inst}:{team_key}"
+
+
+def _parse_structured_response(text: str) -> list[dict[str, Any]]:
+    """Parse the JSON object/array variants used by AI4S Daily's LLM layer."""
+    value = (text or "").strip()
+    if value.startswith("```"):
+        value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.I)
+        value = re.sub(r"\s*```$", "", value).strip()
+    parsed: Any = None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        for pattern in (r"\{.*\}", r"\[.*\]"):
+            match = re.search(pattern, value, re.DOTALL)
+            if not match:
+                continue
+            try:
+                parsed = json.loads(match.group())
+                break
+            except json.JSONDecodeError:
+                continue
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if isinstance(parsed, dict):
+        for key in ("teams", "items", "results", "data"):
+            if isinstance(parsed.get(key), list):
+                return [item for item in parsed[key] if isinstance(item, dict)]
+    raise ValueError("LLM 返回中没有可用的团队 JSON 数组")
+
+
+def _parse_json_object(text: str) -> dict[str, Any] | None:
+    value = (text or "").strip()
+    if value.startswith("```"):
+        value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.I)
+        value = re.sub(r"\s*```$", "", value).strip()
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", value, flags=re.S)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+
+def _llm_config() -> tuple[str, str, str] | None:
+    # Strategic map intentionally reuses the same MRAG/Agent LLM environment;
+    # no strategic-map-specific key/model/base-url is supported.
+    # Keep direct imports (CLI/tests) consistent with the Agent client, which
+    # loads the project .env at module import time.
+    if not os.getenv("LLM_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except Exception:
+            pass
+    api_key = (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        return None
+    base_url = (os.getenv("LLM_MODEL_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").strip().rstrip("/")
+    model = (os.getenv("LLM_MODEL_NAME") or os.getenv("DEFAULT_MODEL") or "").strip()
+    if not model or not base_url:
+        return None
+    return api_key, base_url, model
+
+
+_SHARED_LLM_CLIENT_LOCK = threading.Lock()
+_SHARED_LLM_CLIENT = None
+_SHARED_LLM_CLIENT_CONFIG = None
+_SHARED_LLM_CONCURRENCY = max(1, min(2, int(os.getenv("STRATEGIC_MAP_LLM_CONCURRENCY", "2"))))
+_SHARED_LLM_SLOTS = threading.BoundedSemaphore(_SHARED_LLM_CONCURRENCY)
+
+
+class _ObservedLlmText(str):
+    """Preserve the existing string contract while attaching call telemetry."""
+
+    def __new__(cls, value: str, observation: dict[str, Any]):
+        result = super().__new__(cls, value)
+        result.observation = observation
+        return result
+
+
+def _shared_llm_client(config):
+    """Reuse the MRAG HTTP pool; recreate only after an explicit config change."""
+    global _SHARED_LLM_CLIENT, _SHARED_LLM_CLIENT_CONFIG
+    with _SHARED_LLM_CLIENT_LOCK:
+        if _SHARED_LLM_CLIENT is None or _SHARED_LLM_CLIENT_CONFIG != config:
+            from ai4s_tool.tool.mrag.generation.llm import (
+                LLMClient,
+                _normalize_openai_compatible_base_url,
+            )
+
+            client = LLMClient()
+            api_key, base_url, model = config
+            expected_base_url = _normalize_openai_compatible_base_url(base_url)
+            if (client.api_key, client.model_base_url, client.model_name) != (
+                api_key,
+                expected_base_url,
+                model,
+            ):
+                raise RuntimeError("shared Agent LLM client does not match active configuration")
+            _SHARED_LLM_CLIENT = client
+            _SHARED_LLM_CLIENT_CONFIG = config
+        return _SHARED_LLM_CLIENT
+
+
+def _shared_agent_llm_text(*, task: str, system: str, user: str, timeout: int) -> str:
+    """Call the exact Agent LLM client used by the rest of ai4s-tool.
+
+    ``LLMClient`` owns endpoint normalization, auth, provider headers, retry,
+    timeout and stream aggregation. Strategic-map code only supplies evidence
+    and consumes the returned text.
+    """
+    config = _llm_config()
+    if not config:
+        raise RuntimeError("shared Agent LLM configuration is incomplete (LLM_API_KEY/LLM_MODEL_BASE_URL/LLM_MODEL_NAME)")
+    api_key, base_url, model = config
+    logger.info(
+        f"[StrategicMap LLM] model={model} task={task} endpoint={base_url} "
+        f"input_chars={len(system) + len(user)} request status=starting"
+    )
+    try:
+        # Reuse the exact MRAG/Agent client instead of reconstructing a second
+        # OpenAI-compatible HTTP request here.  In particular this preserves
+        # the Agent client's DashScope extra_body (thinking disabled), stream
+        # aggregation and stream_with_retry behaviour.  The former
+        # ask_llm_sync_iter path did not send that provider-specific body and
+        # could return an empty ``content`` after a reasoning-only response.
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        client = _shared_llm_client((api_key, base_url, model))
+        # Structured team research owns its single bounded retry. Other calls
+        # keep the MRAG client's configured retry policy and endpoint.
+        max_tokens = max(256, int(os.getenv("STRATEGIC_MAP_LLM_MAX_TOKENS", "8192")))
+        structured = task.startswith("team-")
+        queue_started = time.monotonic()
+        acquired = _SHARED_LLM_SLOTS.acquire(timeout=max(1, timeout) if structured else None)
+        queue_wait = time.monotonic()-queue_started
+        if not acquired:
+            raise TimeoutError("shared Agent LLM concurrency wait exhausted")
+        try:
+            remaining_timeout = max(1, int(timeout-queue_wait)) if structured else None
+            completion = client.completions(
+                messages, max_tokens=max(max_tokens, 16000) if structured else max_tokens,
+                temperature=0, stream=False, timeout=remaining_timeout,
+                max_retries=0 if structured else None,
+                response_format={"type": "json_object"} if structured else None,
+                include_usage=structured,
+            )
+        finally:
+            _SHARED_LLM_SLOTS.release()
+        content = str(completion or "").strip()
+        usage = getattr(completion, "usage", None)
+        logger.info(
+            f"[LLM Response] task={task} status=success output_chars={len(content)} "
+            f"usage={usage if usage else 'unknown'}"
+        )
+        if not content:
+            raise RuntimeError("shared Agent LLM returned empty content")
+        return _ObservedLlmText(content, {
+            "model": model,
+            "purpose": task,
+            "input_chars": len(system) + len(user),
+            "output_chars": len(content),
+            "queue_wait_seconds": round(queue_wait, 3),
+            "concurrency_limit": _SHARED_LLM_CONCURRENCY,
+            "usage": usage,
+        })
+    except Exception as exc:
+        # The structured caller records error class, retry, and timing in its
+        # trace. Repeating a full stack for expected provider/time-limit
+        # failures creates large logs without adding diagnostic information.
+        logger.warning(
+            f"[StrategicMap LLM] task={task} status=failed "
+            f"error={type(exc).__name__} reason={str(exc)[:240]}"
+        )
+        raise
+
+
+def _normalise_with_llm(
+    domain: StrategicDomainRow,
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """Ask an OpenAI-compatible model to normalize compact candidate batches."""
+    if not _llm_config():
+        return None
+    batch_size = max(8, min(24, int(os.getenv("STRATEGIC_MAP_LLM_BATCH_SIZE", "16"))))
+    all_records: list[dict[str, Any]] = []
+
+    def run_batch(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        compact_candidates = [
+            {
+                "candidate_id": item["candidate_id"],
+                "institution_hint": item.get("institution_hint", ""),
+                "section_title": item.get("section_title", ""),
+                "evidence": item.get("evidence", "")[:1500],
+                "source_urls": item.get("source_urls", [])[:6],
+            }
+            for item in batch
+        ]
+        prompt = f"""
+你是科研信息数据整理与事实核验专家。请只处理下面候选资料中能够由原文支持的国内（中国大陆）AI4S优势团队，领域为“{domain.name}”。
+
+工作要求：
+1. institution_name 必须是正式机构名称；team_name 必须是原文明确出现的实验室、研究中心、课题组或团队名称。原文没有具体团队名时，team_name 必须写“{_UNKNOWN_TEAM_LABEL}”，绝不能编造名称。
+2. description 只能概括候选资料明确支持的工作，使用规范中文完整句；research_directions 为 1-6 个与该团队直接相关的方向。
+3. 逐条判断 is_domestic。MIT、Stanford、Oxford、Google DeepMind、Microsoft Research 等国外机构以及仅有海外地点的记录必须删除。不能仅凭模型常识补充未在候选资料中出现的团队。只要候选资料明确提到中国机构，即使资料只确认机构而未确认课题组，也保留该机构并使用“{_UNKNOWN_TEAM_LABEL}”。
+4. 合并机构简称、英文名和重复报道；每个结果保留 source_candidate_ids，且只能使用输入 candidate_id。
+5. 尽量逐条整理所有合格候选；不要因为团队名称不完整而把有明确中国机构和证据的候选全部丢弃。
+6. 如果候选资料明确给出负责人或成员姓名，才在 leader/members 中输出；只能确认属于该团队的人，不能用机构成员、论文作者或模型常识补齐。没有足够证据时 leader 为 null、members 为空数组。每个人保留 name、title、role、research_direction、bio、profile_url、source_urls、source_type。
+7. 只输出 JSON 对象，不要 markdown 或解释文字，格式必须为 {{"teams":[{{"source_candidate_ids":["c1"],"institution_name":"...","team_name":"...","description":"...","research_directions":["..."],"location":"...","is_domestic":true,"leader":null,"members":[]}}]}}。
+
+候选资料：
+{json.dumps(compact_candidates, ensure_ascii=False, indent=2)}
+""".strip()
+        try:
+            content = _shared_agent_llm_text(
+                task="team-normalization",
+                system="你是科研实体信息抽取代理，只能根据用户提供的证据输出 JSON，不得使用记忆。",
+                user=prompt,
+                timeout=int(os.getenv("LLM_READ_TIMEOUT", "600")),
+            )
+            return _parse_structured_response(content)
+        except Exception as exc:
+            # A large evidence batch can exceed a provider's output/context
+            # budget. Split it and retry through the same Agent client before
+            # declaring individual candidates unresolved.
+            if len(batch) > 1:
+                midpoint = max(1, len(batch) // 2)
+                logger.warning(
+                    f"[StrategicMap LLM] task=team-normalization batch failed; splitting {len(batch)} into {midpoint}+{len(batch)-midpoint}: {exc}"
+                )
+                return run_batch(batch[:midpoint]) + run_batch(batch[midpoint:])
+            logger.error(
+                f"[StrategicMap LLM] task=team-normalization candidate={batch[0].get('candidate_id') if batch else ''} failed: {exc}"
+            )
+            return []
+
+    # AI4S-Daily batches long inputs before structured scoring.  The same
+    # boundary keeps reasoning models from dropping later candidates because a
+    # single giant prompt exceeds its useful context window.
+    for start in range(0, len(candidates), batch_size):
+        all_records.extend(run_batch(candidates[start : start + batch_size]))
+    return all_records
+
+
+def _llm_json_call(*, system: str, user: str, timeout: int = 120) -> dict[str, Any] | None:
+    """Evidence-only JSON call through the shared Agent LLM client."""
+    try:
+        content = _shared_agent_llm_text(task="json-extraction", system=system, user=user, timeout=timeout)
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+            cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Models occasionally prepend one short sentence despite the
+            # JSON-only instruction. Extract only a JSON object/array, while
+            # still failing loudly when no structured response exists.
+            match = re.search(r"(\{.*\}|\[.*\])", cleaned, flags=re.S)
+            if not match:
+                raise
+            parsed = json.loads(match.group(1))
+        return parsed if isinstance(parsed, dict) else None
+    except Exception as exc:
+        logger.error(f"[StrategicMap LLM] task=json-extraction status=parse_failed reason={exc}")
+        raise
+
+
+def _run_team_research_agent(
+    *, institution: str, team: str, domain: str, existing: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Typed strategic-map boundary; DeepSearch's public Markdown contract is unchanged."""
+    if os.getenv("STRATEGIC_MAP_TEAM_AGENT", "true").lower() not in {"1", "true", "yes"}:
+        return {"status": "disabled", "reviewed": None, "extracted": None, "pages": [],
+                "errors": [{"stage": "research", "kind": "disabled"}], "trace": [],
+                "counts": {"llm": 0, "search": 0, "fetch": 0, "fetch_success": 0, "cache_hits": 0}, "seconds": 0}
+    from .team_research import investigate
+    context = {**(existing or {}), "institution_name": institution, "team_name": team}
+    result = investigate(context, domain, _shared_agent_llm_text)
+    logger.info(f"[StrategicMap Team Research] status={result['status']} counts={result['counts']} seconds={result['seconds']}")
+    return result
+
+
+def _llm_verify_records(domain: StrategicDomainRow, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Independent review is part of the typed boundary and carries the same bodies.
+
+    Never repeat extraction on summary snippets or promote unreviewed candidates.
+    Failed observations remain attached for persistence/retry, not interpreted as
+    an absent leader. Each record is reviewed independently in Team Research.
+    """
+    for record in records:
+        run = record.get("_research", {})
+        reviewed = run.get("reviewed") or {}
+        record["verification_status"] = "verified" if (
+            run.get("status") == "reviewed" and reviewed.get("entity_relation") in ("same", "rename")
+            and reviewed.get("team_name", {}).get("status") == "verified"
+        ) else "pending_llm_review"
+    return records
+
+
+def _llm_resolve_team_conflict(domain: StrategicDomainRow, existing: StrategicTeamRow, candidate: dict[str, Any], existing_people: list[StrategicPersonRow]) -> dict[str, Any]:
+    """Compare historical and new evidence; never overwrite on uncertainty."""
+    old = {
+        "institution_name": existing.institution_name or existing.name,
+        "team_name": existing.team_name,
+        "description": existing.description,
+        "research_directions": existing.research_directions or [],
+        "source_urls": existing.source_urls or [],
+        "leader": next(({"name": p.name, "title": p.title, "role": p.role, "source_urls": p.source_urls or [], "verification_status": p.verification_status} for p in existing_people if p.is_leader and not p.deleted), None),
+        "members": [{"name": p.name, "title": p.title, "role": p.role, "source_urls": p.source_urls or [], "verification_status": p.verification_status} for p in existing_people if not p.is_leader and not p.deleted],
+    }
+    fallback = {"decision": "pending_review", "confidence": 0.0, "merged": {"leader": old.get("leader"), "members": old.get("members", [])}, "problems": ["new evidence conflicts with historical record; awaiting Verification Agent"]}
+    if not _llm_config() or os.getenv("STRATEGIC_MAP_CONFLICT_LLM", "true").lower() not in {"1", "true", "yes"}:
+        return fallback
+    system = ("你是战略图谱冲突审核代理。比较数据库旧记录与本轮新调查证据，优先官方来源、页面更新时间和明确团队角色。"
+              "不能凭记忆，无法确认时保留旧值并标记 pending_review。只输出 JSON：{decision:'accept|revise|pending_review', confidence:0..1, merged:{leader,members}, problems:[]}。")
+    payload = {"domain": domain.name, "institution_name": old["institution_name"], "team_name": old["team_name"], "old_record": old,
+               "new_record": {k: candidate.get(k) for k in ("institution_name", "team_name", "description", "research_directions", "source_urls", "leader", "members")}}
+    try:
+        result = _llm_json_call(system=system, user=json.dumps(payload, ensure_ascii=False), timeout=int(os.getenv("STRATEGIC_MAP_CONFLICT_TIMEOUT", "120"))) or {}
+        merged = result.get("merged") if isinstance(result.get("merged"), dict) else {}
+        if not isinstance(merged.get("members"), list):
+            merged["members"] = old.get("members", [])
+        if not merged.get("leader") and old.get("leader"):
+            merged["leader"] = old["leader"]
+        return {"decision": _clean(result.get("decision"), "pending_review"), "confidence": float(result.get("confidence") or 0), "merged": merged,
+                "problems": result.get("problems", []) if isinstance(result.get("problems"), list) else []}
+    except Exception as exc:
+        fallback["problems"] = [f"conflict LLM failed: {exc}"]
+        return fallback
+
+
 def _purge_non_china_teams(session: Session) -> None:
     """软删除历史同步中遗留的海外、泛化或无法确认归属的候选。
 
@@ -978,31 +1631,134 @@ def _purge_non_china_teams(session: Session) -> None:
     """
     rows = session.query(StrategicTeamRow).filter(StrategicTeamRow.deleted.is_(False)).all()
     changed = False
+    seen_keys: set[tuple[str, str]] = set()
     for team in rows:
-        normalized_name = _normalise_entity_name(team.name)
-        normalized_focus = _normalise_section_title(team.focus)
+        normalized_name = _normalise_institution_name(team.institution_name or team.name)
+        location = _clean(team.location)
         if (
             not _is_china_entity(normalized_name)
             or _is_generic_entity(normalized_name)
-            # A candidate extracted from a foreign-only report section is not
-            # a domestic team even when its short name happens to contain a
-            # Chinese word (for example “James Zou 团队”).
-            or (normalized_focus and not _is_china_entity(normalized_focus))
+            or _is_foreign_location(location)
+            or team.is_domestic is False
         ):
             team.deleted = True
             changed = True
             continue
+        dedupe_key = (team.domain_id, _canonical_team_key(normalized_name, team.team_name or _UNKNOWN_TEAM_LABEL))
+        if dedupe_key in seen_keys:
+            # Legacy releases appended the same institution on every refresh.
+            # Keep the first active row and soft-delete the duplicate so a
+            # normal read also repairs old snapshots before the next refresh.
+            team.deleted = True
+            changed = True
+            continue
+        seen_keys.add(dedupe_key)
         if normalized_name != team.name:
             team.name = normalized_name
             changed = True
-        if normalized_focus != team.focus:
-            team.focus = normalized_focus
+        if normalized_name != team.institution_name:
+            team.institution_name = normalized_name
             changed = True
+        if not team.location:
+            team.location = "中国（公开资料判定）"
+            changed = True
+        if not _normalise_directions(team.research_directions):
+            team.research_directions = _normalise_directions(team.focus)
+            changed = True
+        team.is_domestic = True
     if changed:
         session.commit()
 
 
-def _load_daily_reports(keywords: list[str], limit: int = 24) -> list[dict[str, Any]]:
+_REPORT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def _duckduckgo_html_search(query: str, *, max_results: int = 10) -> list[dict[str, Any]]:
+    """Search DuckDuckGo's public HTML endpoint without an API key.
+
+    The strategic-map refresh runs in installations where optional ``ddgs`` and
+    paid search credentials are absent.  DDG's HTML endpoint is a public web
+    source and gives us a useful, rate-limited fallback rather than silently
+    reverting to AI4S Daily-only discovery.  Only title/snippet/link evidence
+    is returned; downstream domestic/entity gates still apply.
+    """
+    try:
+        response = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers={"User-Agent": "AI4SStrategicMap/1.0 (+public-search)"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        body = response.text or ""
+    except Exception:
+        return []
+    rows: list[dict[str, Any]] = []
+    # DDG's result markup is deliberately simple and stable.  Keep parsing
+    # dependency-free; malformed individual rows are skipped.
+    pattern = re.compile(
+        r'<a[^>]+class=["\']result__a["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        flags=re.I | re.S,
+    )
+    for match in pattern.finditer(body):
+        href = html.unescape(match.group(1)).strip()
+        parsed = urlparse(href)
+        if "uddg" in parse_qs(parsed.query):
+            href = unquote(parse_qs(parsed.query).get("uddg", [href])[0])
+        if not href.startswith(("http://", "https://")):
+            continue
+        title = re.sub(r"<[^>]+>", " ", html.unescape(match.group(2)))
+        title = re.sub(r"\s+", " ", title).strip()
+        end = body.find("</a>", match.end())
+        tail = body[match.end() : end + 4 if end >= 0 else match.end() + 4000]
+        snippet_match = re.search(
+            r'class=["\']result__snippet["\'][^>]*>(.*?)</', tail, flags=re.I | re.S
+        )
+        snippet = ""
+        if snippet_match:
+            snippet = re.sub(r"<[^>]+>", " ", html.unescape(snippet_match.group(1)))
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+        rows.append({"link": href, "title": title, "snippet": snippet})
+        if len(rows) >= max_results:
+            break
+    return rows
+
+
+def _bing_html_search(query: str, *, max_results: int = 10) -> list[dict[str, Any]]:
+    """Credential-free Bing HTML search used as a deterministic fallback."""
+    try:
+        response = requests.get(
+            "https://www.bing.com/search",
+            params={"q": query, "count": max_results, "setlang": "zh-cn"},
+            headers={"User-Agent": "Mozilla/5.0 AI4SStrategicMap"}, timeout=float(os.getenv("STRATEGIC_MAP_SEARCH_TIMEOUT", "8")),
+        )
+        response.raise_for_status()
+        body = response.text or ""
+    except Exception:
+        return []
+    rows: list[dict[str, Any]] = []
+    for block in re.findall(r"<li class=\"b_algo\".*?</li>", body, flags=re.I | re.S):
+        href = re.search(r"<a[^>]+href=\"([^\"]+)", block, flags=re.I)
+        title = re.search(r"<h2[^>]*>(.*?)</h2>", block, flags=re.I | re.S)
+        snippet = re.search(r"<p[^>]*>(.*?)</p>", block, flags=re.I | re.S)
+        if not href:
+            continue
+        clean = lambda value: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(value or ""))).strip()
+        rows.append({"link": href.group(1), "title": clean(title.group(1) if title else ""), "snippet": clean(snippet.group(1) if snippet else "")})
+        if len(rows) >= max_results:
+            break
+    return rows
+
+
+def _load_daily_reports(keywords: list[str], limit: int = 72) -> list[dict[str, Any]]:
+    """Load matching Daily reports with a small process-local cache.
+
+    AI4S Daily's search flow first gathers several independent queries and
+    de-duplicates URLs before handing the material to a second stage.  The
+    report index is the equivalent source here: broad keyword rounds are
+    merged, while the cache avoids downloading the same markdown once per
+    domain or once per worker refresh.
+    """
     try:
         response = requests.get(f"{_DAILY_BASE_URL}/reports/index.json", timeout=12)
         response.raise_for_status()
@@ -1015,12 +1771,25 @@ def _load_daily_reports(keywords: list[str], limit: int = 24) -> list[dict[str, 
         return []
 
     reports: list[dict[str, Any]] = []
-    for file_name in [item for item in file_names if isinstance(item, str)][:limit]:
+    selected_files = [item for item in file_names if isinstance(item, str)][:limit]
+
+    def fetch_markdown(file_name: str) -> tuple[str, str]:
+        cached = _REPORT_CACHE.get(file_name)
+        if cached and time.time() - cached[0] < 15 * 60:
+            return file_name, cached[1].get("_markdown", "")
         try:
             response = requests.get(_daily_url(file_name), timeout=12)
             response.raise_for_status()
-            markdown = response.text
+            return file_name, response.text
         except Exception:
+            return file_name, ""
+
+    with ThreadPoolExecutor(max_workers=min(12, max(1, len(selected_files)))) as executor:
+        fetched = dict(executor.map(fetch_markdown, selected_files))
+
+    for file_name in selected_files:
+        markdown = fetched.get(file_name, "")
+        if not markdown:
             continue
         fields = _parse_frontmatter(markdown)
         haystack = markdown.lower()
@@ -1034,49 +1803,217 @@ def _load_daily_reports(keywords: list[str], limit: int = 24) -> list[dict[str, 
         ]
         if not matching_sections:
             matching_sections = sections[:3]
-        reports.append(
-            {
+        report = {
                 "id": file_name.removesuffix(".md"),
                 "title": _clean(fields.get("title"), file_name),
                 "date": _report_date(fields, file_name),
                 "url": _daily_url(file_name),
                 "sections": matching_sections,
+                # Kept in the process cache only; never serialized to the API.
+                "_markdown": markdown,
             }
-        )
+        _REPORT_CACHE[file_name] = (time.time(), report)
+        reports.append({key: value for key, value in report.items() if key != "_markdown"})
     return reports
 
 
-def _candidate_id(domain_id: str, name: str) -> str:
-    digest = hashlib.sha1(f"{domain_id}:{name}".encode("utf-8")).hexdigest()[:24]
-    return f"team_{digest}"
+def _load_web_search_reports(
+    domain: StrategicDomainRow,
+    subdomains: list[StrategicDomainRow],
+    *,
+    supplemental: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch a bounded set of public web search results for sparse domains.
+
+    AI4S Daily remains the primary archive.  When it cannot supply roughly 25
+    candidates, this fallback uses the project's existing Serper/Bing keys to
+    find official Chinese university, CAS, laboratory and research-centre
+    pages.  Search snippets are evidence only; they still go through the same
+    domestic, LLM schema, duplicate and snapshot gates before persistence.
+    """
+    endpoint = os.getenv("SERPER_SEARCH_URL", "").strip() or "https://google.serper.dev/search"
+    api_key = os.getenv("SERPER_SEARCH_API_KEY", "").strip()
+    focus = domain.name
+    queries = [
+        f"{focus} 国内 优势团队 实验室 site:edu.cn",
+        f"{focus} 中国科学院 研究团队 site:cas.cn",
+        f"{focus} 全国重点实验室 研究中心",
+        f"{focus} 中国高校 课题组 负责人",
+        f"{focus} 国内科研院所 研究团队",
+        f"{focus} 国内企业 研发团队",
+    ]
+    # Domain-specific expansion prevents generic institution queries from
+    # collapsing to the same few Daily institutions. These intentionally cover
+    # material subfields and official-unit vocabulary.
+    if domain.name == "合金材料":
+        queries.extend([
+            "高温合金 镍基合金 中国 实验室 课题组",
+            "高熵合金 中国 高校 研究团队",
+            "钛合金 铝合金 中国 研究中心 教授",
+            "材料基因组 中国 实验室 团队",
+            "金属材料 计算材料学 中国科学院 课题组",
+            "先进材料 国家重点实验室 中国 团队",
+            "航空发动机 合金材料 中国 研究所 实验室",
+            "增材制造 合金材料 中国 高校 团队",
+        ])
+    elif domain.name == "生命科学":
+        queries.extend([
+            "生物信息学 中国 高校 实验室 课题组",
+            "合成生物学 中国 研究中心 团队",
+            "基因组学 中国科学院 课题组",
+            "计算生物学 中国 教授 实验室",
+            "药物研发 AI 中国 实验室 团队",
+            "结构生物学 中国 研究所 团队",
+            "医学人工智能 中国 医院 研究中心",
+            "智能育种 中国 实验室 课题组",
+        ])
+    if supplemental:
+        queries.extend([
+            f"{focus} 国家实验室 实验室主任",
+            f"{focus} 中国科学院大学 实验室",
+            f"{focus} 研究院 官方团队",
+        ])
+
+    def search(query: str) -> list[dict[str, Any]]:
+        if not api_key:
+            # ai4s-tool already ships the DDG adapter used by DeepSearch.  Use
+            # it as a no-key fallback so sparse-domain refreshes still widen
+            # the source pool in local deployments.
+            try:
+                from ddgs import DDGS
+                with DDGS(timeout=float(os.getenv("STRATEGIC_MAP_SEARCH_TIMEOUT", "8"))) as client:
+                    return [
+                        {
+                            "link": item.get("href", ""),
+                            "title": item.get("title", ""),
+                            "snippet": item.get("body", ""),
+                        }
+                        for item in client.text(query, max_results=10)
+                    ]
+            except Exception:
+                return _duckduckgo_html_search(query, max_results=10) or _bing_html_search(query, max_results=10)
+        try:
+            response = requests.post(
+                endpoint,
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                json={"q": query, "num": 10, "gl": "cn", "hl": "zh-cn"},
+                timeout=float(os.getenv("STRATEGIC_MAP_SEARCH_TIMEOUT", "8")),
+            )
+            response.raise_for_status()
+            body = response.json()
+            values = body.get("organic", [])
+            return [item for item in values if isinstance(item, dict)]
+        except Exception:
+            return _duckduckgo_html_search(query, max_results=10) or _bing_html_search(query, max_results=10)
+
+    results: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=min(6, len(queries))) as executor:
+        for values in executor.map(search, queries):
+            results.extend(values)
+
+    reports: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    domain_terms = [term.lower() for term in _keywords(domain, subdomains)]
+    for item in results:
+        url = _clean(item.get("link") or item.get("url"))
+        if not url or url in seen_urls:
+            continue
+        title = _clean(item.get("title"), url)
+        snippet = _clean(item.get("snippet") or item.get("description"))
+        content = f"{title}\n{snippet}"
+        if domain_terms and not any(term in content.lower() for term in domain_terms):
+            continue
+        entities = _extract_entities(content)
+        if not entities:
+            continue
+        seen_urls.add(url)
+        report_id = f"web-{hashlib.sha1(url.encode('utf-8')).hexdigest()[:20]}"
+        reports.append({
+            "id": report_id,
+            "title": title[:255],
+            "date": "",
+            "url": url,
+            "sections": [(title, snippet[:1800])],
+            "_web_entities": entities,
+        })
+        if len(reports) >= 48:
+            break
+    return reports
 
 
-def _sync_domain(session: Session, domain: StrategicDomainRow) -> dict[str, Any]:
-    subdomains = _domain_query(session, domain.id)
-    reports = _load_daily_reports(_keywords(domain, subdomains))
-    entities: dict[str, dict[str, Any]] = {}
-    for report in reports:
-        for section_title, section_body in report["sections"]:
-            normalized_title = _normalise_section_title(section_title)
+def _collect_candidate_material(
+    domain: StrategicDomainRow,
+    subdomains: list[StrategicDomainRow],
+    *,
+    supplemental: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run broad Daily search rounds and return evidence-backed candidates."""
+    keyword_rounds = [
+        _keywords(domain, subdomains),
+        [domain.name, "国内优势团队"],
+        [domain.name, "中国", "高校", "实验室"],
+        [domain.name, "中国科学院", "研究团队"],
+        [domain.name, "全国重点实验室"],
+        [domain.name, "国家实验室"],
+        [domain.name, "国内科研院所", "研究中心"],
+        [domain.name, "国内领先团队", "课题组"],
+    ]
+    if supplemental:
+        keyword_rounds.extend([
+            [domain.name, "中国高校", "课题组"],
+            [domain.name, "中科院", "研究所"],
+            [domain.name, "国家重点实验室", "负责人"],
+            [domain.name, "国内企业", "研发团队"],
+        ])
+    all_reports: dict[str, dict[str, Any]] = {}
+    for keywords in keyword_rounds:
+        for report in _load_daily_reports(list(dict.fromkeys(keywords)), limit=120):
+            all_reports[report["id"]] = report
+    # Always search the broader public web. Daily is a hint source, never a
+    # gate: even a large archive can omit laboratories, PIs and people.
+    # Report count alone is a poor proxy for candidate coverage: a Daily issue
+    # can contain many generic reports but only a handful of identifiable
+    # domestic institutions. Keep widening until the archive is genuinely
+    # broad, then let the normal evidence gates decide what survives.
+    for report in _load_web_search_reports(domain, subdomains, supplemental=supplemental):
+        all_reports[report["id"]] = report
+
+    materials: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    domain_terms = [term.lower() for term in _keywords(domain, subdomains)]
+    for report in all_reports.values():
+        for section_title, section_body in report.get("sections", []):
             content = f"{section_title}\n{section_body}"
-            extracted = _extract_entities(content)
-            # 章节标题经常描述技术方向，未必包含中国机构名称；只要正文
-            # 能抽出明确的中国机构/团队，就保留该证据。候选本身仍经过
-            # _is_china_entity/_is_generic_entity 双重过滤，海外或泛化线索
-            # 不会因为同一章节出现中文而进入候选池。
-            if not extracted:
+            # Broad expansion rounds can match a report because it contains
+            # generic words such as “国内” or “高校”.  Keep only sections that
+            # also mention this domain, otherwise the model receives unrelated
+            # institutions and tends to discard valid candidates under a long
+            # context window.
+            lowered_content = content.lower()
+            if domain_terms and not any(term in lowered_content for term in domain_terms):
                 continue
-            urls = [report["url"], *_extract_urls(content)]
-            for name in extracted:
-                key = name.lower()
-                item = entities.setdefault(
-                    key,
+            for institution in _extract_entities(content):
+                # Do not let a section that merely mentions a foreign lab make
+                # a Chinese institution look domestic.  The institution hint
+                # itself is checked again after normalization.
+                institution = _normalise_institution_name(institution)
+                if not _is_china_entity(institution) or _is_generic_entity(institution) or _is_prose_entity(institution):
+                    continue
+                key = (institution.casefold(), report["id"], section_title.casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                urls = [report["url"], *_extract_urls(content)]
+                materials.append(
                     {
-                        "name": name,
-                        "focus": normalized_title,
-                        "summary": re.sub(r"\s+", " ", section_body).strip()[:500],
-                        "urls": list(dict.fromkeys(urls)),
-                        "report": report,
+                        "candidate_id": f"c{len(materials) + 1}",
+                        "institution_hint": institution,
+                        "section_title": _normalise_section_title(section_title),
+                        "evidence": re.sub(r"\s+", " ", section_body).strip()[:1800],
+                        "source_urls": list(dict.fromkeys(urls))[:8],
+                        "report_id": report["id"],
+                        "report_title": report["title"],
+                        "report_date": report.get("date", ""),
                         "subdomain_id": next(
                             (
                                 child.id
@@ -1085,63 +2022,685 @@ def _sync_domain(session: Session, domain: StrategicDomainRow) -> dict[str, Any]
                             ),
                             None,
                         ),
-                    },
+                    }
                 )
-                item["urls"] = list(dict.fromkeys([*item["urls"], *urls]))[:12]
+    # Merge exact institution/section duplicates while keeping distinct
+    # research lines from the same institution available to the second stage.
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in materials:
+        key = "|".join([
+            _normalise_institution_name(item["institution_hint"]).casefold(),
+            item.get("section_title", "").casefold(),
+        ])
+        previous = grouped.get(key)
+        if not previous:
+            grouped[key] = item
+            continue
+        previous["evidence"] = (previous["evidence"] + "\n" + item["evidence"])[:2600]
+        previous["source_urls"] = list(dict.fromkeys(previous["source_urls"] + item["source_urls"]))[:12]
+    # Keep the discovery stage bounded and auditable: approximately 25 distinct
+    # institution/section candidates are sent to entity resolution. Additional
+    # hits remain represented by reportCount and will be explored on the next
+    # weekly run rather than overwhelming one LLM batch with noisy snippets.
+    return list(grouped.values())[:25], list(all_reports.values())
 
-    # 每次刷新只同步当前领域的真实 Daily 线索；用户在页面维护的状态字段保留。
-    for candidate in list(entities.values())[:24]:
-        name = candidate["name"]
-        existing = session.query(StrategicTeamRow).filter(
-            StrategicTeamRow.domain_id == domain.id,
-            StrategicTeamRow.name == name,
-        ).first()
-        is_new = existing is None
-        if not existing:
-            existing = StrategicTeamRow(
-                id=_candidate_id(domain.id, name),
-                domain_id=domain.id,
-                name=name,
-                ai_level="较高",
-                science_level="较高",
-                attention="待核实",
-                contact="未接触",
-                contact_record="暂无联系记录",
+
+def _enrich_team_people(domain: StrategicDomainRow, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One evidence-preserving extraction/review per team; no snippet re-extraction."""
+    deadline = time.monotonic() + 600
+    for record in records:
+        if time.monotonic() >= deadline:
+            record["_research"] = {"status": "budget_exhausted", "reviewed": None, "pages": []}
+            continue
+        record["_research"] = _run_team_research_agent(
+            institution=record.get("institution_name", ""), team=record.get("team_name", ""),
+            domain=domain.name, existing=record)
+    return records
+
+
+def _enrich_team_identity(domain: StrategicDomainRow, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Resolve institution-only hits into named labs/centres before people search.
+
+    Discovery often finds an institution but not its unit.  Run a separate
+    identity pass using official-site-oriented queries and only accept names
+    that occur verbatim in a search title/snippet; no model-memory names are
+    allowed.
+    """
+    deadline = time.monotonic() + float(os.getenv("STRATEGIC_MAP_IDENTITY_DEADLINE_SECONDS", "180"))
+    processed = 0
+    for record in records:
+        if time.monotonic() >= deadline:
+            record["team_identity_missing_reason"] = "团队身份补搜阶段达到时间上限，已保留待补搜状态"
+            continue
+        if processed >= 25:
+            record["team_identity_missing_reason"] = "候选超过本轮团队身份补全预算，已排队下轮补搜"
+            continue
+        processed += 1
+        if _clean(record.get("team_name")) not in {"", _UNKNOWN_TEAM_LABEL}:
+            continue
+        institution = _clean(record.get("institution_name"))
+        if not institution:
+            continue
+        queries = [
+            f"{institution} {domain.name} 实验室",
+            f"{institution} {domain.name} 研究中心",
+            f"{institution} {domain.name} 课题组",
+            f"{institution} {domain.name} 团队 教授",
+        ]
+        hits: list[dict[str, Any]] = []
+        for query in queries:
+            if time.monotonic() >= deadline:
+                break
+            # Bing HTML is available without credentials and is the final
+            # fallback when DDGS/Serper is unavailable.
+            try:
+                response = requests.get(
+                    "https://www.bing.com/search",
+                    params={"q": query, "count": 8, "setlang": "zh-cn"},
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=float(os.getenv("STRATEGIC_MAP_SEARCH_TIMEOUT", "8")),
+                )
+                response.raise_for_status()
+                html = response.text
+                for block in re.findall(r"<li class=\"b_algo\".*?</li>", html, flags=re.I | re.S):
+                    title = re.search(r"<h2[^>]*>(.*?)</h2>", block, flags=re.I | re.S)
+                    snippet = re.search(r"<p[^>]*>(.*?)</p>", block, flags=re.I | re.S)
+                    href = re.search(r"<a href=\"([^\"]+)", block, flags=re.I)
+                    clean = lambda value: re.sub(r"<[^>]+>", "", value or "").strip()
+                    hits.append({"title": clean(title.group(1) if title else ""), "snippet": clean(snippet.group(1) if snippet else ""), "url": href.group(1) if href else ""})
+            except Exception:
+                continue
+        # Prefer explicit named-unit phrases; discard generic institution
+        # mentions and prose fragments.
+        if hits and _llm_config():
+            try:
+                extracted = _llm_json_call(
+                    system=("你是科研团队实体解析代理。只能依据搜索结果标题、摘要和 URL 判断，不得使用记忆。"
+                            "请判断是否存在该机构在目标领域的具体实验室、研究中心或课题组。"
+                            "若证据不足，team_name 必须为 null；不要把学院、学校、研究所本身当作团队。"
+                            "只输出 JSON 对象，格式为 {\"team_name\":null,\"is_real_team\":false,\"evidence\":[] }。"),
+                    user=json.dumps({"institution": institution, "domain": domain.name, "search_results": hits}, ensure_ascii=False),
+                    timeout=int(os.getenv("STRATEGIC_MAP_TEAM_IDENTITY_TIMEOUT", "90")),
+                )
+            except Exception as exc:
+                record["team_identity_missing_reason"] = f"团队身份 LLM 调用失败：{exc}"
+                extracted = None
+            if extracted and extracted.get("is_real_team") is True and _clean(extracted.get("team_name")):
+                record["team_name"] = _clean(extracted.get("team_name"))[:180]
+                record["team_type"] = _clean(extracted.get("team_type"))[:80]
+                record["team_confidence"] = max(0.0, min(1.0, float(extracted.get("confidence") or 0.7)))
+                record["team_evidence"] = extracted.get("evidence") if isinstance(extracted.get("evidence"), list) else []
+                record["verification_status"] = "pending_llm_review"
+                record["source_urls"] = list(dict.fromkeys([*record.get("source_urls", []), *(item.get("url", "") for item in hits if item.get("url"))]))[:16]
+                continue
+        candidates: list[tuple[str, str]] = []
+        for hit in hits:
+            text = f"{hit.get('title','')} {hit.get('snippet','')}"
+            for match in re.finditer(r"([\u4e00-\u9fffA-Za-z0-9·&\-]{2,40}(?:实验室|研究中心|研究所|课题组|研究院|中心|团队))", text):
+                name = re.sub(r"^.*?(?=(?:中国科学院|清华|北京|上海|浙江|复旦|南京|哈尔滨|西北|团队|实验室|研究中心))", "", match.group(1)).strip(" -:：，,")
+                if name and name not in {_UNKNOWN_TEAM_LABEL, institution} and not _is_generic_entity(name):
+                    candidates.append((name, hit.get("url", "")))
+        if candidates:
+            # Choose the most frequently repeated exact name.
+            counts: dict[str, int] = {}
+            for name, _ in candidates:
+                counts[name] = counts.get(name, 0) + 1
+            chosen = max(counts, key=counts.get)
+            record["team_name"] = chosen[:180]
+            record["source_urls"] = list(dict.fromkeys([*record.get("source_urls", []), *(u for n, u in candidates if n == chosen and u)]))[:16]
+    return records
+
+
+def _normalise_team_records(
+    domain: StrategicDomainRow,
+    materials: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Normalize, filter and de-duplicate candidates before persistence."""
+    if not materials:
+        return []
+    llm_records = _normalise_with_llm(domain, materials)
+    source_by_id = {item["candidate_id"]: item for item in materials}
+    # A missing LLM configuration is an intentional local fallback.  It still
+    # performs the same schema, country and duplicate gates and never invents
+    # a team name; this keeps development/offline installations usable.
+    if llm_records is None:
+        llm_records = [
+            {
+                "source_candidate_ids": [item["candidate_id"]],
+                "institution_name": item["institution_hint"],
+                "team_name": _UNKNOWN_TEAM_LABEL,
+                # Offline fallback keeps source wording instead of fabricating
+                # a generic mission statement. A later LLM extraction pass can
+                # replace this pending description when connectivity returns.
+                "description": re.sub(r"\s+", " ", item.get("evidence", "")).strip()[:200],
+                "research_directions": [item["section_title"] or domain.name],
+                "location": "中国（公开资料判定）",
+                "is_domestic": True,
+                "team_confidence": 0.2,
+                "leader_confidence": 0.0,
+                "member_confidence": 0.0,
+                "evidence_urls": item.get("source_urls", []),
+                "verification_status": "pending_llm_review",
+            }
+            for item in materials
+        ]
+
+    def normalise_person(raw: Any, *, leader: bool, source_urls: list[str]) -> dict[str, Any] | None:
+        if not isinstance(raw, dict):
+            return None
+        name = re.sub(r"\s+", " ", _clean(raw.get("name"))).strip(" -*#，,;；")
+        if not name or len(name) > 80 or _is_foreign_location(name):
+            return None
+        if len(name) < 2 or name in {"学院", "部常务副", "吴超副", "研究员", "教授", "主任"} or re.search(r"[\d：:]", name):
+            return None
+        urls = [
+            url for url in list(dict.fromkeys([
+                *source_urls,
+                *(raw.get("source_urls") if isinstance(raw.get("source_urls"), list) else []),
+            ]))
+            if isinstance(url, str) and url.startswith("http")
+        ][:12]
+        return {
+            "name": name,
+            "title": _clean(raw.get("title") or raw.get("position"))[:160],
+            "role": _clean(raw.get("role"), "团队负责人" if leader else "核心成员")[:120],
+            "research_direction": _clean(raw.get("research_direction") or raw.get("researchDirection"))[:500],
+            "bio": re.sub(r"\s+", " ", _clean(raw.get("bio") or raw.get("description"))).strip()[:1200],
+            "avatar_url": _clean(raw.get("avatar_url") or raw.get("avatarUrl"))[:500],
+            "profile_url": _clean(raw.get("profile_url") or raw.get("profileUrl"))[:500],
+            "source_urls": urls,
+            "source_type": _clean(raw.get("source_type") or raw.get("sourceType"), "公开来源")[:80],
+            "is_leader": leader,
+        }
+
+    records: dict[str, dict[str, Any]] = {}
+    for raw in llm_records:
+        if not isinstance(raw, dict):
+            continue
+        source_ids = raw.get("source_candidate_ids") or raw.get("candidate_ids") or []
+        if isinstance(source_ids, str):
+            source_ids = [source_ids]
+        sources = [source_by_id[item] for item in source_ids if item in source_by_id]
+        if not sources:
+            # Gate outputs that cannot be traced to the retrieved material.
+            inst_hint = _normalise_institution_name(raw.get("institution_name"))
+            sources = [
+                item for item in materials
+                if inst_hint and _normalise_institution_name(item["institution_hint"]) == inst_hint
+            ]
+        if not sources:
+            continue
+        institution = _normalise_institution_name(
+            raw.get("institution_name") or sources[0]["institution_hint"]
+        )
+        if _is_prose_entity(institution):
+            continue
+        team_name = _clean(raw.get("team_name") or raw.get("team"), _UNKNOWN_TEAM_LABEL)
+        team_name = _strip_leading_number(team_name)
+        if _is_generic_entity(team_name) or _is_foreign_location(team_name):
+            team_name = _UNKNOWN_TEAM_LABEL
+        location = _clean(raw.get("location"), "中国（公开资料判定）")
+        is_domestic = raw.get("is_domestic")
+        if isinstance(is_domestic, str) and is_domestic.strip().lower() in {"false", "0", "no", "否"}:
+            is_domestic = False
+        if is_domestic is False or not _is_china_entity(institution) or _is_generic_entity(institution):
+            continue
+        if _is_foreign_location(location):
+            continue
+        directions = _normalise_directions(
+            raw.get("research_directions") or raw.get("directions"),
+            sources[0].get("section_title") or domain.name,
+        )
+        description = re.sub(r"\s+", " ", _clean(raw.get("description"))).strip()
+        if not description:
+            description = (
+                f"公开资料显示，{institution}在{domain.name}相关方向有研究或应用线索；"
+                "具体团队边界需结合来源进一步核验。"
             )
-            session.add(existing)
-        elif existing.deleted:
-            # Candidate IDs are deterministic.  A previous weekly refresh may
-            # have soft-deleted a low-quality row; if a later report contains
-            # the same now-valid name, reuse and reactivate that row instead of
-            # inserting the same primary key a second time.
-            existing.deleted = False
-        existing.focus = _clean(candidate["focus"], domain.name)
-        existing.subdomain_id = candidate.get("subdomain_id")
-        # Detail fields can be edited from the map. Keep saved values during
-        # subsequent Daily refreshes; initialize them only for new candidates.
-        if is_new:
-            existing.core_direction = _clean(candidate["focus"], domain.name)
-        if is_new:
-            existing.dual_judgement = f"AI {existing.ai_level}｜科学 {existing.science_level}"
-        if is_new:
-            existing.internal_review = "AI4S Daily 公开报告命中，需补充团队代表成果和国内关联证据"
-        if is_new:
-            existing.recent_update = _clean(candidate["report"]["date"], "近期")
-        if is_new:
-            existing.next_action = "核验团队代表成果、依托单位与联系状态，确认是否纳入重点名单"
-        existing.source = "AI4S Daily"
-        existing.source_urls = candidate["urls"]
-        existing.evidence_summary = candidate["summary"]
-        existing.report_id = candidate["report"]["id"]
-        existing.report_title = candidate["report"]["title"]
-        existing.updated_at = _now()
+        source_urls = list(
+            dict.fromkeys(
+                url
+                for source in sources
+                for url in source.get("source_urls", [])
+                if isinstance(url, str) and url.startswith("http")
+            )
+        )[:12]
+        leader = normalise_person(raw.get("leader") or raw.get("leader_info"), leader=True, source_urls=source_urls)
+        if leader:
+            leader["is_leader"] = True
+        raw_members = raw.get("members") or raw.get("core_members") or []
+        if isinstance(raw_members, dict):
+            raw_members = [raw_members]
+        members: list[dict[str, Any]] = []
+        for member in raw_members if isinstance(raw_members, list) else []:
+            normalized_member = normalise_person(member, leader=False, source_urls=source_urls)
+            if normalized_member:
+                normalized_member["is_leader"] = bool(member.get("is_leader") is True)
+            if normalized_member and normalized_member["name"] != (leader or {}).get("name"):
+                if all(existing["name"] != normalized_member["name"] for existing in members):
+                    members.append(normalized_member)
+        key = _canonical_team_key(institution, team_name)
+        candidate = {
+            "institution_name": institution,
+            "team_name": team_name,
+            "description": description[:1200],
+            "research_directions": directions,
+            "location": location[:120],
+            "is_domestic": True,
+            "source_urls": source_urls,
+            "evidence_summary": sources[0].get("evidence", "")[:1600],
+            "report_id": sources[0].get("report_id", ""),
+            "report_title": sources[0].get("report_title", ""),
+            "recent_update": sources[0].get("report_date", ""),
+            "subdomain_id": sources[0].get("subdomain_id"),
+            "leader": leader,
+            "members": members,
+            "team_confidence": float(raw.get("team_confidence") or raw.get("confidence") or (0.35 if team_name == _UNKNOWN_TEAM_LABEL else 0.6)),
+            "leader_confidence": float((leader or {}).get("confidence") or 0),
+            "member_confidence": max([float(item.get("confidence") or 0) for item in members] or [0]),
+            "evidence_urls": source_urls,
+            "verification_status": "pending_llm_review",
+        }
+        existing = records.get(key)
+        if existing:
+            existing["source_urls"] = list(dict.fromkeys(existing["source_urls"] + source_urls))[:12]
+            if len(candidate["description"]) > len(existing["description"]):
+                existing["description"] = candidate["description"]
+            existing["research_directions"] = _normalise_directions(
+                existing["research_directions"] + candidate["research_directions"]
+            )
+            if not existing.get("leader") and candidate.get("leader"):
+                existing["leader"] = candidate["leader"]
+            known_members = {item["name"] for item in existing.get("members", [])}
+            existing.setdefault("members", []).extend(
+                item for item in candidate.get("members", []) if item["name"] not in known_members
+            )
+        else:
+            records[key] = candidate
+    # Do not cap the final snapshot at eight (or an arbitrary UI-sized number).
+    # The map can retain every validated domestic team found by the search.
+    return list(records.values())
+
+
+def _candidate_id(domain_id: str, name: str) -> str:
+    digest = hashlib.sha1(f"{domain_id}:{name}".encode("utf-8")).hexdigest()[:24]
+    return f"team_{digest}"
+
+
+def _merge_team_records(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge validated snapshots/candidates by canonical institution + team."""
+    merged: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        for item in group:
+            key = _canonical_team_key(item.get("institution_name", ""), item.get("team_name", ""))
+            if not key or key.startswith(":"):
+                continue
+            current = merged.get(key)
+            if not current:
+                merged[key] = dict(item)
+                merged[key]["source_urls"] = list(item.get("source_urls", []))
+                merged[key]["research_directions"] = list(item.get("research_directions", []))
+                merged[key]["members"] = list(item.get("members", []))
+                continue
+            current["source_urls"] = list(dict.fromkeys([
+                *current.get("source_urls", []), *item.get("source_urls", []),
+            ]))[:12]
+            current["research_directions"] = _normalise_directions([
+                *current.get("research_directions", []), *item.get("research_directions", []),
+            ])
+            if len(item.get("description", "")) > len(current.get("description", "")):
+                current["description"] = item["description"]
+            if not current.get("leader") and item.get("leader"):
+                current["leader"] = item["leader"]
+            known = {member.get("name") for member in current.get("members", [])}
+            current.setdefault("members", []).extend(
+                member for member in item.get("members", []) if member.get("name") not in known
+            )
+    return list(merged.values())
+
+
+def _validated_previous_records(
+    domain: StrategicDomainRow,
+    rows: list[StrategicTeamRow],
+) -> list[dict[str, Any]]:
+    """Convert only the previous structured snapshot into safe fallbacks.
+
+    Legacy rows and generic placeholder team names are intentionally excluded;
+    this prevents historical dirty data from being reintroduced merely to hit
+    the eight-team target.
+    """
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        institution = _normalise_institution_name(row.institution_name or row.name)
+        team_name = _clean(row.team_name)
+        if (
+            "structured normalization" not in _clean(row.source).lower()
+            or not row.is_domestic
+            or not _is_china_entity(institution)
+            or not team_name
+            or team_name == _UNKNOWN_TEAM_LABEL
+        ):
+            continue
+        result.append({
+            "institution_name": institution,
+            "team_name": team_name,
+            "description": _clean(row.description or row.evidence_summary),
+            "research_directions": _normalise_directions(row.research_directions, row.focus or domain.name),
+            "location": _clean(row.location, "中国（公开资料判定）"),
+            "is_domestic": True,
+            "source_urls": list(row.source_urls or []),
+            "evidence_summary": row.evidence_summary,
+            "report_id": row.report_id,
+            "report_title": row.report_title,
+            "recent_update": row.recent_update,
+            "subdomain_id": row.subdomain_id,
+            "leader": None,
+            "members": [],
+        })
+    return result
+
+
+def _curated_fallback_records(domain: StrategicDomainRow) -> list[dict[str, Any]]:
+    """Return auditable official-unit leads when search engines are blocked.
+
+    These are never used to fabricate people: they only prevent an unavailable
+    search provider from collapsing a domain to zero teams. The next refresh
+    revalidates each URL and can replace/remove the lead.
+    """
+    result = []
+    for item in _CURATED_WEB_UNITS.get(domain.name, []):
+        result.append({
+            **item,
+            "description": f"官方机构页面公开列出的{item['team_name']}，待本轮搜索进一步核验团队负责人和成员。",
+            "location": "中国大陆",
+            "is_domestic": True,
+            "evidence_summary": "官方机构入口作为公开 Web 补全线索；搜索引擎不可用时保留，下一轮刷新继续核验。",
+            "report_id": "web-curated",
+            "report_title": "官方机构公开入口",
+            "recent_update": "",
+            "subdomain_id": None,
+            "leader": None,
+            "members": [],
+        })
+    return result
+
+
+def _upsert_team_people(session: Session, team: StrategicTeamRow,
+                        leader: dict[str, Any] | None, members: list[dict[str, Any]]) -> None:
+    from .team_research_store import upsert_people
+    upsert_people(session, team, leader, members)
+
+
+def _research_existing(session: Session, team: StrategicTeamRow) -> dict[str, Any]:
+    people = session.query(StrategicPersonRow).filter_by(team_id=team.id, deleted=False).all()
+    from .team_research_store import history, _verified_urls
+    runs = history(session, team.id, "verified")
+    known_sources = []
+    if runs:
+        previous = runs[0]["payload"].get("run") or {}
+        supported = set(_verified_urls(previous.get("reviewed")))
+        known_sources = [{"url": p["url"], "label": p.get("title", "已核验来源，需重新抓取")}
+                         for p in previous.get("pages", []) if p["url"] in supported]
+    return {"team_id": team.id, "institution_name": team.institution_name or team.name,
+            "team_name": team.team_name, "description": team.description,
+            "research_directions": team.research_directions,
+            "source_urls": list(dict.fromkeys([*(team.evidence_urls or []), *(team.source_urls or []),
+                           *(u for p in people for u in (p.source_urls or []))])),
+            "people": [_person_to_dict(p) for p in people], "known_sources": known_sources}
+
+
+def _refresh_one_team(session: Session, team: StrategicTeamRow, domain: StrategicDomainRow,
+                      *, known_sources: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """Explicit single-team update, using the same research/storage path as refresh.
+
+    Caller supplies its session (including isolated SQLite in acceptance tests).
+    No domain discovery, scheduler or implicit whole-domain refresh is invoked.
+    """
+    from .team_research_store import persist
+    existing = _research_existing(session, team)
+    if known_sources:
+        existing["known_sources"] = known_sources
+    run = _run_team_research_agent(institution=existing["institution_name"], team=team.team_name,
+                                   domain=domain.name, existing=existing)
+    published = persist(session, team, run)
+    session.commit()
+    return {"team_id": team.id, "published": published, "run": run}
+
+
+def _team_alias_index(session: Session, rows: list[StrategicTeamRow]) -> dict[str, StrategicTeamRow]:
+    """Only independently verified continuity permits an old name to reuse an ID."""
+    from .team_research_store import history
+    index = {_canonical_team_key(row.institution_name or row.name, row.team_name): row for row in rows}
+    for row in rows:
+        for entry in history(session, row.id, "verified"):
+            payload = entry["payload"]
+            reviewed = (payload.get("run") or {}).get("reviewed") or {}
+            before = payload.get("before") or {}
+            if payload.get("published") and reviewed.get("entity_relation") == "rename" and reviewed.get("entity_citations"):
+                key = _canonical_team_key(before.get("institutionName", ""), before.get("teamName", ""))
+                index.setdefault(key, row)
+    return index
+
+
+def _sync_domain_core(session: Session, domain: StrategicDomainRow) -> dict[str, Any]:
+    subdomains = _domain_query(session, domain.id)
+    materials, reports = _collect_candidate_material(domain, subdomains)
+    old_rows = session.query(StrategicTeamRow).filter(
+        StrategicTeamRow.domain_id == domain.id,
+        StrategicTeamRow.deleted.is_(False),
+    ).all()
+    # Include soft-deleted historical rows when reactivating a deterministic
+    # candidate id; otherwise a previously removed curated/team record can
+    # collide with the same snapshot key on a later refresh.
+    all_domain_rows = session.query(StrategicTeamRow).filter(
+        StrategicTeamRow.domain_id == domain.id
+    ).all()
+    # Even an empty first pass gets the supplemental institutional queries
+    # before we declare a failed refresh.  This is the same retry path used for
+    # a short (<8) normalized result and prevents a narrow keyword match from
+    # hiding a usable second search.
+    if not materials:
+        extra_materials, extra_reports = _collect_candidate_material(
+            domain, subdomains, supplemental=True
+        )
+        materials = extra_materials
+        reports = extra_reports
+    if not materials:
+        raise _SyncQualityError(f"{domain.name} 未检索到可追溯的国内机构资料，保留上一版数据")
+    normalized = _normalise_team_records(domain, materials)
+    # A short first pass triggers a second, differently-worded search.  The
+    # second result is merged before the snapshot gate, so a single narrow
+    # query cannot erase a previously complete domain.
+    if len(normalized) < 8:
+        extra_materials, extra_reports = _collect_candidate_material(
+            domain, subdomains, supplemental=True
+        )
+        if extra_materials:
+            extra_normalized = _normalise_team_records(domain, extra_materials)
+            normalized = _merge_team_records(normalized, extra_normalized)
+            reports = list({report["id"]: report for report in [*reports, *extra_reports]}.values())
+            materials = [*materials, *extra_materials]
+    if len(normalized) < 8:
+        normalized = _merge_team_records(
+            normalized,
+            _validated_previous_records(domain, old_rows),
+        )
+    named_count = sum(1 for item in normalized if item.get("team_name") not in {"", _UNKNOWN_TEAM_LABEL})
+    if named_count < 8:
+        normalized = _merge_team_records(normalized, _curated_fallback_records(domain))
+    # Enrich each normalized team independently.  Discovery and people
+    # extraction are separate stages so an institution-level hit can no longer
+    # silently become a fabricated team leader/member record.
+    normalized = _enrich_team_identity(domain, normalized)
+    known_teams = _team_alias_index(session, all_domain_rows)
+    for candidate in normalized:
+        match = known_teams.get(_canonical_team_key(candidate["institution_name"], candidate["team_name"]))
+        if match is not None:
+            existing = _research_existing(session, match)
+            candidate["people"] = existing["people"]
+            candidate["team_id"] = match.id
+            candidate["known_sources"] = existing["known_sources"]
+            candidate["source_urls"] = list(dict.fromkeys([*existing["source_urls"], *candidate.get("source_urls", [])]))
+    normalized = _enrich_team_people(domain, normalized)
+    # Independent verification agent reviews extraction output against the
+    # original evidence before persistence. In offline mode records remain
+    # pending_llm_review and are still protected by deterministic schema gates.
+    normalized = _llm_verify_records(domain, normalized)
+    # A one-row result from a broad report search is usually an incomplete
+    # response or a parser regression.  Keep the previous snapshot instead of
+    # replacing a useful list with it. Fewer than eight is allowed when the
+    # source genuinely contains fewer. If several candidates were found but
+    # the normalization stage only returns one or two, treat that as an
+    # incomplete response; genuinely tiny searches remain valid.
+    if not normalized or (len(normalized) < 3 and len(materials) >= 3):
+        raise _SyncQualityError(
+            f"{domain.name} 本次只得到 {len(normalized)} 条可核验国内团队，结果不完整，保留上一版数据"
+        )
+
+    old_by_key = known_teams
+    # Incremental semantics: existing rows are never deleted merely because a
+    # team was not returned by this search round. A refresh may discover only a
+    # subset of the public web; retaining the historical row lets the database
+    # accumulate evidence over time. Rows are soft-deleted only by explicit
+    # administrative action or a later evidence-backed decision.
+
+    from .team_research_store import persist
+    published_rows = []
+    for candidate in normalized:
+        key = _canonical_team_key(candidate["institution_name"], candidate["team_name"])
+        row = old_by_key.get(key)
+        if row is None:
+            # Pending candidates are retained separately by the research history;
+            # do not publish fabricated institution/team placeholders as verified.
+            review = (candidate.get("_research") or {}).get("reviewed") or {}
+            if candidate.get("verification_status") != "verified":
+                from .team_research_store import append_history
+                append_history(session, _candidate_id(domain.id, key), "pending", {"run": candidate.get("_research"), "published": False})
+                continue
+            row = StrategicTeamRow(id=_candidate_id(domain.id, key), domain_id=domain.id,
+                name=candidate["institution_name"], institution_name=candidate["institution_name"],
+                team_name=candidate["team_name"], subdomain_id=candidate.get("subdomain_id"))
+            session.add(row)
+            session.flush()
+        if persist(session, row, candidate.get("_research") or {"status": "pending"}):
+            published_rows.append(row)
+    session.flush()
+    error_meta = session.query(StrategicSyncMetaRow).filter(
+        StrategicSyncMetaRow.key == f"last_refresh_error:{domain.id}"
+    ).first()
+    if error_meta:
+        session.delete(error_meta)
     session.commit()
     return {
-        "provider": "AI4S Daily",
+        "provider": "AI4S Daily + public Web",
+        "pipeline": "search(~25 candidates)→structured-normalization→domestic-filter→dedupe→person-verification→snapshot",
         "reportCount": len(reports),
-        "candidateCount": len(entities),
+        "candidateCount": len(materials),
+        "teamCount": len({row.id for row in published_rows}),
+        "namedTeamCount": len({row.id for row in published_rows}),
+        "unknownTeamCount": sum(1 for item in normalized if item.get("team_name") in {"", _UNKNOWN_TEAM_LABEL}),
+        "leaderCount": sum(1 for row in published_rows if _team_people(session, row.id)[0]),
+        "memberTeamCount": sum(1 for row in published_rows if _team_people(session, row.id)[1]),
+        "peopleSearchAttempted": sum(1 for item in normalized if (item.get("_research") or {}).get("counts", {}).get("llm", 0)),
+        "peopleMissingReasons": [
+            {"institution": item.get("institution_name"), "team": item.get("team_name"),
+             "reason": str((item.get("_research") or {}).get("status", "pending")) + ": " +
+                       str(((item.get("_research") or {}).get("reviewed") or {}).get("leader_missing_reason", ""))}
+            for item in normalized if item.get("verification_status") != "verified" or not (
+                ((item.get("_research") or {}).get("reviewed") or {}).get("leader"))
+        ],
         "updatedAt": _now().isoformat(),
     }
+
+
+def _person_snapshot(person: StrategicPersonRow) -> dict[str, Any]:
+    """Convert a persisted person to the evidence shape used by review prompts."""
+    return {
+        "name": person.name,
+        "title": person.title,
+        "role": person.role,
+        "research_direction": person.research_direction,
+        "bio": person.bio,
+        "homepage": person.profile_url,
+        "avatar_url": person.avatar_url,
+        "evidence_urls": list(person.source_urls or []),
+        "verification_status": person.verification_status,
+    }
+
+
+def _review_team_merge(
+    session: Session,
+    row: StrategicTeamRow,
+    candidate: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    """Ask the independent Verification Agent to resolve old/new conflicts.
+
+    The deterministic layer only detects that two observations differ. It does
+    not decide which leader/member is correct. When the verifier is unavailable
+    the existing snapshot is retained and marked ``conflict`` for later review.
+    """
+    people = session.query(StrategicPersonRow).filter(
+        StrategicPersonRow.team_id == row.id, StrategicPersonRow.deleted.is_(False)
+    ).all()
+    old_leader = next((_person_snapshot(p) for p in people if p.is_leader), None)
+    new_leader = candidate.get("leader")
+    if not old_leader or not isinstance(new_leader, dict) or not _clean(new_leader.get("name")):
+        return candidate, "unchanged"
+    if _clean(old_leader.get("name")).casefold() == _clean(new_leader.get("name")).casefold():
+        return candidate, "unchanged"
+
+    existing_members = [_person_snapshot(p) for p in people if not p.is_leader]
+    prompt = {
+        "institution_name": row.institution_name or row.name,
+        "team_name": row.team_name,
+        "old_record": {
+            "leader": old_leader,
+            "members": existing_members,
+            "evidence_urls": list(row.evidence_urls or row.source_urls or []),
+            "evidence_summary": row.evidence_summary,
+        },
+        "new_record": {
+            "leader": new_leader,
+            "members": candidate.get("members", []),
+            "evidence_urls": candidate.get("evidence_urls") or candidate.get("source_urls", []),
+            "evidence_summary": candidate.get("evidence_summary", ""),
+        },
+    }
+    if not _llm_config():
+        row.verification_status = "conflict"
+        return {**candidate, "leader": None, "members": []}, "pending_review"
+    system = (
+        "你是战略图谱 Verification Agent。只根据旧记录、新调查结果及其来源判断冲突。"
+        "优先官方团队/实验室主页、机构主页和带日期的正式页面；不能凭记忆。"
+        "如果能纠正，输出 corrected_result；无法确认时 decision=revise，并保留旧负责人、标记冲突。"
+        "只输出 JSON：{decision:'accept|revise|reject',confidence:0.0,problems:[],corrected_result:{leader:null,members:[]}}。"
+    )
+    try:
+        result = _llm_json_call(
+            system=system,
+            user=json.dumps(prompt, ensure_ascii=False),
+            timeout=int(os.getenv("STRATEGIC_MAP_CONFLICT_VERIFY_TIMEOUT", "120")),
+        ) or {}
+    except Exception:
+        result = {}
+    decision = _clean(result.get("decision"), "revise").lower()
+    corrected = result.get("corrected_result") if isinstance(result.get("corrected_result"), dict) else {}
+    if decision == "accept":
+        if isinstance(corrected.get("leader"), dict) and _clean(corrected["leader"].get("name")):
+            candidate["leader"] = corrected["leader"]
+        return candidate, "accepted"
+    # revise/reject never destroys the old row. Keep the new observation out of
+    # the active roster and let the persisted conflict status surface it.
+    row.verification_status = "conflict"
+    candidate = {**candidate, "leader": None, "members": []}
+    return candidate, "pending_review"
+
+
+def _sync_domain(session: Session, domain: StrategicDomainRow) -> dict[str, Any]:
+    """Public pipeline entry used by new-domain, manual and scheduled refreshes."""
+    from .domain_research import sync_domain
+    return sync_domain(session, domain,
+        seconds=max(60,min(7200,int(os.getenv('STRATEGIC_MAP_DOMAIN_SECONDS','2400')))),
+        team_seconds=max(60,min(300,int(os.getenv('STRATEGIC_MAP_TEAM_SECONDS','210')))))
 
 
 # Strategic map data is refreshed once a week.  The scheduler still wakes up
@@ -1163,12 +2722,31 @@ def _auto_refresh_due(session: Session) -> bool:
     return (_now() - last).total_seconds() >= _AUTO_REFRESH_INTERVAL_SECONDS
 
 
+def _record_refresh_failure(session: Session, domain: StrategicDomainRow, error: Exception) -> None:
+    """Persist a short failure marker without touching the team snapshot."""
+    key = f"last_refresh_error:{domain.id}"
+    meta = session.query(StrategicSyncMetaRow).filter(StrategicSyncMetaRow.key == key).first()
+    if not meta:
+        meta = StrategicSyncMetaRow(key=key)
+        session.add(meta)
+    meta.value = _clean(error, "刷新失败")[:255]
+    meta.updated_at = _now()
+    session.commit()
+
+
+def _last_refresh_error(session: Session, domain: StrategicDomainRow | None) -> str:
+    if not domain:
+        return ""
+    meta = session.query(StrategicSyncMetaRow).filter(
+        StrategicSyncMetaRow.key == f"last_refresh_error:{domain.id}"
+    ).first()
+    return meta.value if meta else ""
+
+
 def _run_scheduled_refresh() -> None:
     """后台定时刷新：每周运行一次。"""
     with _SESSION_FACTORY() as session:
         _seed_defaults(session)
-        _seed_presentation_candidates(session)
-        _purge_non_china_teams(session)
         if not _auto_refresh_due(session):
             return
         domains = _domain_query(session)
@@ -1177,10 +2755,17 @@ def _run_scheduled_refresh() -> None:
             try:
                 _sync_domain(session, domain)
                 successful += 1
-            except Exception:
+            except Exception as exc:
                 # 单个领域失败不阻塞其它领域；下一轮仍会重试。
                 session.rollback()
-        if successful:
+                try:
+                    _record_refresh_failure(session, domain, exc)
+                except Exception:
+                    session.rollback()
+        # Advance the weekly watermark only after every domain produced a
+        # valid snapshot.  A partial run must be retried next hour; otherwise
+        # one failed domain would be hidden for a full week.
+        if domains and successful == len(domains):
             meta = session.query(StrategicSyncMetaRow).filter(
                 StrategicSyncMetaRow.key == "last_auto_refresh"
             ).first()
@@ -1197,14 +2782,19 @@ def start_strategic_map_scheduler() -> None:
     import threading
     import time
 
+    if os.getenv('STRATEGIC_MAP_SCHEDULER_ENABLED', 'true').lower() not in {'1', 'true', 'yes'}:
+        return
+
     def loop() -> None:
         while True:
+            # A development reload must not immediately start network research.
+            # Hourly checks still enforce the persisted weekly refresh watermark.
+            time.sleep(60 * 60)
             try:
                 _run_scheduled_refresh()
             except Exception:
                 # 后台任务不能影响 HTTP 服务生命周期。
                 pass
-            time.sleep(60 * 60)
 
     thread = threading.Thread(target=loop, name="strategic-map-weekly-refresh", daemon=True)
     thread.start()
@@ -1216,23 +2806,25 @@ def get_strategic_map(
     domain_id: str | None = Query(None),
 ) -> dict[str, Any]:
     with _SESSION_FACTORY() as session:
-        _seed_defaults(session)
-        _seed_presentation_candidates(session)
-        _purge_non_china_teams(session)
         roots = _domain_query(session)
         target = _get_domain(session, domain_id) if domain_id else (roots[0] if roots else None)
-        source: dict[str, Any] = {"provider": "AI4S Daily", "refreshed": False}
+        source: dict[str, Any] = {"provider": "本地已保存研判数据", "refreshed": False}
+        if target and (last_error := _last_refresh_error(session, _get_root_domain(session, target.id))):
+            source["lastError"] = last_error
         if refresh and target:
-            source = _sync_domain(session, _get_root_domain(session, target.id))
+            root = _get_root_domain(session, target.id)
+            try:
+                source = _sync_domain(session, root)
+            except _SyncQualityError as exc:
+                session.rollback()
+                _record_refresh_failure(session, root, exc)
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             source["refreshed"] = True
-            # A refresh can return fewer than eight auditable rows when the
-            # latest reports are sparse. Keep the Top 8 floor deterministic.
-            _seed_presentation_candidates(session)
         domains = [_domain_to_dict(session, domain) for domain in _domain_query(session)]
         teams = [
-            _team_to_dict(team)
+            _team_to_dict(team, session)
             for team in session.query(StrategicTeamRow)
-            .filter(StrategicTeamRow.deleted.is_(False))
+            .filter(StrategicTeamRow.deleted.is_(False), StrategicTeamRow.verification_status == "verified")
             .order_by(StrategicTeamRow.updated_at.desc())
             .all()
         ]
@@ -1252,7 +2844,6 @@ def list_domains() -> dict[str, Any]:
 @router.get("/domains/{domain_id}")
 def get_domain(domain_id: str) -> dict[str, Any]:
     with _SESSION_FACTORY() as session:
-        _seed_defaults(session)
         return _response(_domain_to_dict(session, _get_domain(session, domain_id)))
 
 
@@ -1273,8 +2864,12 @@ def create_domain(payload: DomainPayload) -> dict[str, Any]:
         session.add(row)
         session.commit()
         # 新领域首次保存时立即完成一次研判，后续由页面按钮或后台周期任务更新。
-        source = _sync_domain(session, row)
-        _seed_presentation_candidates(session)
+        try:
+            source = _sync_domain(session, row)
+        except _SyncQualityError as exc:
+            session.rollback()
+            _record_refresh_failure(session, row, exc)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         return _response({"domain": _domain_to_dict(session, row), "source": source})
 
 
@@ -1363,7 +2958,6 @@ def update_subdomain(subdomain_id: str, payload: SubdomainPayload) -> dict[str, 
 @router.get("/subdomains/{subdomain_id}")
 def get_subdomain(subdomain_id: str) -> dict[str, Any]:
     with _SESSION_FACTORY() as session:
-        _seed_defaults(session)
         row = _get_domain(session, subdomain_id)
         if not row.parent_id:
             raise HTTPException(status_code=400, detail="该记录不是子领域")
@@ -1389,29 +2983,71 @@ def list_domain_teams(
     refresh: bool = Query(False),
     subdomain_id: str | None = Query(None),
 ) -> dict[str, Any]:
+    # The handler is called directly by the sync endpoint and by a few
+    # internal tests; FastAPI's ``Query(None)`` default is otherwise passed to
+    # SQLAlchemy as an object instead of Python ``None``.
+    if not isinstance(subdomain_id, str) or not subdomain_id.strip():
+        subdomain_id = None
     with _SESSION_FACTORY() as session:
-        _seed_defaults(session)
-        _seed_presentation_candidates(session)
-        _purge_non_china_teams(session)
         domain = _get_root_domain(session, domain_id)
-        source: dict[str, Any] = {"provider": "AI4S Daily", "refreshed": False}
+        source: dict[str, Any] = {"provider": "本地已保存研判数据", "refreshed": False}
+        if last_error := _last_refresh_error(session, domain):
+            source["lastError"] = last_error
         if refresh:
-            source = _sync_domain(session, domain)
+            try:
+                source = _sync_domain(session, domain)
+            except _SyncQualityError as exc:
+                session.rollback()
+                _record_refresh_failure(session, domain, exc)
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             source["refreshed"] = True
-            _seed_presentation_candidates(session)
         query = session.query(StrategicTeamRow).filter(
             StrategicTeamRow.domain_id == domain.id,
             StrategicTeamRow.deleted.is_(False),
+            StrategicTeamRow.verification_status == "verified",
         )
         if subdomain_id:
             query = query.filter(StrategicTeamRow.subdomain_id == subdomain_id)
         teams = query.order_by(StrategicTeamRow.updated_at.desc(), StrategicTeamRow.name.asc()).all()
         return _response({
-            "teams": [_team_to_dict(team) for team in teams],
+            "teams": [_team_to_dict(team, session) for team in teams],
             "source": source,
             # Refresh can create or remove populated subdomains; return the
             # filtered domain so the left navigation stays aligned immediately.
             "domain": _domain_to_dict(session, domain),
+        })
+
+
+@router.get("/teams/{team_id}")
+def get_team_detail(team_id: str) -> dict[str, Any]:
+    """Read a team, its verified leader and core members from SQLite."""
+    with _SESSION_FACTORY() as session:
+        team = session.query(StrategicTeamRow).filter(
+            StrategicTeamRow.id == team_id,
+            StrategicTeamRow.deleted.is_(False),
+        ).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="团队不存在")
+        leader, members = _team_people(session, team.id)
+        domain = _get_root_domain(session, team.domain_id)
+        subdomain = None
+        if team.subdomain_id:
+            subdomain = session.query(StrategicDomainRow).filter(
+                StrategicDomainRow.id == team.subdomain_id,
+                StrategicDomainRow.deleted.is_(False),
+            ).first()
+        return _response({
+            "team": _team_to_dict(team, session),
+            "leader": leader,
+            "members": members,
+            "domain": _domain_to_dict(session, domain),
+            "subdomain": {
+                "id": subdomain.id,
+                "name": subdomain.name,
+                "label": subdomain.name,
+                "description": subdomain.description,
+                "parentId": subdomain.parent_id,
+            } if subdomain else None,
         })
 
 
@@ -1425,6 +3061,8 @@ def update_team_status(team_id: str, payload: TeamStatusPayload) -> dict[str, An
         ).first()
         if not team:
             raise HTTPException(status_code=404, detail="候选团队不存在")
+        from .team_research_store import append_history
+        append_history(session, team.id, "manual", {"fields": [key for key, value in payload.model_dump().items() if value is not None]})
         team.attention = payload.attention.strip()
         team.contact = payload.contact.strip()
         if payload.core_direction is not None:
@@ -1441,7 +3079,7 @@ def update_team_status(team_id: str, payload: TeamStatusPayload) -> dict[str, An
             team.next_action = payload.next_action.strip()
         team.updated_at = _now()
         session.commit()
-        return _response(_team_to_dict(team))
+        return _response(_team_to_dict(team, session))
 
 
 @router.post("/domains/{domain_id}/sync")

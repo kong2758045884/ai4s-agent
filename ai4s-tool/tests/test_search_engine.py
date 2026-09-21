@@ -12,6 +12,25 @@ from ai4s_tool.tool.search_component.search_engine import (
 
 
 class SearchEngineIntegrationTest(unittest.IsolatedAsyncioTestCase):
+    @patch("ai4s_tool.tool.search_component.search_engine.DDGS", None)
+    @patch.object(DDGSearch, "_search_public_html", new_callable=AsyncMock)
+    async def test_should_use_public_html_when_ddgs_dependency_is_missing(
+        self, mock_public_html
+    ):
+        mock_public_html.return_value = [
+            Doc(
+                doc_type="web_page",
+                title="Public result",
+                link="https://example.com/public",
+                content="public snippet",
+            )
+        ]
+
+        docs = await DDGSearch().search("AlphaFold 3", request_id="req-ddg")
+
+        self.assertEqual("Public result", docs[0].title)
+        mock_public_html.assert_awaited_once_with("AlphaFold 3")
+
     @patch("ai4s_tool.tool.search_component.search_engine.DDGS")
     async def test_should_normalize_ddg_results_into_docs(self, mock_ddgs):
         mock_client = Mock()

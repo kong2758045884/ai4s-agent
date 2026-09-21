@@ -743,10 +743,15 @@ async def ask_llm(
     max_retries = max(
         0, configured_max_retries if configured_max_retries is not None else 2
     )
+    # Never switch a shared Agent request to an unrelated hard-coded model.
+    # A provider-policy error is usually a model/account configuration issue;
+    # retrying with ``gpt-4`` against DashScope both hides the root cause and
+    # guarantees a second 404.  A fallback is opt-in and must be explicitly
+    # configured by the same Agent environment.
     fallback_model = (
         os.getenv("OPENAI_COMPAT_FALLBACK_MODEL")
         or os.getenv("OPENAI_FALLBACK_MODEL")
-        or "gpt-4"
+        or ""
     ).strip()
     openai_compat_http_primary = (
         bool(params.get("api_base"))

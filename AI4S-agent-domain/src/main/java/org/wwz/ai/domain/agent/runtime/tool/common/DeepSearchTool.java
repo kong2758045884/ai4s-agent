@@ -188,6 +188,7 @@ public class DeepSearchTool implements ContextIsolatableTool {
             String searchResultFileName = DeepSearchFileNamePolicy.buildSearchResultFileName(finalReportFileName);
             StringBuilder stringBuilderIncr = new StringBuilder();
             StringBuilder stringBuilderAll = new StringBuilder();
+            Map<String, List<DeepSearchrResponse.SearchDoc>> accumulatedContentMap = new java.util.LinkedHashMap<>();
             AtomicBoolean finalAnswerUploaded = new AtomicBoolean(false);
             DeepSearchStructuredResultBuilder resultBuilder = new DeepSearchStructuredResultBuilder(searchRequest.getQuery());
              FileArtifactUploader fileArtifactUploader = new FileArtifactUploader(ctx);
@@ -214,10 +215,11 @@ public class DeepSearchTool implements ContextIsolatableTool {
                 @Override
                 public void onLine(String line) {
                     try {
-                        if (!line.startsWith("data:")) {
+                        String sseLine = StringUtils.trimToEmpty(line);
+                        if (!sseLine.startsWith("data:")) {
                             return;
                         }
-                        String data = line.substring(5).trim();
+                        String data = sseLine.substring(5).trim();
                         if ("[DONE]".equals(data)) {
                             return;
                         }
@@ -233,7 +235,7 @@ public class DeepSearchTool implements ContextIsolatableTool {
                                     searchResponse.getIsFinal(), StringUtils.length(searchResponse.getAnswer()));
                         }
                         // 使用标准 SSE 客户端逐条消费事件，避免 extend 被上游缓冲后延迟透传。
-                        if (searchResponse.getIsFinal()) {
+                        if (Boolean.TRUE.equals(searchResponse.getIsFinal())) {
                             if (StringUtils.isBlank(searchResponse.getAnswer())) {
                                 searchResponse.setAnswer(stringBuilderAll.toString());
                             }
@@ -263,7 +265,17 @@ public class DeepSearchTool implements ContextIsolatableTool {
                             // query/docs 可能因章节补搜不同步，按较短一侧对齐，避免 IndexOutOfBoundsException。
                             int alignedSize = Math.min(eventQueries.size(), eventDocs.size());
                             for (int idx = 0; idx < alignedSize; idx++) {
-                                contentMap.put(eventQueries.get(idx), eventDocs.get(idx));
+                                String eventQuery = StringUtils.trimToNull(eventQueries.get(idx));
+                                if (eventQuery == null) {
+                                    continue;
+                                }
+                                List<DeepSearchrResponse.SearchDoc> docs = eventDocs.get(idx);
+                                if (docs == null) {
+                                    continue;
+                                }
+                                contentMap.put(eventQuery, docs);
+                                accumulatedContentMap.computeIfAbsent(eventQuery, key -> new java.util.ArrayList<>())
+                                        .addAll(docs);
                             }
                         }
 
@@ -278,7 +290,7 @@ public class DeepSearchTool implements ContextIsolatableTool {
                                     .requestId(ctx.getRequestId())
                                     .fileName(searchResultFileName)
                                     .description("DeepSearch检索结果")
-                                    .content(JSON.toJSONString(contentMap))
+                                    .content(JSON.toJSONString(accumulatedContentMap))
                                     .build();
                              fileArtifactUploader.upload(fileRequest, true, artifactSource);
                         } else if ("chapter_summary".equals(searchResponse.getMessageType())) {
@@ -341,9 +353,15 @@ public class DeepSearchTool implements ContextIsolatableTool {
                     log.error("{} deep_search on failure, statusCode={}, bodyLength={}",
                             ctx.getRequestId(), statusCode, StringUtils.length(responseBody), throwable);
                     if (!future.isDone()) {
-                        future.completeExceptionally(throwable instanceof Exception
-                                ? (Exception) throwable
-                                : new RuntimeException(throwable));
+                        // 上游可能在 search/chapter_summary 后断开；保留已收集证据，不能把整次
+                        // 调研降级成只有异常文本的失败结果。
+                        if (resultBuilder.hasEvidence()) {
+                            future.complete(resultBuilder.buildPayload(stringBuilderAll.toString()));
+                        } else {
+                            future.completeExceptionally(throwable instanceof Exception
+                                    ? (Exception) throwable
+                                    : new RuntimeException(throwable));
+                        }
                     }
                 }
             });

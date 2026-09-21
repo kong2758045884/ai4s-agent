@@ -1,11 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import StrategicMap from ".";
 
 describe("StrategicMap", () => {
   it("renders the strategic strength map workspace", () => {
-    const html = renderToStaticMarkup(<StrategicMap />);
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <StrategicMap />
+      </MemoryRouter>,
+    );
 
     expect(html).toContain("AI4S战略力量图谱");
     expect(html).toContain("国内优势团队候选池");

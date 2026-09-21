@@ -11,12 +11,14 @@ MixSearch 并发调用并去重，供 DeepSearch 使用。
 """
 
 import asyncio
+import html
 import json
 import os
+import urllib.request
 from loguru import logger
 from abc import ABC, abstractmethod
 from typing import Any, List
-from urllib.parse import quote
+from urllib.parse import quote, parse_qs, unquote, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -107,29 +109,38 @@ class SearchBase(ABC):
         if not _search_url_ok(source_url):
             return ""
         client_timeout = aiohttp.ClientTimeout(connect=5, total=timeout)
+        request_kwargs = _request_kwargs(timeout=client_timeout)
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    source_url,
-                    **_request_kwargs(timeout=client_timeout),
-                ) as response:
+                async with session.get(source_url, **request_kwargs) as response:
                     content_type = (response.content_type or "").lower()
                     if content_type not in [
-                        "text/html",
-                        "text/plain",
-                        "text/xml",
-                        "application/json",
-                        "application/xml",
-                        "application/octet-stream",
+                        "text/html", "text/plain", "text/xml", "application/json",
+                        "application/xml", "application/octet-stream",
                     ]:
-                        logger.debug(
-                            f"parser content-type not supported: {response.content_type}"
-                        )
+                        logger.debug(f"parser content-type not supported: {response.content_type}")
                         return ""
                     raw_bytes = await response.read()
         except Exception as e:
-            logger.debug(f"parser error: {e}")
-            return ""
+            # 本地代理经常只在开发机存在；代理失败后立即直连，避免命中结果被整体丢弃。
+            if "proxy" in request_kwargs:
+                logger.warning(f"parser proxy unavailable, retry direct: {type(e).__name__}")
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(source_url, timeout=client_timeout) as response:
+                            content_type = (response.content_type or "").lower()
+                            if content_type not in [
+                                "text/html", "text/plain", "text/xml", "application/json",
+                                "application/xml", "application/octet-stream",
+                            ]:
+                                return ""
+                            raw_bytes = await response.read()
+                except Exception as direct_error:
+                    logger.debug(f"parser direct error: {type(direct_error).__name__}")
+                    return ""
+            else:
+                logger.debug(f"parser error: {type(e).__name__}")
+                return ""
 
         try:
             raw_text = raw_bytes.decode("utf-8")
@@ -225,8 +236,9 @@ class DDGSearch(SearchBase):
         self, query: str, request_id: str = None, *args, **kwargs
     ) -> List[Doc]:
         if DDGS is None:
-            logger.warning("ddgs library not installed, skip ddg search")
-            return []
+            # 公开 HTML 端点不依赖 ddgs 包或 API key；依赖缺失也必须继续走兜底。
+            logger.warning("ddgs library not installed, retry public HTML")
+            return await self._search_public_html(query)
 
         def _run_text_search() -> List[dict]:
             client_kwargs: dict[str, Any] = {"timeout": self._timeout}
@@ -242,7 +254,13 @@ class DDGSearch(SearchBase):
             )
             return list(results) if results else []
 
-        raw_results = await asyncio.to_thread(_run_text_search)
+        try:
+            raw_results = await asyncio.to_thread(_run_text_search)
+        except Exception as error:
+            logger.warning(f"DDG library search failed, retry public HTML: {type(error).__name__}")
+            return await self._search_public_html(query)
+        if not raw_results:
+            return await self._search_public_html(query)
         return [
             Doc(
                 doc_type="web_page",
@@ -254,6 +272,79 @@ class DDGSearch(SearchBase):
             for item in raw_results
             if item.get("href", item.get("url", ""))
         ]
+
+    async def _search_public_html(self, query: str) -> List[Doc]:
+        """公开 DDG HTML 兜底，不依赖 ddgs 包或 API key。"""
+        url = "https://html.duckduckgo.com/html/?q=" + quote(query, safe="")
+        kwargs = _request_kwargs(
+            timeout=aiohttp.ClientTimeout(connect=10, total=max(20, self._parser_timeout))
+        )
+
+        async def _read(request_kwargs):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers={"User-Agent": "AI4SAgentWebSearch/1.0"}, **request_kwargs) as response:
+                    if response.status != 200:
+                        return ""
+                    return await response.text(errors="ignore")
+
+        try:
+            content = await _read(kwargs)
+        except Exception as error:
+            if "proxy" not in kwargs:
+                logger.debug(f"public DDG search failed: {type(error).__name__}")
+                content = ""
+            else:
+                logger.warning(f"public DDG proxy unavailable, retry direct: {type(error).__name__}")
+                try:
+                    content = await _read({"timeout": kwargs["timeout"]})
+                except Exception as direct_error:
+                    logger.debug(f"public DDG direct search failed: {type(direct_error).__name__}")
+                    content = ""
+
+        # aiohttp may fail to establish a direct connection on machines where
+        # the system resolver prefers an unreachable IPv6 route.  urllib's
+        # synchronous opener has a more portable fallback; explicitly disable
+        # environment proxies so a stale 127.0.0.1 proxy cannot intercept it.
+        if not content:
+            def _urllib_read() -> str:
+                request = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "AI4SAgentWebSearch/1.0"},
+                )
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({})
+                )
+                with opener.open(request, timeout=max(20, self._parser_timeout)) as response:
+                    return response.read().decode("utf-8", errors="ignore")
+
+            try:
+                content = await asyncio.to_thread(_urllib_read)
+            except Exception as direct_error:
+                logger.debug(f"public DDG urllib direct search failed: {type(direct_error).__name__}")
+                return []
+
+        if not content:
+            return []
+        soup = BeautifulSoup(content, "html.parser")
+        links = soup.select("a.result__a")
+        snippets = soup.select("a.result__snippet, div.result__snippet")
+        docs: List[Doc] = []
+        for index, anchor in enumerate(links[: self._count]):
+            href = (anchor.get("href") or "").strip()
+            if "uddg=" in href:
+                encoded = parse_qs(urlparse(href).query).get("uddg", [""])[0]
+                href = unquote(encoded)
+            if not href.startswith(("http://", "https://")):
+                continue
+            snippet = snippets[index].get_text(" ", strip=True) if index < len(snippets) else ""
+            docs.append(Doc(
+                doc_type="web_page",
+                content=html.unescape(snippet),
+                title=html.unescape(anchor.get_text(" ", strip=True)),
+                link=href,
+                data={"search_engine": "ddg-public"},
+            ))
+        return docs
 
 
 class BingSearch(SearchBase):

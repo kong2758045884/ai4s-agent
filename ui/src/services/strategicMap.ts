@@ -25,7 +25,12 @@ export type StrategicTeam = {
   name: string;
   /** API 明确返回的机构与团队线索；旧快照没有时回退到 name/focus。 */
   organization?: string;
+  institutionName?: string;
   teamName?: string;
+  description?: string;
+  researchDirections?: string[];
+  location?: string;
+  isDomestic?: boolean;
   focus: string;
   aiLevel: string;
   scienceLevel: string;
@@ -43,13 +48,43 @@ export type StrategicTeam = {
   reportId: string;
   reportTitle: string;
   updatedAt: string;
+  leader?: StrategicPerson | null;
+  members?: StrategicPerson[];
+  leaderId?: string;
+};
+
+export type StrategicPerson = {
+  id: string;
+  teamId: string;
+  name: string;
+  title: string;
+  role: string;
+  researchDirection: string;
+  bio: string;
+  avatarUrl: string;
+  profileUrl: string;
+  sourceUrls: string[];
+  sourceType: string;
+  lastVerifiedAt: string;
+  isLeader: boolean;
+};
+
+export type StrategicTeamDetail = {
+  team: StrategicTeam;
+  leader: StrategicPerson | null;
+  members: StrategicPerson[];
+  domain?: StrategicDomain;
+  subdomain?: StrategicSubdomain | null;
 };
 
 export type StrategicMapSource = {
   provider: string;
+  pipeline?: string;
   refreshed?: boolean;
   reportCount?: number;
   candidateCount?: number;
+  teamCount?: number;
+  lastError?: string;
   updatedAt?: string;
 };
 
@@ -86,6 +121,28 @@ function rawValue(raw: RawRecord, camel: string, snake: string): unknown {
   return raw[camel] ?? raw[snake];
 }
 
+function mapPerson(rawValueItem: unknown, teamId = ""): StrategicPerson {
+  const raw = record(rawValueItem);
+  const sourceUrls = raw.sourceUrls ?? raw.source_urls;
+  return {
+    id: text(raw.id || raw.person_id),
+    teamId: text(raw.teamId || raw.team_id, teamId),
+    name: text(raw.name, "未确认姓名"),
+    title: text(raw.title),
+    role: text(raw.role),
+    researchDirection: text(raw.researchDirection || raw.research_direction),
+    bio: text(raw.bio),
+    avatarUrl: text(raw.avatarUrl || raw.avatar_url),
+    profileUrl: text(raw.profileUrl || raw.profile_url),
+    sourceUrls: Array.isArray(sourceUrls)
+      ? sourceUrls.map((item) => text(item)).filter(Boolean)
+      : [],
+    sourceType: text(raw.sourceType || raw.source_type),
+    lastVerifiedAt: text(raw.lastVerifiedAt || raw.last_verified_at),
+    isLeader: Boolean(raw.isLeader ?? raw.is_leader),
+  };
+}
+
 function mapSubdomain(rawValueItem: unknown, parentId: string): StrategicSubdomain {
   const raw = record(rawValueItem);
   return {
@@ -115,15 +172,28 @@ function mapDomain(rawValueItem: unknown): StrategicDomain {
 
 function mapTeam(rawValueItem: unknown): StrategicTeam {
   const raw = record(rawValueItem);
+  const rawDirections = raw.researchDirections ?? raw.research_directions;
+  const id = text(raw.id || raw.team_id);
+  const leaderValue = raw.leader;
+  const membersValue = raw.members;
   return {
-    id: text(raw.id || raw.team_id),
+    id,
     domainId: text(rawValue(raw, "domainId", "domain_id")),
     subdomainId: raw.subdomainId == null && raw.subdomain_id == null
       ? null
       : text(raw.subdomainId || raw.subdomain_id),
     name: text(raw.name || raw.team_name, "待命名候选"),
     organization: text(raw.organization || raw.organization_name || raw.name || raw.team_name),
+    institutionName: text(raw.institutionName || raw.institution_name || raw.organization || raw.name || raw.team_name),
     teamName: text(raw.teamName || raw.team_name_label || raw.team_name || raw.focus || raw.team_focus),
+    description: text(raw.description),
+    researchDirections: Array.isArray(rawDirections)
+      ? rawDirections.map((item) => text(item)).filter(Boolean)
+      : [],
+    location: text(raw.location),
+    isDomestic: raw.isDomestic == null && raw.is_domestic == null
+      ? undefined
+      : Boolean(raw.isDomestic ?? raw.is_domestic),
     focus: text(raw.focus || raw.team_focus),
     aiLevel: text(rawValue(raw, "aiLevel", "ai_level"), "待核实"),
     scienceLevel: text(rawValue(raw, "scienceLevel", "science_level"), "待核实"),
@@ -146,6 +216,9 @@ function mapTeam(rawValueItem: unknown): StrategicTeam {
     reportId: text(raw.reportId || raw.report_id),
     reportTitle: text(raw.reportTitle || raw.report_title),
     updatedAt: text(raw.updatedAt || raw.updated_at),
+    leader: leaderValue ? mapPerson(leaderValue, id) : null,
+    members: Array.isArray(membersValue) ? membersValue.map((item) => mapPerson(item, id)) : [],
+    leaderId: text(raw.leaderId || raw.leader_id),
   };
 }
 
@@ -153,9 +226,12 @@ function mapSource(value: unknown): StrategicMapSource {
   const raw = record(value);
   return {
     provider: text(raw.provider, "AI4S Daily"),
+    pipeline: text(raw.pipeline),
     refreshed: Boolean(raw.refreshed),
     reportCount: typeof raw.reportCount === "number" ? raw.reportCount : undefined,
     candidateCount: typeof raw.candidateCount === "number" ? raw.candidateCount : undefined,
+    teamCount: typeof raw.teamCount === "number" ? raw.teamCount : undefined,
+    lastError: text(raw.lastError || raw.last_error),
     updatedAt: text(raw.updatedAt || raw.updated_at),
   };
 }
@@ -232,6 +308,27 @@ export async function loadStrategicDomainTeams(
     teams: Array.isArray(raw.teams) ? raw.teams.map(mapTeam).filter((item) => item.id) : [],
     source: mapSource(raw.source),
     domain: raw.domain ? mapDomain(raw.domain) : undefined,
+  };
+}
+
+export async function loadStrategicTeamDetail(teamId: string): Promise<StrategicTeamDetail> {
+  const raw = record(await request<unknown>(`/v1/strategic-map/teams/${encodeURIComponent(teamId)}`));
+  const team = mapTeam(raw.team || raw);
+  const leader = raw.leader ? mapPerson(raw.leader, team.id) : team.leader ?? null;
+  const members = Array.isArray(raw.members)
+    ? raw.members.map((item) => mapPerson(item, team.id))
+    : team.members ?? [];
+  return {
+    team,
+    leader,
+    members,
+    domain: raw.domain ? mapDomain(raw.domain) : undefined,
+    subdomain: raw.subdomain
+      ? (() => {
+        const subdomain = record(raw.subdomain);
+        return mapSubdomain(subdomain, text(subdomain.parentId || subdomain.parent_id));
+      })()
+      : null,
   };
 }
 
