@@ -88,6 +88,28 @@ export type StrategicMapSource = {
   updatedAt?: string;
 };
 
+export type StrategicRefreshState =
+  | "accepted"
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "timed_out";
+
+export type StrategicRefreshTask = {
+  taskId: string;
+  domainId: string;
+  state: StrategicRefreshState;
+  terminal: boolean;
+  message: string;
+  result: Record<string, unknown>;
+  createdAt: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string;
+};
+
 export type StrategicMapSnapshot = {
   domains: StrategicDomain[];
   teams: StrategicTeam[];
@@ -280,6 +302,25 @@ function normalizeSnapshot(value: unknown): StrategicMapSnapshot {
   };
 }
 
+function mapRefreshTask(value: unknown): StrategicRefreshTask {
+  const raw = record(value);
+  const state = text(raw.state, "failed") as StrategicRefreshState;
+  return {
+    taskId: text(raw.taskId || raw.task_id),
+    domainId: text(raw.domainId || raw.domain_id),
+    state,
+    terminal: typeof raw.terminal === "boolean"
+      ? raw.terminal
+      : ["succeeded", "partial", "failed", "cancelled", "timed_out"].includes(state),
+    message: text(raw.message),
+    result: record(raw.result),
+    createdAt: text(raw.createdAt || raw.created_at),
+    startedAt: text(raw.startedAt || raw.started_at),
+    updatedAt: text(raw.updatedAt || raw.updated_at),
+    finishedAt: text(raw.finishedAt || raw.finished_at),
+  };
+}
+
 function payload(name: string, description: string) {
   return JSON.stringify({ name: name.trim(), description: description.trim() });
 }
@@ -287,12 +328,13 @@ function payload(name: string, description: string) {
 export async function loadStrategicMap(options?: {
   refresh?: boolean;
   domainId?: string;
+  signal?: AbortSignal;
 }): Promise<StrategicMapSnapshot> {
   const params = new URLSearchParams();
   if (options?.refresh) params.set("refresh", "true");
   if (options?.domainId) params.set("domain_id", options.domainId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return normalizeSnapshot(await request<unknown>(`/v1/strategic-map${suffix}`));
+  return normalizeSnapshot(await request<unknown>(`/v1/strategic-map${suffix}`, { signal: options?.signal }));
 }
 
 export async function loadStrategicDomainTeams(
@@ -311,8 +353,13 @@ export async function loadStrategicDomainTeams(
   };
 }
 
-export async function loadStrategicTeamDetail(teamId: string): Promise<StrategicTeamDetail> {
-  const raw = record(await request<unknown>(`/v1/strategic-map/teams/${encodeURIComponent(teamId)}`));
+export async function loadStrategicTeamDetail(
+  teamId: string,
+  options?: { signal?: AbortSignal },
+): Promise<StrategicTeamDetail> {
+  const raw = record(await request<unknown>(`/v1/strategic-map/teams/${encodeURIComponent(teamId)}`, {
+    signal: options?.signal,
+  }));
   const team = mapTeam(raw.team || raw);
   const leader = raw.leader ? mapPerson(raw.leader, team.id) : team.leader ?? null;
   const members = Array.isArray(raw.members)
@@ -330,6 +377,37 @@ export async function loadStrategicTeamDetail(teamId: string): Promise<Strategic
       })()
       : null,
   };
+}
+
+export async function startStrategicDomainRefresh(
+  domainId: string,
+  options?: { signal?: AbortSignal },
+): Promise<StrategicRefreshTask> {
+  return mapRefreshTask(await request<unknown>(
+    `/v1/strategic-map/domains/${encodeURIComponent(domainId)}/refreshes`,
+    { method: "POST", signal: options?.signal },
+  ));
+}
+
+export async function loadStrategicDomainRefresh(
+  taskId: string,
+  options?: { signal?: AbortSignal },
+): Promise<StrategicRefreshTask> {
+  return mapRefreshTask(await request<unknown>(
+    `/v1/strategic-map/refreshes/${encodeURIComponent(taskId)}`,
+    { signal: options?.signal },
+  ));
+}
+
+export async function loadLatestStrategicDomainRefresh(
+  domainId: string,
+  options?: { signal?: AbortSignal },
+): Promise<StrategicRefreshTask | null> {
+  const raw = record(await request<unknown>(
+    `/v1/strategic-map/domains/${encodeURIComponent(domainId)}/refreshes/latest`,
+    { signal: options?.signal },
+  ));
+  return raw.task ? mapRefreshTask(raw.task) : null;
 }
 
 /** Persist the manually maintained status and detail fields for a candidate team. */

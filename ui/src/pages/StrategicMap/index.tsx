@@ -41,13 +41,18 @@ import {
   createStrategicSubdomain,
   deleteStrategicDomain,
   deleteStrategicSubdomain,
+  loadLatestStrategicDomainRefresh,
+  loadStrategicDomainRefresh,
   loadStrategicDomainTeams,
   loadStrategicMap,
+  loadStrategicTeamDetail,
+  startStrategicDomainRefresh,
   updateStrategicTeam,
   updateStrategicDomain,
   updateStrategicSubdomain,
   type StrategicDomain,
   type StrategicMapSource,
+  type StrategicRefreshTask,
   type StrategicSubdomain,
   type StrategicTeam,
   type StrategicTeamUpdate,
@@ -223,6 +228,25 @@ function mergeSnapshotDomains(
   }));
 }
 
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let timer = 0;
+    const abort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof DOMException && reason.name === "AbortError";
+}
+
 const candidateAttentionOrder: Record<string, number> = {
   重点关注: 0,
   持续关注: 1,
@@ -334,6 +358,7 @@ export default function StrategicMap() {
   });
   const domainsRef = useRef(domains);
   const refreshRequestIdRef = useRef(0);
+  const refreshAbortRef = useRef<AbortController | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const scrollStateRef = useRef<StrategicMapScrollState>({ ...initialContext.scroll });
   const pendingScrollRestoreRef = useRef<StrategicMapScrollState | null>(
@@ -480,6 +505,7 @@ export default function StrategicMap() {
     if (scrollFrameRef.current != null && typeof window !== "undefined") {
       window.cancelAnimationFrame(scrollFrameRef.current);
     }
+    refreshAbortRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -528,35 +554,126 @@ export default function StrategicMap() {
     });
   };
 
+  const reloadRefreshResult = useCallback(async (
+    refreshedDomainId: string,
+    requestId: number,
+    signal: AbortSignal,
+  ) => {
+    const requested = selectionRef.current;
+    const snapshot = await loadStrategicMap({ signal });
+    if (requestId !== refreshRequestIdRef.current || signal.aborted) return;
+    let nextDomains = mergeSnapshotDomains(snapshot.domains, snapshot.teams);
+
+    // The selected profile endpoint is read independently so the list, leader
+    // and member detail all advance to the same persisted revision.
+    if (requested.teamId && snapshot.teams.some((team) => team.id === requested.teamId)) {
+      const detail = await loadStrategicTeamDetail(requested.teamId, { signal });
+      if (requestId !== refreshRequestIdRef.current || signal.aborted) return;
+      nextDomains = nextDomains.map((domain) => ({
+        ...domain,
+        teams: domain.teams.map((team) => team.id === detail.team.id
+          ? { ...detail.team, leader: detail.leader, members: detail.members }
+          : team),
+      }));
+    }
+
+    if (requestId !== refreshRequestIdRef.current || signal.aborted) return;
+    domainsRef.current = nextDomains;
+    setDomains(nextDomains);
+    applySelection(resolveStrategicMapSelection(nextDomains, requested, !requested.teamId));
+    if (selectionRef.current.domainId === refreshedDomainId) {
+      setSource({ ...snapshot.source, refreshed: true });
+    }
+  }, [applySelection]);
+
+  const trackRefreshTask = useCallback(async (
+    initialTask: StrategicRefreshTask,
+    requestId: number,
+    signal: AbortSignal,
+  ) => {
+    let task = initialTask;
+    let connectionFailures = 0;
+    setSyncing(!task.terminal);
+    try {
+      while (!task.terminal) {
+        await abortableDelay(task.state === "accepted" ? 1_000 : 2_000, signal);
+        try {
+          task = await loadStrategicDomainRefresh(task.taskId, { signal });
+          connectionFailures = 0;
+          if (requestId === refreshRequestIdRef.current) setError("");
+        } catch (reason) {
+          if (isAbortError(reason) || signal.aborted) throw reason;
+          connectionFailures += 1;
+          if (requestId === refreshRequestIdRef.current) {
+            setError(`与服务的连接中断，正在恢复任务状态（第 ${connectionFailures} 次重试）`);
+          }
+          await abortableDelay(Math.min(10_000, 1_000 * connectionFailures), signal);
+        }
+      }
+      if (requestId !== refreshRequestIdRef.current || signal.aborted) return;
+      try {
+        await reloadRefreshResult(task.domainId, requestId, signal);
+      } catch (reason) {
+        if (isAbortError(reason) || signal.aborted) throw reason;
+        setError(`任务已结束，但读取最新结果失败：${reason instanceof Error ? reason.message : "未知错误"}`);
+        return;
+      }
+      if (task.state === "succeeded") {
+        setError("");
+      } else {
+        setError(task.message || ({
+          partial: "本轮仅部分完成，已显示成功保存的结果",
+          failed: "本轮调查失败，已保留此前结果",
+          cancelled: "本轮调查已取消",
+          timed_out: "本轮调查超时，已显示成功保存的结果",
+        } as Record<string, string>)[task.state] || "本轮调查未完整完成");
+      }
+    } finally {
+      if (requestId === refreshRequestIdRef.current) setSyncing(false);
+    }
+  }, [reloadRefreshResult]);
+
+  useEffect(() => {
+    if (loading || !activeDomainId || activeDomainId === EMPTY_DOMAIN.id) return undefined;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
+    const requestId = ++refreshRequestIdRef.current;
+    setSyncing(false);
+
+    void loadLatestStrategicDomainRefresh(activeDomainId, { signal: controller.signal })
+      .then((task) => {
+        if (!task || task.terminal || requestId !== refreshRequestIdRef.current) return;
+        return trackRefreshTask(task, requestId, controller.signal);
+      })
+      .catch((reason) => {
+        if (isAbortError(reason) || controller.signal.aborted) return;
+        if (requestId === refreshRequestIdRef.current) {
+          setSyncing(false);
+          setError(reason instanceof Error ? reason.message : "无法恢复当前领域的研判任务");
+        }
+      });
+
+    return () => controller.abort();
+  }, [activeDomainId, loading, trackRefreshTask]);
+
   const refreshTeams = async () => {
-    if (!activeDomain.id || activeDomain.id === EMPTY_DOMAIN.id) return;
+    if (!activeDomain.id || activeDomain.id === EMPTY_DOMAIN.id || syncing) return;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
     const requestId = ++refreshRequestIdRef.current;
     const refreshedDomainId = activeDomain.id;
     setSyncing(true);
     setError("");
     try {
-      const result = await loadStrategicDomainTeams(refreshedDomainId, { refresh: true });
-      if (requestId !== refreshRequestIdRef.current) return;
-      const nextDomains = domainsRef.current.map((domain) => (
-        domain.id === refreshedDomainId
-          ? {
-            ...domain,
-            ...(result.domain ?? {}),
-            teams: result.teams,
-          }
-          : domain
-      ));
-      domainsRef.current = nextDomains;
-      setDomains(nextDomains);
-      const requested = selectionRef.current;
-      applySelection(resolveStrategicMapSelection(nextDomains, requested, !requested.teamId));
-      if (selectionRef.current.domainId === refreshedDomainId) setSource(result.source);
+      const task = await startStrategicDomainRefresh(refreshedDomainId, { signal: controller.signal });
+      await trackRefreshTask(task, requestId, controller.signal);
     } catch (reason) {
-      if (requestId === refreshRequestIdRef.current) {
-        setError(reason instanceof Error ? reason.message : "AI4S Daily 同步失败");
+      if (!isAbortError(reason) && requestId === refreshRequestIdRef.current) {
+        setSyncing(false);
+        setError(reason instanceof Error ? reason.message : "重新研判任务提交失败");
       }
-    } finally {
-      if (requestId === refreshRequestIdRef.current) setSyncing(false);
     }
   };
 

@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, create_engine, text as sql_text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from ai4s_tool.util.log_util import logger
 
@@ -146,6 +146,27 @@ class StrategicSyncMetaRow(_Base):
     key = Column(String(64), primary_key=True)
     value = Column(String(255), nullable=False, default="")
     updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+
+class StrategicRefreshTaskRow(_Base):
+    """Durable lifecycle for a user-triggered domain refresh.
+
+    Research already checkpoints every team independently.  This row owns the
+    user-facing lifecycle so an HTTP disconnect or page navigation cannot turn
+    a still-running batch into a lost request.
+    """
+
+    __tablename__ = "strategic_map_refresh_task"
+
+    id = Column(String(64), primary_key=True)
+    domain_id = Column(String(64), nullable=False, index=True)
+    state = Column(String(32), nullable=False, default="accepted", index=True)
+    message = Column(Text, nullable=False, default="")
+    result = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    started_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+    finished_at = Column(DateTime, nullable=True)
 
 
 _Base.metadata.create_all(_ENGINE)
@@ -2743,6 +2764,180 @@ def _last_refresh_error(session: Session, domain: StrategicDomainRow | None) -> 
     return meta.value if meta else ""
 
 
+_REFRESH_ACTIVE_STATES = {"accepted", "running"}
+_REFRESH_TERMINAL_STATES = {"succeeded", "partial", "failed", "cancelled", "timed_out"}
+_REFRESH_THREADS_LOCK = threading.Lock()
+_REFRESH_THREADS: dict[str, threading.Thread] = {}
+
+
+def _refresh_task_to_dict(row: StrategicRefreshTaskRow) -> dict[str, Any]:
+    return {
+        "taskId": row.id,
+        "domainId": row.domain_id,
+        "state": row.state,
+        "terminal": row.state in _REFRESH_TERMINAL_STATES,
+        "message": row.message or "",
+        "result": row.result or {},
+        "createdAt": row.created_at.isoformat() if row.created_at else "",
+        "startedAt": row.started_at.isoformat() if row.started_at else "",
+        "updatedAt": row.updated_at.isoformat() if row.updated_at else "",
+        "finishedAt": row.finished_at.isoformat() if row.finished_at else "",
+    }
+
+
+def _domain_research_summary(session: Session, domain_id: str) -> dict[str, Any]:
+    """Read the compact domain checkpoint without exposing per-team prompt traces."""
+    from .domain_research import JOBS
+
+    row = session.execute(
+        JOBS.select().where(JOBS.c.id == f"domain:{domain_id}")
+    ).mappings().first()
+    if not row:
+        return {}
+    payload = dict(row["payload"] or {})
+    public_keys = {
+        "provider", "pipeline", "teamCount", "namedTeamCount", "candidateCount",
+        "reportCount", "leaderCount", "memberTeamCount", "memberCount",
+        "pendingCount", "duplicateCount", "seconds", "deduplicationComplete",
+        "updatedAt",
+    }
+    return {key: value for key, value in payload.items() if key in public_keys}
+
+
+def _finish_refresh_task(
+    session: Session,
+    task: StrategicRefreshTaskRow,
+    *,
+    state: str,
+    message: str,
+    result: dict[str, Any] | None = None,
+) -> None:
+    task.state = state
+    task.message = message[:2000]
+    task.result = result or {}
+    task.updated_at = _now()
+    task.finished_at = _now()
+    session.commit()
+
+
+def _run_refresh_task(task_id: str) -> None:
+    """Run one accepted refresh and guarantee a persisted terminal state."""
+    try:
+        with _SESSION_FACTORY() as session:
+            session.execute(sql_text("BEGIN IMMEDIATE"))
+            task = session.get(StrategicRefreshTaskRow, task_id)
+            # Claim accepted exactly once across processes. A running row is
+            # already owned by another worker and must never be overwritten.
+            if not task or task.state != "accepted":
+                session.rollback()
+                return
+            domain = session.query(StrategicDomainRow).filter(
+                StrategicDomainRow.id == task.domain_id,
+                StrategicDomainRow.deleted.is_(False),
+                StrategicDomainRow.parent_id.is_(None),
+            ).first()
+            if not domain:
+                _finish_refresh_task(
+                    session, task, state="failed", message="领域不存在或已删除"
+                )
+                return
+            task.state = "running"
+            task.started_at = task.started_at or _now()
+            task.updated_at = _now()
+            task.message = "正在调查并增量保存团队证据"
+            session.commit()
+            try:
+                result = _sync_domain(session, domain)
+            except _SyncQualityError as exc:
+                # Incomplete quality is not a transport failure: team-level
+                # commits are already durable and must become visible in UI.
+                session.rollback()
+                try:
+                    _record_refresh_failure(session, domain, exc)
+                except Exception:
+                    session.rollback()
+                task = session.get(StrategicRefreshTaskRow, task_id)
+                _finish_refresh_task(
+                    session,
+                    task,
+                    state="partial",
+                    message=str(exc),
+                    result=_domain_research_summary(session, domain.id),
+                )
+            except TimeoutError as exc:
+                session.rollback()
+                task = session.get(StrategicRefreshTaskRow, task_id)
+                _finish_refresh_task(
+                    session,
+                    task,
+                    state="timed_out",
+                    message=f"调查超时，已保存完成的增量结果：{exc}",
+                    result=_domain_research_summary(session, domain.id),
+                )
+            except Exception as exc:
+                session.rollback()
+                try:
+                    _record_refresh_failure(session, domain, exc)
+                except Exception:
+                    session.rollback()
+                logger.exception("[StrategicMap refresh] task={} failed", task_id)
+                task = session.get(StrategicRefreshTaskRow, task_id)
+                _finish_refresh_task(
+                    session,
+                    task,
+                    state="failed",
+                    message=f"调查失败：{type(exc).__name__}: {exc}",
+                    result=_domain_research_summary(session, domain.id),
+                )
+            else:
+                task = session.get(StrategicRefreshTaskRow, task_id)
+                _finish_refresh_task(
+                    session,
+                    task,
+                    state="succeeded",
+                    message="调查完成，已更新当前领域",
+                    result=result,
+                )
+    finally:
+        with _REFRESH_THREADS_LOCK:
+            _REFRESH_THREADS.pop(task_id, None)
+
+
+def _launch_refresh_task(task_id: str) -> None:
+    with _REFRESH_THREADS_LOCK:
+        current = _REFRESH_THREADS.get(task_id)
+        if current and current.is_alive():
+            return
+        thread = threading.Thread(
+            target=_run_refresh_task,
+            args=(task_id,),
+            name=f"strategic-map-refresh-{task_id[:8]}",
+            daemon=True,
+        )
+        _REFRESH_THREADS[task_id] = thread
+        thread.start()
+
+
+def _recover_refresh_tasks() -> None:
+    """Close orphaned running rows and resume requests not yet started."""
+    accepted: list[str] = []
+    with _SESSION_FACTORY() as session:
+        rows = session.query(StrategicRefreshTaskRow).filter(
+            StrategicRefreshTaskRow.state.in_(tuple(_REFRESH_ACTIVE_STATES))
+        ).all()
+        for row in rows:
+            if row.state == "accepted":
+                accepted.append(row.id)
+                continue
+            row.state = "failed"
+            row.message = "服务在调查期间重启；逐队增量结果已保留，可重新研判继续补查"
+            row.updated_at = _now()
+            row.finished_at = _now()
+        session.commit()
+    for task_id in accepted:
+        _launch_refresh_task(task_id)
+
+
 def _run_scheduled_refresh() -> None:
     """后台定时刷新：每周运行一次。"""
     with _SESSION_FACTORY() as session:
@@ -2782,6 +2977,8 @@ def start_strategic_map_scheduler() -> None:
     import threading
     import time
 
+    # User-triggered jobs are independent of the weekly scheduler switch.
+    _recover_refresh_tasks()
     if os.getenv('STRATEGIC_MAP_SCHEDULER_ENABLED', 'true').lower() not in {'1', 'true', 'yes'}:
         return
 
@@ -2975,6 +3172,54 @@ def delete_subdomain(subdomain_id: str) -> dict[str, Any]:
             team.subdomain_id = None
         session.commit()
         return _response({"id": subdomain_id, "deleted": True})
+
+
+@router.post("/domains/{domain_id}/refreshes", status_code=202)
+def start_domain_refresh(domain_id: str) -> dict[str, Any]:
+    """Accept or reuse one durable refresh for a root domain."""
+    with _SESSION_FACTORY() as session:
+        session.execute(sql_text("BEGIN IMMEDIATE"))
+        domain = _get_root_domain(session, domain_id)
+        active = session.query(StrategicRefreshTaskRow).filter(
+            StrategicRefreshTaskRow.domain_id == domain.id,
+            StrategicRefreshTaskRow.state.in_(tuple(_REFRESH_ACTIVE_STATES)),
+        ).order_by(StrategicRefreshTaskRow.created_at.desc()).first()
+        if active:
+            session.commit()
+            task_id = active.id
+            payload = _refresh_task_to_dict(active)
+        else:
+            task_id = "refresh_" + uuid.uuid4().hex
+            task = StrategicRefreshTaskRow(
+                id=task_id,
+                domain_id=domain.id,
+                state="accepted",
+                message="任务已受理，等待开始调查",
+            )
+            session.add(task)
+            session.commit()
+            payload = _refresh_task_to_dict(task)
+    _launch_refresh_task(task_id)
+    return _response(payload)
+
+
+@router.get("/domains/{domain_id}/refreshes/latest")
+def get_latest_domain_refresh(domain_id: str) -> dict[str, Any]:
+    with _SESSION_FACTORY() as session:
+        domain = _get_root_domain(session, domain_id)
+        task = session.query(StrategicRefreshTaskRow).filter(
+            StrategicRefreshTaskRow.domain_id == domain.id
+        ).order_by(StrategicRefreshTaskRow.created_at.desc()).first()
+        return _response({"task": _refresh_task_to_dict(task) if task else None})
+
+
+@router.get("/refreshes/{task_id}")
+def get_domain_refresh(task_id: str) -> dict[str, Any]:
+    with _SESSION_FACTORY() as session:
+        task = session.get(StrategicRefreshTaskRow, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="刷新任务不存在")
+        return _response(_refresh_task_to_dict(task))
 
 
 @router.get("/domains/{domain_id}/teams")

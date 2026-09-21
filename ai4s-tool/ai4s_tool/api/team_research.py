@@ -423,6 +423,9 @@ class Research:
         self.cached_pages = cached_pages if cached_pages is not None else {}
         self.checkpoint = checkpoint
         self.resume = resume or {}
+        # A resumed evidence-gap pass needs room beyond the original twelve
+        # pages for official notices, research news and personal pages.
+        self.max_pages = max(12, min(24, int(os.getenv('STRATEGIC_MAP_TEAM_MAX_PAGES', '18'))))
 
     def _save_checkpoint(self):
         if self.checkpoint:
@@ -546,9 +549,9 @@ class Research:
                     self._remember_page(page)
                     self.counts['cache_hits'] += 1
                     self.event('reuse_body', url=url, fetched_at=page['fetched_at'], age_seconds=round(age))
-                elif url in self.links and len(self.pages) + len(todo) < 12:
+                elif url in self.links and len(self.pages) + len(todo) < self.max_pages:
                     todo.append(url)
-            elif url in self.links and len(self.pages) + len(todo) < 12:
+            elif url in self.links and len(self.pages) + len(todo) < self.max_pages:
                 todo.append(url)
         if time.monotonic() >= self.deadline - 30:
             self.errors.append({'stage': 'fetch', 'kind': 'budget_exhausted'})
@@ -609,13 +612,35 @@ class Research:
                     resume_wire = event.get('result')
             # Completed results from an older semantic contract need targeted
             # current-role planning, not blind reuse of their old review.
+            resumed_review = self.resume.get('reviewed') or {}
+            qualification_facts = [resumed_review.get(key) or {} for key in (
+                'team_name', 'institution_name', 'concrete_team', 'domestic',
+                'domain_relevance', 'advantage')]
+            verified_members = [person for person in resumed_review.get('members', [])
+                                if person.get('status') == 'verified' and
+                                (person.get('core_membership') or {}).get('status') == 'verified']
+            gap_resume = self.resume.get('status') == 'reviewed' and (
+                resumed_review.get('entity_relation') not in ('same', 'rename') or
+                any(fact.get('status') != 'verified' for fact in qualification_facts) or
+                not (resumed_review.get('leader') or {}).get('status') == 'verified' or
+                not verified_members)
             contract_upgrade = self.resume.get('status') == 'reviewed' and self.resume.get('contract_version') != 3
-            if contract_upgrade:
+            if contract_upgrade or gap_resume:
                 resume_stage=False;resume_wire=None
-                context['review_gaps'] = ['具体团队归属','现任官方领导任职','领域本体相关性']
-                context['instruction_scope'] = '复用已证实的正文与字段，优先补查这些审核缺口，不反复调查已证实的简介和方向。'
+                gaps = []
+                if resumed_review.get('entity_relation') not in ('same', 'rename'):
+                    gaps.append('具体团队实体及沿革关系')
+                gaps.extend(key for key, fact in zip(
+                    ('团队名称','机构名称','具体团队','国内归属','领域本体相关性','领域优势'),
+                    qualification_facts) if fact.get('status') != 'verified')
+                if not (resumed_review.get('leader') or {}).get('status') == 'verified':
+                    gaps.append('现任官方领导任职')
+                if not verified_members:
+                    gaps.append('当前核心科研成员')
+                context['review_gaps'] = list(dict.fromkeys(gaps))
+                context['instruction_scope'] = '复用已证实的正文与字段，只补查审核缺口。人员目录无正文或只有导航不等于没有成员：先沿有效站内链接，再用site:官方域名加团队名及研究人员、课题组、科研新闻、通知或个人主页定向补查；公告名单只作线索，必须结合角色、时间和精确团队归属独立审核。'
             if self.resume:
-                for page in self.resume.get('pages', [])[:4] if contract_upgrade else self.resume.get('pages', []):
+                for page in self.resume.get('pages', [])[:4] if contract_upgrade and not gap_resume else self.resume.get('pages', []):
                     age = page_age_seconds(page)
                     if page.get('status') == 'ok' and 0 <= age < 86400:
                         self._remember_page(page)
@@ -636,9 +661,9 @@ class Research:
                     self.event('supplement_stopped', reason='reserve_extraction_review_budget')
                     break
                 plan = self.plan({**context, 'round': round_index,
-                    'instruction_detail': '首要目标是现任负责人，其次方向和成员。负责人尚未有证据时，把预算用于任职信息/团队新闻/学术年会/负责人个人页，而不是泛取多名普通成员个人履历。已有人名或已知个人页线索就打开确认，不把链接本身当已读证据。优先读取已有具体团队官网正文，随后人员页/任职报道。官网没有名单时进入科研人员/研究员目录，沿个人主页核对部门归属。URLs 只能从 available_links 选取，已抓取页面禁止重选。查询简短围绕具体机构团队，可限定官网域名。首次有已有 URL 时只选 URL，不搜索。最多12页、4查询，最后一轮只能抓取入口，不再查询；无需为了凑预算继续搜索。',
+                    'instruction_detail': f'首要目标是现任负责人，其次方向和成员。负责人尚未有证据时，把预算用于任职信息/团队新闻/学术年会/负责人个人页，而不是泛取多名普通成员个人履历。已有人名或已知个人页线索就打开确认，不把链接本身当已读证据。优先读取已有具体团队官网正文，随后人员页/任职报道。官网人员目录没有正文、只有导航或动态加载失败不代表网上没有成员；先沿有效站内链接，再对官方域名定向搜索团队名与研究人员、课题组、科研新闻、通知、个人主页，合并多页后审核角色、时间和精确归属。公告、合作作者、委员会或母机构人员不能自动算核心成员。URLs 只能从 available_links 选取，已抓取页面禁止重选。查询简短围绕具体机构团队，可限定官网域名。首次已有具体团队 URL 时先读该入口，不在多个泛机构主页间消耗预算。最多{self.max_pages}页、4查询，最后一轮只能抓取入口，不再查询；无需为了凑预算继续搜索。',
                     'pages': self.evidence(), 'available_links': [v for u,v in self.links.items() if u not in self.pages],
-                    'already_queried': sorted(self.queries), 'remaining_fetch': 12-len(self.pages)})
+                    'already_queried': sorted(self.queries), 'remaining_fetch': self.max_pages-len(self.pages)})
                 if not plan.urls and not plan.queries:
                     break
                 self.fetch(plan.urls)

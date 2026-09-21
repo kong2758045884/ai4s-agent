@@ -58,6 +58,15 @@ class DomainTest(unittest.TestCase):
         self.assertIn('description',dr.missing_fields(value))
         self.assertIn('leader',dr.missing_fields(value))
 
+    def test_only_actionable_review_gaps_bypass_the_daily_cache(self):
+        pending=valid();pending['reviewed']['domain_relevance']['status']='pending'
+        self.assertTrue(dr.retryable_evidence_gap(pending))
+        missing_people=valid();missing_people['reviewed']['members']=[]
+        self.assertTrue(dr.retryable_evidence_gap(missing_people))
+        rejected=valid();rejected['reviewed']['domain_relevance']['status']='rejected'
+        self.assertFalse(dr.retryable_evidence_gap(rejected))
+        self.assertFalse(dr.retryable_evidence_gap(valid()))
+
     def test_public_context_remains_idempotent_for_resume(self):
         original={'team_id':'t','institution_name':'测试所','team_name':'测试组','contact_record':'不能外发',
             'people':[{'id':'p','name':'甲','evidence':json.dumps({'relation':[],'sources':[],

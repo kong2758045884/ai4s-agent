@@ -48,7 +48,7 @@ def run(leader=True):
 class PipelineTest(unittest.TestCase):
     def setUp(self):
         with sm._SESSION_FACTORY() as s:
-            for table in (sm.StrategicPersonRow,sm.StrategicTeamRow,sm.StrategicDomainRow):
+            for table in (sm.StrategicRefreshTaskRow,sm.StrategicPersonRow,sm.StrategicTeamRow,sm.StrategicDomainRow):
                 s.query(table).delete()
             store.HISTORY.create(s.connection(), checkfirst=True)
             s.execute(store.HISTORY.delete())
@@ -174,6 +174,46 @@ class PipelineTest(unittest.TestCase):
         finally:event.remove(sm._ENGINE,'before_cursor_execute',observe)
         self.assertEqual('待核实',before['team']['aiLevel'])
         self.assertEqual('',before['team']['recentUpdate'])
+
+    def test_refresh_endpoint_reuses_active_task_and_returns_immediately(self):
+        with patch.object(sm, '_launch_refresh_task') as launch:
+            first = self.client.post('/v1/strategic-map/domains/d/refreshes')
+            second = self.client.post('/v1/strategic-map/domains/d/refreshes')
+        self.assertEqual(202, first.status_code)
+        self.assertEqual(first.json()['data']['taskId'], second.json()['data']['taskId'])
+        self.assertEqual('accepted', first.json()['data']['state'])
+        self.assertFalse(first.json()['data']['terminal'])
+        self.assertEqual(2, launch.call_count)
+
+    def test_refresh_worker_persists_success_terminal(self):
+        with sm._SESSION_FACTORY() as s:
+            task = sm.StrategicRefreshTaskRow(id='refresh_success', domain_id='d', state='accepted')
+            s.add(task); s.commit()
+        with patch.object(sm, '_sync_domain', return_value={'teamCount': 8, 'memberCount': 3}):
+            sm._run_refresh_task('refresh_success')
+        with sm._SESSION_FACTORY() as s:
+            task = s.get(sm.StrategicRefreshTaskRow, 'refresh_success')
+            self.assertEqual('succeeded', task.state)
+            self.assertEqual(8, task.result['teamCount'])
+            self.assertIsNotNone(task.finished_at)
+
+    def test_refresh_worker_exposes_partial_incremental_result(self):
+        from ai4s_tool.api import domain_research as dr
+        dr.META.create_all(sm._ENGINE)
+        dr.save_job(sm._SESSION_FACTORY, 'domain:d', 'd', None, 'incomplete', {
+            'teamCount': 2, 'candidateCount': 9, 'pendingCount': 7, 'memberCount': 1,
+        })
+        with sm._SESSION_FACTORY() as s:
+            s.add(sm.StrategicRefreshTaskRow(id='refresh_partial', domain_id='d', state='accepted'))
+            s.commit()
+        with patch.object(sm, '_sync_domain', side_effect=sm._SyncQualityError('只完成一部分')):
+            sm._run_refresh_task('refresh_partial')
+        with sm._SESSION_FACTORY() as s:
+            task = s.get(sm.StrategicRefreshTaskRow, 'refresh_partial')
+            self.assertEqual('partial', task.state)
+            self.assertTrue(sm._refresh_task_to_dict(task)['terminal'])
+            self.assertEqual(2, task.result['teamCount'])
+            self.assertIn('只完成一部分', task.message)
 
     def test_invalid_json_is_not_missing_leader(self):
         calls=[]

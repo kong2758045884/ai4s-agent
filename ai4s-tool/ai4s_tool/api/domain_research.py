@@ -161,6 +161,31 @@ def missing_fields(run):
     }.items() if not present]
 
 
+def retryable_evidence_gap(run):
+    """Return whether an explicit refresh can materially improve this run.
+
+    A conclusive rejection is cached, while pending scope/entity facts and a
+    qualified team with missing people/details are resumed.  The old blanket
+    24-hour needs_review cache made the real refresh button incapable of
+    filling precisely the gaps it reported.
+    """
+    if run.get('status') != 'reviewed':
+        return True
+    value = run.get('reviewed') or {}
+    facts = [value.get(key) or {} for key in (
+        'team_name', 'institution_name', 'concrete_team', 'domestic',
+        'domain_relevance', 'advantage')]
+    if any(fact.get('status') == 'rejected' for fact in facts):
+        return False
+    if value.get('entity_relation') not in ('same', 'rename'):
+        return True
+    if (run.get('qualification_review') or {}).get('version') != 2:
+        return True
+    if any(fact.get('status') != 'verified' for fact in facts):
+        return True
+    return bool(missing_fields(run))
+
+
 def persist_duplicates(factory, valid, decision, reviewer):
     """Quarantine evidenced aliases, retaining stable IDs and all manual data."""
     from . import strategic_map as sm
@@ -271,7 +296,7 @@ def discovery(domain_name, existing, research, rounds=2, scope=None):
         plan = research.call('domain-plan', tr.Plan, {'domain':domain_name,'existing_teams':existing,
             'domain_scope':scope,
             'results':hits,'already_queried':sorted(research.queries),
-            'instruction_detail':'发现中国境内本领域优势具体科研团队，至少8个目标。针对现有缺口找不同具体实验室/研究部/PI团队；不要列整所整校。只规划最多2条查询，避免重复；不提供预置团队答案。'})
+            'instruction_detail':'发现中国境内本领域优势具体科研团队，至少8个目标。先根据domain_scope把用户领域拆成不同技术任务和常见学术表达，每轮查询覆盖不同included_subjects；输入词、上位学科和相邻方向不是自动同义词，候选仍须用具体任务原文核实。针对现有缺口找不同具体实验室/研究部/PI团队；不要列整所整校或泛新能源机构。只规划最多2条简短查询，避免重复；不提供预置团队答案。'})
         for query in plan.queries:
             if query in research.queries or len(research.queries) >= 4:
                 continue
@@ -342,9 +367,9 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 if old and old['state']=='duplicate' and time.time()-old['updated']<86400:
                     results.append({'team_id':row.id,'state':'duplicate','duplicate':old['payload']['duplicate'],
                                     'run':old['payload'].get('run',{})}); continue
-                if old and old['state']=='complete' and tr.review_cache_compatible(old['payload']['run']) and time.time()-old['updated']<86400:
+                if old and old['state']=='complete' and tr.review_cache_compatible(old['payload']['run']) and not retryable_evidence_gap(old['payload']['run']) and time.time()-old['updated']<86400:
                     results.append({'team_id':row.id,'state':'reused_complete','run':old['payload']['run']}); continue
-                if old and old['state']=='needs_review' and tr.review_cache_compatible(old['payload'].get('run') or {}) and time.time()-old['updated']<86400:
+                if old and old['state']=='needs_review' and tr.review_cache_compatible(old['payload'].get('run') or {}) and not retryable_evidence_gap(old['payload'].get('run') or {}) and time.time()-old['updated']<86400:
                     results.append({'team_id':row.id,'state':'needs_review','run':old['payload']['run']}); continue
                 for entry in history(s,row.id):
                     for page in (entry['payload'].get('run') or {}).get('pages',[]):
@@ -358,7 +383,7 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 if not any(r.id==team_id for r in rows):
                     for page in (job['payload'].get('checkpoint') or job['payload'].get('run') or {}).get('pages',[]):
                         if tr.cached_page_usable(page):cache.setdefault(page['url'],page)
-                    if job['state']=='complete' and tr.review_cache_compatible(job['payload'].get('run') or {}) and time.time()-job['updated']<86400:
+                    if job['state']=='complete' and tr.review_cache_compatible(job['payload'].get('run') or {}) and not retryable_evidence_gap(job['payload'].get('run') or {}) and time.time()-job['updated']<86400:
                         results.append({'team_id':team_id,'state':'reused_complete','run':job['payload']['run']})
                     else:
                         work.append((team_id,job['payload']['context']))
@@ -405,7 +430,7 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 old=previous.get(team_id)
                 resume=(old['payload'].get('checkpoint') or old['payload'].get('run') or {}) if old else {}
                 research=tr.Research(sm._shared_agent_llm_text,seconds=min(team_seconds,int(remaining-45)),cached_pages=cache,checkpoint=checkpoint,resume=resume)
-                if old and tr.review_cache_compatible(old['payload'].get('run') or {}) and (old['payload'].get('run') or {}).get('status')=='reviewed' and time.time()-old['updated']<86400:
+                if old and tr.review_cache_compatible(old['payload'].get('run') or {}) and (old['payload'].get('run') or {}).get('status')=='reviewed' and not retryable_evidence_gap(old['payload'].get('run') or {}) and time.time()-old['updated']<86400:
                     run=old['payload']['run']
                 else:
                     run=research.run(context,domain_name)
