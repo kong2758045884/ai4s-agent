@@ -1,0 +1,181 @@
+.strategic-map {
+  container-type: inline-size;
+}
+
+.strategic-map-mobile-navigation,
+.strategic-map-mobile-tabs,
+.strategic-map-mobile-hint {
+  display: none;
+}
+
+/* Tailwind utilities are configured important in this project. Keep scoped
+   overrides in the same layer, with higher specificity, so they also win in
+   production builds regardless of stylesheet loading order. */
+@layer theme, base, components, utilities;
+@layer utilities {
+  /* Use available panel width, not viewport width: Home also has a sidebar. */
+  @container (min-width: 1101px) and (max-width: 1340px) {
+    .strategic-map .strategic-map-profile {
+      width: 340px !important;
+    }
+    .strategic-map .strategic-map-team-row,
+    .strategic-map .strategic-map-table-head {
+      grid-template-columns: minmax(0, 1fr) 80px 152px !important;
+    }
+  }
+
+  @container (max-width: 1100px) {
+    .strategic-map .strategic-map-header {
+      padding: 10px 16px !important;
+    }
+    .strategic-map .strategic-map-header p {
+      display: none !important;
+    }
+    .strategic-map .strategic-map-page {
+      flex-direction: column !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      gap: 12px !important;
+      padding: 12px 12px max(20px, env(safe-area-inset-bottom)) !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    .strategic-map .strategic-map-domain-nav {
+      display: none !important;
+    }
+    .strategic-map-mobile-navigation {
+      display: block !important;
+      flex-shrink: 0;
+      border: 1px solid #d1dce7;
+      border-radius: 12px;
+      background: white;
+      padding: 8px 12px 12px;
+    }
+    .strategic-map-mobile-navigation button,
+    .strategic-map-mobile-navigation select,
+    .strategic-map-profile button,
+    .strategic-map-teams > div > button {
+      min-height: 44px !important;
+    }
+    .strategic-map-mobile-tabs {
+      position: sticky;
+      top: -1px;
+      z-index: 10;
+      display: flex !important;
+      flex-shrink: 0;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid #d1dce7;
+      border-radius: 12px;
+      background: #edf3f8;
+    }
+    .strategic-map-mobile-tabs button {
+      flex: 1;
+      min-height: 44px;
+      border-radius: 8px;
+      color: #607486;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .strategic-map-mobile-tabs button[aria-pressed="true"] {
+      color: #1b639a;
+      background: white;
+      box-shadow: 0 2px 5px #1b406010;
+    }
+    .strategic-map-mobile-tabs button:disabled {
+      opacity: 0.45;
+    }
+    .strategic-map .strategic-map-teams,
+    .strategic-map .strategic-map-profile {
+      width: 100% !important;
+      flex: none !important;
+      min-height: 0 !important;
+      overflow: visible !important;
+      padding: 14px !important;
+    }
+    .strategic-map .strategic-map-teams[data-mobile-visible="false"],
+    .strategic-map .strategic-map-profile[data-mobile-visible="false"] {
+      display: none !important;
+    }
+    .strategic-map .strategic-map-team-scroll,
+    .strategic-map .strategic-map-profile-scroll {
+      flex: none !important;
+      overflow: visible !important;
+      padding-right: 0 !important;
+    }
+    .strategic-map .strategic-map-table-head,
+    .strategic-map .strategic-map-team-evaluation {
+      display: none !important;
+    }
+    .strategic-map .strategic-map-team-row {
+      grid-template-columns: minmax(0, 1fr) !important;
+      scroll-margin-top: 64px;
+      padding: 12px !important;
+    }
+    .strategic-map .strategic-map-team-name,
+    .strategic-map .strategic-map-team-name > span {
+      white-space: normal !important;
+      overflow: visible !important;
+      overflow-wrap: anywhere !important;
+    }
+    .strategic-map .strategic-map-team-status {
+      display: flex !important;
+      align-items: center !important;
+    }
+    .strategic-map .strategic-map-team-judgement {
+      display: block !important;
+    }
+    .strategic-map-team-status > span:nth-child(2) {
+      margin-right: auto;
+    }
+    .strategic-map-mobile-hint {
+      display: inline-flex !important;
+      font-size: 12px;
+      color: #236ca8;
+    }
+    .strategic-map-profile {
+      overflow-wrap: anywhere;
+      scroll-margin-top: 64px;
+    }
+    .strategic-map-profile input,
+    .strategic-map-profile select,
+    .strategic-map-profile textarea {
+      font-size: 16px !important;
+    }
+  }
+
+  @container (min-width: 600px) and (max-width: 1100px) {
+    .strategic-map .strategic-map-team-scroll {
+      display: grid !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .strategic-map-team-scroll > [role="status"] {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 1023px) {
+    .strategic-map-editor {
+      max-height: calc(100dvh - 32px);
+      overflow-y: auto;
+    }
+    .strategic-map-editor button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .strategic-map-editor input,
+    .strategic-map-editor textarea {
+      font-size: 16px !important;
+    }
+    .strategic-team-detail {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .strategic-team-detail > header {
+      position: sticky !important;
+      top: 0;
+      z-index: 10;
+    }
+    .strategic-team-detail button {
+      min-height: 44px;
+    }
+  }
+}

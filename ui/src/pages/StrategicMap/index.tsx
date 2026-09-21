@@ -1,4 +1,5 @@
 import { attentionLabel, evaluationLabel, judgementLabel, savedRosterPriority } from "./presentation";
+import "./mobile.css";
 import {
   useCallback,
   useEffect,
@@ -354,6 +355,12 @@ export default function StrategicMap() {
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [leftNavCollapsed, setLeftNavCollapsed] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<"teams" | "profile">(
+    initialContext.mobilePanel ?? "teams",
+  );
+  const [mobileManageOpen, setMobileManageOpen] = useState(false);
+  const mobileListScrollRef = useRef(initialContext.mobileListScroll ?? 0);
+  const pendingPanelScrollRef = useRef<number | null>(null);
   const selectionRef = useRef<StrategicMapSelection>({
     domainId: initialContext.domainId || DOMAINS[0].id,
     subdomainId: initialContext.subdomainId,
@@ -363,6 +370,7 @@ export default function StrategicMap() {
   const refreshRequestIdRef = useRef(0);
   const refreshAbortRef = useRef<AbortController | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const leavingMapRef = useRef(false);
   const scrollStateRef = useRef<StrategicMapScrollState>({ ...initialContext.scroll });
   const pendingScrollRestoreRef = useRef<StrategicMapScrollState | null>(
     readStrategicMapNavigationContext(location.pathname, location.search)
@@ -438,10 +446,36 @@ export default function StrategicMap() {
     ...selectionRef.current,
     teamId,
     scroll: captureScrollState(),
-  }), [captureScrollState, initialContext.route]);
+    ...(mobilePanel === "profile" ? { mobilePanel: "profile" as const } : {}),
+    ...(mobileListScrollRef.current ? { mobileListScroll: mobileListScrollRef.current } : {}),
+  }), [captureScrollState, initialContext.route, mobilePanel]);
+
+  const switchMobilePanel = (panel: "teams" | "profile", reset = false) => {
+    if (scrollFrameRef.current != null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+    const page = pageScrollRef.current;
+    if (page && page.clientWidth <= 1100) {
+      if (mobilePanel === "teams") mobileListScrollRef.current = page.scrollTop;
+      if (reset) mobileListScrollRef.current = 0;
+      const offset = panel === "teams" ? mobileListScrollRef.current : 0;
+      if (panel === mobilePanel) page.scrollTop = offset;
+      else pendingPanelScrollRef.current = offset;
+    }
+    setMobilePanel(panel);
+  };
+
+  useLayoutEffect(() => {
+    if (!loading && pendingPanelScrollRef.current !== null && pageScrollRef.current) {
+      pageScrollRef.current.scrollTop = pendingPanelScrollRef.current;
+      pendingPanelScrollRef.current = null;
+      pendingScrollRestoreRef.current = null;
+    }
+  }, [loading, mobilePanel]);
 
   const replaceCurrentMapUrl = useCallback(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || leavingMapRef.current) return;
     const path = buildStrategicMapPath(currentNavigationContext());
     const currentPath = `${window.location.pathname}${window.location.search}`;
     if (path !== currentPath) {
@@ -474,6 +508,13 @@ export default function StrategicMap() {
 
   const openTeamDetail = useCallback((teamId: string) => {
     if (!teamId || teamId === EMPTY_TEAM.id) return;
+    // A touch scroll can queue a URL update immediately before this click.
+    // Never let that pending update replace the detail route we are opening.
+    leavingMapRef.current = true;
+    if (scrollFrameRef.current != null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
     const context = currentNavigationContext(teamId);
     const returnPath = buildStrategicMapPath(context);
     if (typeof window !== "undefined") {
@@ -550,6 +591,7 @@ export default function StrategicMap() {
   }, [applySelection]);
 
   const selectDomain = (domain: Domain) => {
+    switchMobilePanel("teams", true);
     applySelection({
       domainId: domain.id,
       subdomainId: "",
@@ -831,8 +873,8 @@ export default function StrategicMap() {
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-x-hidden overflow-y-hidden bg-[#f3f6f9] text-[var(--chat-text)]">
-      <header className="shrink-0 border-b border-[#1a6683] bg-[#105d79] px-4 py-3 text-white shadow-[0_2px_8px_rgba(14,77,105,0.16)] sm:px-5 sm:py-4 md:px-7">
+    <div className="strategic-map flex h-full min-h-0 w-full min-w-0 flex-col overflow-x-hidden overflow-y-hidden bg-[#f3f6f9] text-[var(--chat-text)]">
+      <header className="strategic-map-header shrink-0 border-b border-[#1a6683] bg-[#105d79] px-4 py-3 text-white shadow-[0_2px_8px_rgba(14,77,105,0.16)] sm:px-5 sm:py-4 md:px-7">
         <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-8 gap-y-2 sm:gap-x-16 sm:gap-y-3">
           <h1 className="shrink-0 text-[20px] font-semibold tracking-[0.02em] sm:text-[22px] md:text-[25px]">
             AI4S战略力量图谱
@@ -843,9 +885,55 @@ export default function StrategicMap() {
         </div>
       </header>
 
-      <div ref={pageScrollRef} onScroll={(event) => recordScroll("page", event)} className="mx-auto flex min-h-0 w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-4 md:p-5 lg:overflow-hidden lg:flex-row">
+      <div ref={pageScrollRef} onScroll={(event) => recordScroll("page", event)} className="strategic-map-page mx-auto flex min-h-0 w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-4 md:p-5 lg:overflow-hidden lg:flex-row">
+        <section className="strategic-map-mobile-navigation" aria-label="领域筛选">
+          <div className="flex items-center justify-between gap-2 text-sm font-semibold text-[#174f70]">
+            <span>领域筛选</span>
+            <button type="button" onClick={() => setMobileManageOpen((open) => !open)} aria-expanded={mobileManageOpen} aria-controls="mobile-domain-management" className="px-2 text-xs text-[#236ca8]">{mobileManageOpen ? "收起管理" : "管理领域"}</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="min-w-0 text-xs text-[#607486]">领域
+              <select aria-label="选择领域" value={activeDomain.id} onChange={(event) => {
+                const domain = domains.find((item) => item.id === event.target.value);
+                if (domain) selectDomain(domain);
+              }} className="mt-1 w-full min-w-0 rounded-lg border border-[#ccd9e4] bg-white px-2 text-base text-[#274158]">
+                {domains.map((domain) => <option key={domain.id} value={domain.id}>{domain.label}</option>)}
+              </select>
+            </label>
+            <label className="min-w-0 text-xs text-[#607486]">子领域
+              <select aria-label="选择子领域" value={activeSubdomainId} onChange={(event) => {
+                const subdomainId = event.target.value;
+                switchMobilePanel("teams", true);
+                applySelection({ domainId: activeDomain.id, subdomainId,
+                  teamId: rankCandidateTeams(activeDomain.teams.filter((team) => !subdomainId || team.subdomainId === subdomainId))[0]?.id ?? "" });
+              }} className="mt-1 w-full min-w-0 rounded-lg border border-[#ccd9e4] bg-white px-2 text-base text-[#274158]">
+                <option value="">全部子领域</option>
+                {activeDomain.subdomains.map((subdomain) => <option key={subdomain.id} value={subdomain.id}>{subdomain.name}</option>)}
+              </select>
+            </label>
+          </div>
+          {mobileManageOpen ? <div id="mobile-domain-management" className="mt-3 border-t border-[#e6edf4] pt-2 text-xs text-[#236ca8]">
+            <div className="flex flex-wrap gap-x-4">
+              <button type="button" onClick={() => startDomainEditor()}>新增领域</button>
+              <button type="button" onClick={() => startDomainEditor(activeDomain)} disabled={activeDomain.id === EMPTY_DOMAIN.id}>编辑当前领域</button>
+              <button type="button" onClick={() => void removeDomain(activeDomain)} disabled={activeDomain.id === EMPTY_DOMAIN.id} className="text-red-600">删除当前领域</button>
+            </div>
+            <div className="flex flex-wrap gap-x-4">
+              <button type="button" onClick={() => startSubdomainEditor()} disabled={activeDomain.id === EMPTY_DOMAIN.id}>新增子领域</button>
+              {activeDomain.subdomains.filter((item) => item.id === activeSubdomainId).map((subdomain) => <span key={subdomain.id} className="flex gap-4">
+                <button type="button" onClick={() => startSubdomainEditor(subdomain)}>编辑子领域</button>
+                <button type="button" onClick={() => void removeSubdomain(subdomain)} className="text-red-600">删除子领域</button>
+              </span>)}
+            </div>
+          </div> : null}
+        </section>
+        <nav className="strategic-map-mobile-tabs" aria-label="图谱视图切换">
+          <button type="button" aria-pressed={mobilePanel === "teams"} aria-controls="strategic-team-list" onClick={() => switchMobilePanel("teams")}>团队列表（{visibleTeams.length}）</button>
+          <button type="button" aria-pressed={mobilePanel === "profile"} aria-controls="strategic-team-profile" disabled={selectedTeam.id === EMPTY_TEAM.id} onClick={() => switchMobilePanel("profile")}>团队画像</button>
+        </nav>
         <aside
-          className={`flex min-h-0 w-full shrink-0 flex-col rounded-xl border border-[#d1dce7] bg-white shadow-[0_4px_14px_rgba(27,64,96,0.05)] transition-[width,height,padding] duration-200 lg:h-full ${
+          data-collapsed={leftNavCollapsed}
+          className={`strategic-map-domain-nav flex min-h-0 w-full shrink-0 flex-col rounded-xl border border-[#d1dce7] bg-white shadow-[0_4px_14px_rgba(27,64,96,0.05)] transition-[width,height,padding] duration-200 lg:h-full ${
             leftNavCollapsed
               ? "h-[58px] p-2 sm:h-[58px] lg:w-[58px]"
               : "h-[260px] p-3.5 sm:h-[290px] lg:w-[276px]"
@@ -930,7 +1018,7 @@ export default function StrategicMap() {
           </div>
         </aside>
 
-        <main className="flex min-h-[420px] min-w-0 flex-none flex-col rounded-xl border border-[#d1dce7] bg-white p-3.5 shadow-[0_4px_14px_rgba(27,64,96,0.05)] sm:p-4 md:p-5 lg:min-h-0 lg:flex-1">
+        <main id="strategic-team-list" data-mobile-visible={mobilePanel === "teams"} className="strategic-map-teams flex min-h-[420px] min-w-0 flex-none flex-col rounded-xl border border-[#d1dce7] bg-white p-3.5 shadow-[0_4px_14px_rgba(27,64,96,0.05)] sm:p-4 md:p-5 lg:min-h-0 lg:flex-1">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e6edf4] pb-4">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -949,8 +1037,8 @@ export default function StrategicMap() {
             </button>
           </div>
 
-          <div ref={teamScrollRef} onScroll={(event) => recordScroll("teams", event)} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 pt-4">
-            <div className="hidden grid-cols-[1fr_112px_178px] items-center gap-3 border-b border-[#dfe8ef] px-3 py-2 text-[11px] font-semibold tracking-[0.06em] text-[#75899a] sm:grid">
+          <div ref={teamScrollRef} onScroll={(event) => recordScroll("teams", event)} className="strategic-map-team-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1 pt-4">
+            <div className="strategic-map-table-head hidden grid-cols-[1fr_112px_178px] items-center gap-3 border-b border-[#dfe8ef] px-3 py-2 text-[11px] font-semibold tracking-[0.06em] text-[#75899a] sm:grid">
               <span>团队</span>
               <span>AI / 科学</span>
               <span>关注与联系</span>
@@ -976,14 +1064,15 @@ export default function StrategicMap() {
                 <button
                   key={team.id}
                   type="button"
-                  onClick={() => applySelection({
+                  onClick={() => { applySelection({
                     domainId: activeDomain.id,
                     subdomainId: activeSubdomainId,
                     teamId: team.id,
-                  })}
+                  }); switchMobilePanel("profile"); }}
                   aria-pressed={selected}
                   aria-label={`${rank} ${teamOrganization(team)} · ${teamDisplayName(team)}`}
-                  className={`relative grid min-h-[68px] w-full gap-3 rounded-xl border px-3.5 py-2.5 text-left transition sm:grid-cols-[1fr_112px_178px] sm:items-center sm:px-4 ${
+                  data-team-id={team.id}
+                  className={`strategic-map-team-row relative grid min-h-[68px] w-full gap-3 rounded-xl border px-3.5 py-2.5 text-left transition sm:grid-cols-[1fr_112px_178px] sm:items-center sm:px-4 ${
                     selected
                       ? "border-[#7daed1] bg-[#f2f8fd] shadow-[0_4px_12px_rgba(39,104,152,0.08)]"
                       : "border-[#e0e7ef] bg-white hover:border-[#a8c7de] hover:bg-[#f8fbfd]"
@@ -994,24 +1083,25 @@ export default function StrategicMap() {
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#edf5fb] font-mono text-[12px] font-bold tracking-[0.04em] text-[#236ca8]" aria-hidden="true">
                       {rank}
                     </span>
-                    <span className="min-w-0" aria-label={`${teamOrganization(team)} · ${teamDisplayName(team)}`}>
+                    <span className="strategic-map-team-name min-w-0" aria-label={`${teamOrganization(team)} · ${teamDisplayName(team)}`}>
                       <span className="block break-words text-[15px] font-semibold text-[#274158] sm:truncate">
                         {teamOrganization(team)}
                       </span>
                       <span className="mt-1 block break-words text-[12px] font-medium text-[#6a8194] sm:truncate">
                         团队：{teamDisplayName(team)}
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-[var(--chat-text-muted)] sm:hidden">
+                      <span className="strategic-map-team-judgement mt-0.5 block truncate text-[11px] text-[var(--chat-text-muted)] sm:hidden">
                         {judgementLabel(team.dualJudgement)}
                       </span>
                     </span>
                   </span>
-                  <span className="hidden text-[14px] font-semibold text-[#2e668e] sm:block">
+                  <span className="strategic-map-team-evaluation hidden text-[14px] font-semibold text-[#2e668e] sm:block">
                     {`${evaluationLabel(team.aiLevel)} / ${evaluationLabel(team.scienceLevel)}`}
                   </span>
-                  <span className="flex items-center justify-between gap-2 sm:block">
+                  <span className="strategic-map-team-status flex items-center justify-between gap-2 sm:block">
                     <AttentionBadge level={team.attention} />
                     <span className={`ml-2 text-[11px] ${contactStyles[team.contact] ?? contactStyles.未接触}`}>{team.contact}</span>
+                    <span className="strategic-map-mobile-hint items-center gap-1">查看画像<ArrowRight className="size-3.5" /></span>
                   </span>
                 </button>
               );
@@ -1030,7 +1120,7 @@ export default function StrategicMap() {
           </div>
         </main>
 
-        <aside className="flex min-h-[380px] w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-[#d1dce7] bg-white p-3.5 shadow-[0_4px_14px_rgba(27,64,96,0.05)] sm:p-4 md:p-5 lg:min-h-0 lg:w-[430px]">
+        <aside id="strategic-team-profile" data-mobile-visible={mobilePanel === "profile"} className="strategic-map-profile flex min-h-[380px] w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border border-[#d1dce7] bg-white p-3.5 shadow-[0_4px_14px_rgba(27,64,96,0.05)] sm:p-4 md:p-5 lg:min-h-0 lg:w-[430px]">
           <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#e6edf4] pb-4">
             <div>
               <h2 className="text-[21px] font-semibold text-[#174f70]">团队画像与下一步</h2>
@@ -1084,7 +1174,7 @@ export default function StrategicMap() {
             )}
           </div>
 
-          <div ref={profileScrollRef} onScroll={(event) => recordScroll("profile", event)} className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div ref={profileScrollRef} onScroll={(event) => recordScroll("profile", event)} className="strategic-map-profile-scroll min-h-0 flex-1 overflow-y-auto pr-1">
           <div className="shrink-0 border-b border-[#e6edf4] py-3">
             {teamEditing ? (
               <div className="grid grid-cols-2 gap-3">
@@ -1227,7 +1317,7 @@ export default function StrategicMap() {
       {error ? <div className="absolute bottom-4 left-1/2 z-20 max-w-[min(640px,calc(100%-2rem))] -translate-x-1/2 rounded-lg border border-[#f1c6c6] bg-[#fff5f5] px-4 py-2.5 text-[12px] text-[#b44747] shadow-lg">{error}</div> : null}
       {editor ? (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#12324a]/25 p-4 backdrop-blur-[2px]">
-          <form onSubmit={saveEditor} className="w-full max-w-[440px] rounded-2xl border border-[#d1dce7] bg-white p-5 shadow-[0_18px_60px_rgba(23,63,94,0.2)]">
+          <form onSubmit={saveEditor} className="strategic-map-editor w-full max-w-[440px] rounded-2xl border border-[#d1dce7] bg-white p-5 shadow-[0_18px_60px_rgba(23,63,94,0.2)]">
             <div className="flex items-center justify-between">
               <h2 className="text-[18px] font-semibold text-[#174f70]">{editor.id ? "编辑" : "新增"}{editor.kind === "domain" ? "领域" : "子领域"}</h2>
               <button type="button" onClick={() => setEditor(null)} className="rounded-lg p-1.5 text-[#6d7d8b] hover:bg-[#f1f5f8]" aria-label="关闭"><X className="size-4" /></button>

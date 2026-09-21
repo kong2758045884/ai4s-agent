@@ -5,6 +5,7 @@ import {
   buildStrategicTeamDetailNavigationPath,
   readStrategicMapNavigationContext,
   readStrategicTeamDetailSource,
+  removeStrategicMapParams,
   type StrategicMapNavigationContext,
 } from "./strategicMapNavigation";
 
@@ -23,6 +24,26 @@ const context: StrategicMapNavigationContext = {
 };
 
 describe("strategic map navigation context", () => {
+  it("restores the mobile profile and list position after team detail navigation", () => {
+    const mobileContext: StrategicMapNavigationContext = {
+      ...context, mobilePanel: "profile", mobileListScroll: 1362,
+    };
+    const detail = new URL(buildStrategicTeamDetailNavigationPath(context.teamId, mobileContext), "http://localhost");
+    const returned = readStrategicTeamDetailSource(detail.search, context.teamId);
+    expect(returned).toEqual(mobileContext);
+    const map = new URL(buildStrategicMapPath(returned), "http://localhost");
+    expect(readStrategicMapNavigationContext(map.pathname, map.search)).toEqual(mobileContext);
+    expect(removeStrategicMapParams(`${map.search}&unrelated=keep`)).toBe("?unrelated=keep");
+  });
+
+  it("ignores unknown mobile panels and invalid scroll positions", () => {
+    const restored = readStrategicMapNavigationContext("/workspace/strategic-map", "?smPanel=bad&smListScroll=-20");
+    expect(restored).not.toHaveProperty("mobilePanel");
+    expect(restored).not.toHaveProperty("mobileListScroll");
+    const bounded = readStrategicMapNavigationContext("/workspace/strategic-map", "?smPanel=profile&smListScroll=999999999");
+    expect(bounded?.mobileListScroll).toBe(10_000_000);
+  });
+
   it("round-trips all-subdomain selection and independent scroll containers", () => {
     const detailPath = buildStrategicTeamDetailNavigationPath(context.teamId, context);
     const detailUrl = new URL(detailPath, "http://localhost");

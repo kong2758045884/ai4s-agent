@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import "../StrategicMap/mobile.css";
 import { ArrowLeft, ExternalLink, MapPin, UsersRound } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -132,7 +133,7 @@ export default function StrategicTeamDetail() {
   const returnPath = useMemo(() => buildStrategicMapPath(returnContext), [returnContext]);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-[#f3f6f9] text-[var(--chat-text)]">
+    <div className="strategic-team-detail flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-[#f3f6f9] text-[var(--chat-text)]">
       <header className="shrink-0 border-b border-[#1a6683] bg-[#105d79] px-4 py-3 text-white sm:px-6 sm:py-4">
         <div className="mx-auto flex w-full max-w-[1180px] min-w-0 items-center gap-3">
           <button type="button" onClick={() => navigate(returnPath)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-2 text-[13px] font-medium text-white/90 hover:bg-white/10" aria-label="返回战略图谱">

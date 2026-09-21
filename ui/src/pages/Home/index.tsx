@@ -1036,7 +1036,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
               <button
                 type="button"
                 onClick={() => setMobileSidebarOpen(true)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]"
                 aria-label="打开侧边栏"
               >
                 <Menu className="h-5 w-5" />
@@ -1052,7 +1052,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
                   setWorkspaceImmersive(false);
                   createNewChat();
                 }}
-                className="rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]"
+                className="min-h-11 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--chat-text-soft)] transition-colors hover:bg-black/5 hover:text-[var(--chat-text)]"
               >
                 新建
               </button>

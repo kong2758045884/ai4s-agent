@@ -39,21 +39,20 @@ export default function WelcomeView(props: {
   const { reduce } = useMotionConfig();
 
   return (
-    <div className="h-full w-full overflow-hidden px-6 md:px-12 lg:px-16">
+    <div data-testid="welcome-scroll" className="welcome-scroll h-full min-h-0 w-full overflow-x-hidden overflow-y-auto px-4 sm:px-6 md:px-12 lg:px-16">
       <div
         className={classNames(
           "mx-auto flex min-h-full w-full max-w-[1280px] flex-col items-center py-4 lg:py-5",
-          hasFeaturedCards ? "justify-start" : "justify-center"
+          hasFeaturedCards ? "justify-start" : "justify-start md:justify-center"
         )}
       >
         <div
           className={classNames(
             "flex w-full flex-col items-center",
-            // 欢迎态内容保持紧凑，避免首页在常规窗口高度下出现纵向滚动。
-            hasFeaturedCards ? "pt-5 md:pt-6 lg:pt-8" : "pt-6 md:pt-8 lg:pt-10"
+            hasFeaturedCards ? "pt-2 md:pt-6 lg:pt-8" : "pt-3 md:pt-8 lg:pt-10"
           )}
         >
-          <div className="mb-5 text-center lg:mb-6">
+          <div className="order-1 mb-5 text-center lg:mb-6">
             <div className="orb-intro mx-auto mb-4 flex justify-center">
               <AnimatedOrb size={88} />
             </div>
@@ -71,7 +70,9 @@ export default function WelcomeView(props: {
             </h1>
           </div>
 
-          <Ai4sDailyToday onResearchHotspot={props.onResearchHotspot} />
+          <div className="order-3 w-full max-w-[920px] md:order-2">
+            <Ai4sDailyToday onResearchHotspot={props.onResearchHotspot} />
+          </div>
 
           <motion.div
             initial={
@@ -93,7 +94,7 @@ export default function WelcomeView(props: {
               delay: reduce ? 0 : 0.08,
               ease: EASE_OUT,
             }}
-            className="mb-5 w-full max-w-[920px] lg:mb-6"
+            className="order-2 mb-5 w-full max-w-[920px] md:order-3 lg:mb-6"
           >
             <div className="w-full">
               <GeneralInput
@@ -129,7 +130,7 @@ export default function WelcomeView(props: {
             }}
             className="mx-auto mt-4 w-full max-w-[1180px] pb-20"
           >
-            <div className="mb-5 flex items-end justify-between gap-4">
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="text-[22px] font-semibold tracking-tight text-[var(--chat-text)]">
                   精品对话
@@ -141,7 +142,7 @@ export default function WelcomeView(props: {
               <button
                 type="button"
                 onClick={() => props.onOpenFeaturedConversations?.()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3.5 text-[13px] font-medium text-[var(--chat-text-soft)] transition hover:text-[var(--chat-text)]"
+                className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-surface)] px-3.5 text-[13px] font-medium text-[var(--chat-text-soft)] transition hover:text-[var(--chat-text)] md:min-h-9"
               >
                 <span>查看全部</span>
                 <i className="font_family icon-xinjianjiantou text-[10px]" />

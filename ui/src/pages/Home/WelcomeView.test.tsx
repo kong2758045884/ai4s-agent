@@ -57,5 +57,8 @@ describe("WelcomeView featured cards", () => {
     expect(html).toContain("精品对话");
     expect(html).toContain("查看全部");
     expect(html).toContain("精品案例");
+    // Home owns a fixed-height workspace; its welcome content must scroll itself.
+    expect(html).toMatch(/data-testid="welcome-scroll"[^>]*overflow-y-auto/);
+    expect(html).toMatch(/data-testid="welcome-scroll"[^>]*min-h-0/);
   });
 });
