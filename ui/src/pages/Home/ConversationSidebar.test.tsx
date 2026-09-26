@@ -21,6 +21,8 @@ describe("ConversationSidebar", () => {
     );
 
     expect(html).toContain("精品对话");
+    expect(html).toContain('href="/workspace/strategic-map"');
+    expect(html).not.toContain('view=strategic-map');
     expect(html).not.toContain("子 Agent");
     expect(html).not.toContain("模型");
     expect(html).not.toContain("MRAG");

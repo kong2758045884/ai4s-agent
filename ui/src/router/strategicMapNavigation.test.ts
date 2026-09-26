@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildStrategicMapPath,
+  canonicalHomePath,
+  canonicalStrategicMapPath,
   buildStrategicTeamDetailNavigationPath,
   readStrategicMapNavigationContext,
   readStrategicTeamDetailSource,
@@ -32,7 +34,7 @@ describe("strategic map navigation context", () => {
     const returned = readStrategicTeamDetailSource(detail.search, context.teamId);
     expect(returned).toEqual(mobileContext);
     const map = new URL(buildStrategicMapPath(returned), "http://localhost");
-    expect(readStrategicMapNavigationContext(map.pathname, map.search)).toEqual(mobileContext);
+    expect(readStrategicMapNavigationContext(map.pathname, map.search)).toEqual({...mobileContext, route: "workspace"});
     expect(removeStrategicMapParams(`${map.search}&unrelated=keep`)).toBe("?unrelated=keep");
   });
 
@@ -51,7 +53,7 @@ describe("strategic map navigation context", () => {
 
     expect(restored).toEqual(context);
     expect(buildStrategicMapPath(restored)).toBe(
-      "/?view=strategic-map&smDomain=life-science&smSubdomain=all&smTeam=team-02&smPageScroll=17&smDomainScroll=31&smSubdomainScroll=7&smTeamScroll=420&smProfileScroll=88",
+      "/workspace/strategic-map?smDomain=life-science&smSubdomain=all&smTeam=team-02&smPageScroll=17&smDomainScroll=31&smSubdomainScroll=7&smTeamScroll=420&smProfileScroll=88",
     );
   });
 
@@ -78,7 +80,19 @@ describe("strategic map navigation context", () => {
 
     expect(restored.route).toBe("home");
     expect(restored.teamId).toBe("team-safe");
-    expect(buildStrategicMapPath(restored)).toMatch(/^\/?\?view=strategic-map/);
+    expect(buildStrategicMapPath(restored)).toMatch(/^\/workspace\/strategic-map\?/);
     expect(buildStrategicMapPath(restored)).not.toContain("evil.example");
+  });
+
+  it("redirects legacy map links with mode, selection and scroll to the canonical workspace", () => {
+    const search = '?view=strategic-map&smMode=graph&smDomain=quantum&smSubdomain=all&smTeam=team-q&smTeamScroll=120';
+    const canonical = '/workspace/strategic-map?smMode=graph&smDomain=quantum&smSubdomain=all&smTeam=team-q&smTeamScroll=120';
+    expect(canonicalStrategicMapPath(search)).toBe(canonical);
+    expect(canonicalHomePath(search)).toBe(canonical);
+  });
+
+  it("preserves other home views and conversation links when moving the root entry", () => {
+    expect(canonicalHomePath('')).toBe('/app');
+    expect(canonicalHomePath('?view=image-generation&sessionId=existing&appBuild=old')).toBe('/app?view=image-generation&sessionId=existing');
   });
 });

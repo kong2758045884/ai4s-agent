@@ -1,8 +1,9 @@
 import React, { Suspense } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import Layout from '@/layout/index';
 import { Loading } from '@/components';
 import { ROUTES } from './routes';
+import { canonicalHomePath, canonicalStrategicMapPath, isStrategicMapHomeSearch } from './strategicMapNavigation';
 
 // 使用 React.lazy 懒加载组件
 const Home = React.lazy(() => import('@/pages/Home'));
@@ -13,7 +14,6 @@ const FeaturedConversationDetail = React.lazy(
   () => import('@/pages/FeaturedConversationDetail')
 );
 const WorkspaceMRag = React.lazy(() => import('@/pages/WorkspaceMRag'));
-const StrategicMap = React.lazy(() => import('@/pages/StrategicMap'));
 const StrategicTeamDetail = React.lazy(() => import('@/pages/StrategicTeamDetail'));
 const WorkspaceImageGeneration = React.lazy(() => import('@/pages/WorkspaceImageGeneration'));
 const WorkspaceSop = React.lazy(() => import('@/pages/WorkspaceSop'));
@@ -21,6 +21,13 @@ const SubAgentAdmin = React.lazy(() => import('@/pages/SubAgentAdmin'));
 const ModelAdmin = React.lazy(() => import('@/pages/ModelAdmin'));
 const CapabilityLibrary = React.lazy(() => import('@/pages/CapabilityLibrary'));
 const NotFound = React.lazy(() => import('@/components/NotFound'));
+
+function HomeEntry({ root = false }: { root?: boolean }) {
+  const { search } = useLocation();
+  if (root) return <Navigate to={canonicalHomePath(search)} replace />;
+  if (isStrategicMapHomeSearch(search)) return <Navigate to={canonicalStrategicMapPath(search)} replace />;
+  return <Home />;
+}
 
 // 创建路由配置
 const router = createBrowserRouter([
@@ -32,9 +39,13 @@ const router = createBrowserRouter([
         index: true,
         element: (
           <Suspense fallback={<Loading loading={true} className="h-full"/>}>
-            <Home />
+            <HomeEntry root />
           </Suspense>
         ),
+      },
+      {
+        path: ROUTES.APP_HOME,
+        element: <Suspense fallback={<Loading loading={true} className="h-full"/>}><HomeEntry /></Suspense>,
       },
       {
         path: ROUTES.FEATURED_CONVERSATIONS,
@@ -60,7 +71,7 @@ const router = createBrowserRouter([
         path: ROUTES.WORKSPACE_STRATEGIC_MAP,
         element: (
           <Suspense fallback={<Loading loading={true} className="h-full"/>}>
-            <StrategicMap />
+            <Home />
           </Suspense>
         ),
       },

@@ -120,6 +120,16 @@ def rollback(release):
     link=ROOT/'ui/dist';previous=ROOT/'ui'/('dist.before-'+release.name)
     if link.is_symlink() and link.resolve().is_relative_to(release/'ui'):link.unlink()
     if previous.exists() and not link.exists():previous.rename(link)
+    # Root redirects and retired entry rules belong to the current frontend.
+    # Remove them before returning to a pre-canonical application build.
+    import re
+    nginx=Path('/etc/ai4s/nginx-locations.conf')
+    body=nginx.read_text()
+    legacy=re.sub(r'# BEGIN AI4S canonical entries.*?# END AI4S canonical entries\n?', '', body, flags=re.S)
+    if legacy!=body:
+        nginx.write_text(legacy)
+        run('/www/server/nginx/sbin/nginx','-t')
+        run('/www/server/nginx/sbin/nginx','-s','reload')
     run('systemctl','disable','ai4s-hyper-scan')
     run('systemctl','daemon-reload');run('systemctl','start',*SERVICES)
     print('Rolled back code and frontend; original databases retained. New database also retained.',flush=True)

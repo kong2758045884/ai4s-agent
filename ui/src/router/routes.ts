@@ -1,5 +1,6 @@
 export const ROUTES = {
   HOME: "/",
+  APP_HOME: "/app",
   FEATURED_CONVERSATIONS: "/featured-conversations",
   FEATURED_CONVERSATION_DETAIL: "/featured-conversations/:featuredId",
   WORKSPACE: "/workspace",

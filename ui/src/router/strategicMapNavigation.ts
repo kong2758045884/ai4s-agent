@@ -124,6 +124,18 @@ export function isStrategicMapHomeSearch(search: string): boolean {
   return new URLSearchParams(search).get(PARAMS.view) === "strategic-map";
 }
 
+/** Legacy query links are accepted only as inputs; all exits use one route. */
+export function canonicalStrategicMapPath(search: string): string {
+  return buildStrategicMapPath(readSelectionParams(new URLSearchParams(search), "workspace"));
+}
+
+export function canonicalHomePath(search: string): string {
+  if (isStrategicMapHomeSearch(search)) return canonicalStrategicMapPath(search);
+  const params = new URLSearchParams(search);
+  params.delete('appBuild');
+  return `${ROUTES.APP_HOME}${params.size ? `?${params}` : ''}`;
+}
+
 export function readStrategicMapNavigationContext(
   pathname: string,
   search: string,
@@ -137,11 +149,8 @@ export function buildStrategicMapPath(
   context: StrategicMapNavigationContext,
 ): string {
   const params = new URLSearchParams();
-  if (context.route === "home") params.set(PARAMS.view, "strategic-map");
   appendSelectionParams(params, context);
-  const pathname = context.route === "workspace"
-    ? ROUTES.WORKSPACE_STRATEGIC_MAP
-    : ROUTES.HOME;
+  const pathname = ROUTES.WORKSPACE_STRATEGIC_MAP;
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
 }

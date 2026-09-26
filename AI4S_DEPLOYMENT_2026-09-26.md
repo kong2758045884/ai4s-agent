@@ -57,3 +57,17 @@ python3 /www/wwwroot/lab/releases/ai4s-20260926T054442/scripts/activate_server_r
 - 新前端位于 `releases/ai4s-20260926T054442/ui/navigation-20260926/dist`，原子切换 symlink；没有重新迁移数据库、重启后端或运行付费扫描。
 - 版本检查、侧栏和导航单测 11 项通过，TypeScript / Vite 生产构建通过。新增 `ui/scripts/verify-home-strategic-entry.mjs`，覆盖首页点击侧栏、四个融合视图、真实图谱、用户旧链接、普通刷新及 HTML 缓存头。访客身份和空对话列表使用浏览器拦截数据；图谱及团队接口访问生产真实数据。
 - Nginx 配置备份：`/etc/ai4s/nginx-locations.before-navigation-20260926.conf`。完整代码回滚仍使用前述 rollback 命令，已兼容追加的前端目录。
+
+## 二次修复：统一点击目标与淘汰旧入口
+
+用户再次反馈裸首页仍显示旧页面后，补充了实际路由迁移和旧资源恢复，不再仅依赖前一补丁的版本探测。
+
+- 裸地址 `/` 由 Nginx 302 到 `/app`，避开原首页文档的缓存键；其他首页视图及查询参数保留。
+- 侧栏“战略图谱”使用真实链接 `href="/workspace/strategic-map"`，进入时完整加载新版文档。该地址现在也保留 Home 左侧导航；未命名访客仍可公开阅读图谱，对话入口继续保留原访客流程。
+- `/?view=strategic-map` 与 `/app?view=strategic-map` 都由服务器重定向到统一地址。客户端兼容相同旧链接，领域、子领域、团队、视图及滚动参数保留；团队详情返回也统一生成 workspace 地址。
+- 旧入口 `index-CQIreGcQ.js`、`index-BchBvR2G.js`、`index-Crz1zn8V.js` 的服务器响应改为短恢复脚本，不再返回旧应用代码。旧静态文件保留在备份中，其他会话懒加载资源仍可访问。
+- 当前前端：`/www/wwwroot/lab/releases/ai4s-20260926T054442/ui/canonical-20260926/dist`，入口 `index-1Pivih99.js`。Nginx 备份：`/etc/ai4s/nginx-locations.before-canonical-20260926T094417.conf`。
+- 13 项导航、侧栏和战略图谱单测通过，TypeScript / Vite 构建通过。公网 Edge 1440 像素通过裸首页、真实侧栏链接、统一路由、四个视图、真实图谱、旧链接和普通刷新验收；390 像素浏览器额外模拟旧 HTML，验证旧入口脚本自动恢复到新版。浏览器只拦截访客及对话测试数据，图谱数据来自真实生产接口。
+- Edge 验收使用独立 Guest 配置并关闭其可选自动 HTTPS 升级，以测试用户指定的 HTTP 入口；未修改用户日常浏览器配置。最初普通及 InPrivate 测试受到浏览器加载/HTTPS 升级阻断，排查后按上述 HTTP 配置完成验收。
+- 首页依赖的 18 个入口/依赖文件经公网读取，全部 HTTP 200，内容哈希与本地构建一致。数据库、付费扫描和后端服务没有改动。
+- `scripts/deploy_canonical_frontend.py` 保留配置备份并原子切换前端；完整回滚脚本同步移除 canonical 重定向及旧脚本恢复规则，避免回退旧代码时产生循环跳转。

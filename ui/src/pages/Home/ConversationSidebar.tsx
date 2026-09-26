@@ -21,6 +21,7 @@ import type { PanelItemType } from "@/components/ActionPanel";
 import TaskFileSidebar, { type WorkspaceFileItem } from "@/components/ActionView/TaskFileSidebar";
 
 import ConversationSessionActionMenu from "./ConversationSessionActionMenu";
+import { ROUTES } from "@/router/routes";
 import { canFeatureConversationSession } from "./featuredConversationAdminModel";
 
 type SidebarView =
@@ -360,11 +361,14 @@ const ConversationSidebar = memo(function ConversationSidebar(
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeView === item.key;
+              const NavigationElement = item.key === "strategic-map" ? "a" : "button";
               return (
-                <button
+                <NavigationElement
                   key={item.key}
-                  type="button"
-                  onClick={() => onChangeView(item.key)}
+                  type={item.key === "strategic-map" ? undefined : "button"}
+                  href={item.key === "strategic-map" ? ROUTES.WORKSPACE_STRATEGIC_MAP : undefined}
+                  aria-current={item.key === "strategic-map" && isActive ? "page" : undefined}
+                  onClick={item.key === "strategic-map" ? onRequestClose : () => onChangeView(item.key)}
                   title={isCollapsed ? item.label : undefined}
                   className={classNames(
                     "flex h-9 w-full items-center rounded-[10px] text-[14px] font-medium transition-colors",
@@ -378,7 +382,7 @@ const ConversationSidebar = memo(function ConversationSidebar(
                   <span className={isCollapsed ? "sr-only" : undefined}>
                     {item.label}
                   </span>
-                </button>
+                </NavigationElement>
               );
             })}
           </div>

@@ -77,7 +77,7 @@ import {
 import ConversationSidebar from "./ConversationSidebar";
 import type { PanelItemType } from "@/components/ActionPanel";
 import { removeStrategicMapParams } from "@/router/strategicMapNavigation";
-import { refreshOutdatedApp } from "@/utils/currentBuild";
+import { ROUTES } from "@/router/routes";
 import {
   workspaceFileKey,
   type WorkspaceFileItem,
@@ -115,16 +115,18 @@ const SIDEBAR_VIEWS = new Set<SidebarView>([
   "featured",
 ]);
 
-function homeViewFromSearch(search: string): SidebarView {
+function homeViewFromSearch(search: string, pathname: string): SidebarView {
+  if (pathname === ROUTES.WORKSPACE_STRATEGIC_MAP) return "strategic-map";
   const view = new URLSearchParams(search).get("view") as SidebarView | null;
   return view && SIDEBAR_VIEWS.has(view) ? view : "chat";
 }
 
 function buildHomeViewPath(search: string, view: SidebarView): string {
+  if (view === "strategic-map") return ROUTES.WORKSPACE_STRATEGIC_MAP;
   const params = new URLSearchParams(removeStrategicMapParams(search));
   if (view !== "chat") params.set("view", view);
   const query = params.toString();
-  return query ? `/?${query}` : "/";
+  return query ? `${ROUTES.APP_HOME}?${query}` : ROUTES.APP_HOME;
 }
 
 type InitialState = {
@@ -219,7 +221,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   >([]);
   const localRecentConversationsRef = useRef<CHAT.ConversationHistory[]>([]);
   const localRecentSummaryRef = useRef<Map<string, string>>(new Map());
-  const [activeView, setActiveView] = useState<SidebarView>(() => homeViewFromSearch(location.search));
+  const [activeView, setActiveView] = useState<SidebarView>(() => homeViewFromSearch(location.search, location.pathname));
   const [sidebarPanel, setSidebarPanel] = useState<"sessions" | "task-files">(
     "sessions"
   );
@@ -281,8 +283,8 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
-    setActiveView(homeViewFromSearch(location.search));
-  }, [location.search]);
+    setActiveView(homeViewFromSearch(location.search, location.pathname));
+  }, [location.search, location.pathname]);
 
   const closeMobileSidebar = useCallback(() => {
     setMobileSidebarOpen(false);
@@ -896,8 +898,11 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   );
 
   const handleSidebarChangeView = useCallback(
-    async (view: SidebarView) => {
-      if (view === "strategic-map" && await refreshOutdatedApp(buildHomeViewPath(location.search, view))) return;
+    (view: SidebarView) => {
+      if (view === "strategic-map") {
+        window.location.assign(ROUTES.WORKSPACE_STRATEGIC_MAP);
+        return;
+      }
       if (view === "featured") {
         setFeaturedEntryId("");
       }
@@ -906,7 +911,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       closeMobileSidebar();
       activateView(view);
     },
-    [activateView, closeMobileSidebar, location.search]
+    [activateView, closeMobileSidebar]
   );
 
   const handleSidebarOpenTaskFiles = useCallback(() => {
@@ -978,15 +983,17 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
     ]
   );
 
-  if (visitorWorkspaceStage === "bootstrapping") {
+  // Strategic evidence remains publicly readable; naming still gates conversations.
+  const publicStrategicMap = location.pathname === ROUTES.WORKSPACE_STRATEGIC_MAP;
+  if (!publicStrategicMap && visitorWorkspaceStage === "bootstrapping") {
     return <VisitorBootstrapScreen />;
   }
 
-  if (visitorWorkspaceStage === "ready" && conversationBootstrapLoading) {
+  if (!publicStrategicMap && visitorWorkspaceStage === "ready" && conversationBootstrapLoading) {
     return <VisitorBootstrapScreen />;
   }
 
-  if (visitorWorkspaceStage === "naming") {
+  if (!publicStrategicMap && visitorWorkspaceStage === "naming") {
     return (
       <VisitorLoginGate
         loading={visitorNamingLoading}
