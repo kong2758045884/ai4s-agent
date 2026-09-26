@@ -77,6 +77,7 @@ import {
 import ConversationSidebar from "./ConversationSidebar";
 import type { PanelItemType } from "@/components/ActionPanel";
 import { removeStrategicMapParams } from "@/router/strategicMapNavigation";
+import { refreshOutdatedApp } from "@/utils/currentBuild";
 import {
   workspaceFileKey,
   type WorkspaceFileItem,
@@ -895,7 +896,8 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   );
 
   const handleSidebarChangeView = useCallback(
-    (view: SidebarView) => {
+    async (view: SidebarView) => {
+      if (view === "strategic-map" && await refreshOutdatedApp(buildHomeViewPath(location.search, view))) return;
       if (view === "featured") {
         setFeaturedEntryId("");
       }
@@ -904,7 +906,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       closeMobileSidebar();
       activateView(view);
     },
-    [activateView, closeMobileSidebar]
+    [activateView, closeMobileSidebar, location.search]
   );
 
   const handleSidebarOpenTaskFiles = useCallback(() => {

@@ -47,3 +47,13 @@ python3 /www/wwwroot/lab/releases/ai4s-20260926T054442/scripts/activate_server_r
 - 服务器剩余磁盘约 2.1 GB；保留了本次必要的备份和回滚版本。
 - 原有 ES 列值索引服务不可用时后端降级；战略图谱页面已通过公网验收。
 - Git 提交仅包含源码、测试、脚本与报告；数据库、生产凭证、浏览器缓存、依赖缓存和本地部署包留在本地或服务器。
+
+## 追加修复：首页侧栏仍显示旧版（2026-09-26）
+
+- 代码核对：`/?view=strategic-map` 的 Home 内嵌入口与 `/workspace/strategic-map` 都引用 `pages/StrategicMap`，没有分别指向新旧实现。
+- 现场核对：两个 URL 返回相同的新版 HTML 入口，但部署前 HTML 未设置 Cache-Control；旧标签页可继续运行旧脚本。用户截图的旧界面与此一致。
+- 修复：Nginx 的 `/index.html` 和 SPA 入口返回 `no-cache, no-store, must-revalidate`。哈希 JS/CSS 保持长期缓存。
+- 修复：点击侧栏“战略图谱”时检查最新 HTML 入口；发现版本不同则完整导航到新版，携带原目标视图。网络检查失败时仍允许打开当前工作区。
+- 新前端位于 `releases/ai4s-20260926T054442/ui/navigation-20260926/dist`，原子切换 symlink；没有重新迁移数据库、重启后端或运行付费扫描。
+- 版本检查、侧栏和导航单测 11 项通过，TypeScript / Vite 生产构建通过。新增 `ui/scripts/verify-home-strategic-entry.mjs`，覆盖首页点击侧栏、四个融合视图、真实图谱、用户旧链接、普通刷新及 HTML 缓存头。访客身份和空对话列表使用浏览器拦截数据；图谱及团队接口访问生产真实数据。
+- Nginx 配置备份：`/etc/ai4s/nginx-locations.before-navigation-20260926.conf`。完整代码回滚仍使用前述 rollback 命令，已兼容追加的前端目录。

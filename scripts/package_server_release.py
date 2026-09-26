@@ -26,7 +26,7 @@ def package(project, release):
     for name in ['server.py', 'pyproject.toml', 'uv.lock']:
         shutil.copy2(root/'ai4s-tool'/name, stage/'tool'/name)
     (stage/'scripts').mkdir()
-    for name in ['merge_release_database.py', 'server_release_backup.py', 'activate_server_release.py']:
+    for name in ['merge_release_database.py', 'server_release_backup.py', 'activate_server_release.py', 'ensure_spa_cache.py']:
         shutil.copy2(root/'scripts'/name, stage/'scripts'/name)
     shutil.copy2(root/'ai4s-tool/scripts/serve_hyper_scan.py', stage/'scripts/serve_hyper_scan.py')
     copy_tree(root/'runtime/hyper-fusion-20260926/graphs', stage/'graphs')

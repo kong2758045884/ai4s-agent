@@ -53,6 +53,8 @@ def mysql(sql):
 
 
 def prepare(release):
+    from ensure_spa_cache import ensure_spa_cache
+    ensure_spa_cache()
     assert (release/'app.jar').exists()
     assert (ROOT/'release-backups'/release.name/'mysql.sql.gz').exists()
     env=env_file(ROOT/'reactor-tool/.env')
@@ -116,7 +118,7 @@ def rollback(release):
         drop=Path('/etc/systemd/system')/(service+'.service.d')/'90-ai4s-release.conf'
         if drop.exists():drop.rename(drop.with_name('90-ai4s-release.conf.disabled-'+release.name))
     link=ROOT/'ui/dist';previous=ROOT/'ui'/('dist.before-'+release.name)
-    if link.is_symlink() and link.resolve()==release/'ui/dist':link.unlink()
+    if link.is_symlink() and link.resolve().is_relative_to(release/'ui'):link.unlink()
     if previous.exists() and not link.exists():previous.rename(link)
     run('systemctl','disable','ai4s-hyper-scan')
     run('systemctl','daemon-reload');run('systemctl','start',*SERVICES)
