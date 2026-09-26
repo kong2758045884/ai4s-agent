@@ -85,6 +85,7 @@ import org.wwz.ai.domain.agent.runtime.tool.workspace.WorkspaceReadTool;
 import org.wwz.ai.domain.agent.runtime.tool.workspace.WorkspaceRuntimeOptions;
 import org.wwz.ai.domain.agent.runtime.tool.workspace.WorkspaceService;
 import org.wwz.ai.domain.agent.runtime.tool.workspace.WorkspaceEditTool;
+import org.wwz.ai.domain.agent.runtime.tool.workspace.WorkspaceAppendTool;
 import org.wwz.ai.domain.agent.runtime.tool.workspace.WorkspaceWriteTool;
 import org.wwz.ai.domain.agent.ai4s.config.AI4SConfig;
 import org.wwz.ai.domain.agent.ai4s.model.req.AgentRequest;
@@ -490,6 +491,9 @@ public class AgentToolCollectionFactory {
 
         WorkspaceEditTool editTool = new WorkspaceEditTool(workspaceService, workspaceRuntimeOptions);
         addTool(toolCollection, editTool, agentContext, WorkspaceEditTool::setAgentContext);
+
+        WorkspaceAppendTool appendTool = new WorkspaceAppendTool(workspaceService, workspaceRuntimeOptions);
+        addTool(toolCollection, appendTool, agentContext, WorkspaceAppendTool::setAgentContext);
 
         WorkspaceListTool listTool = new WorkspaceListTool(workspaceService, workspaceRuntimeOptions);
         addTool(toolCollection, listTool, agentContext, WorkspaceListTool::setAgentContext);

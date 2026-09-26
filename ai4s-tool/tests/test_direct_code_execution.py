@@ -1,8 +1,9 @@
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+from tests.sandbox_temp import sandbox_temporary_directory
 
 from ai4s_tool.model.protocal import CodeExecutionRequest
 from ai4s_tool.tool.direct_code_execution import execute_code
@@ -11,7 +12,7 @@ from ai4s_tool.tool.direct_code_execution import execute_code
 class DirectCodeExecutionTest(unittest.IsolatedAsyncioTestCase):
     async def test_should_return_stdout_and_uploaded_produced_file(self):
         with (
-            tempfile.TemporaryDirectory() as workspace,
+            sandbox_temporary_directory() as workspace,
             patch.dict(
                 "os.environ", {"CODE_EXECUTION_WORKSPACE_ROOT": workspace}, clear=False
             ),
@@ -49,7 +50,7 @@ class DirectCodeExecutionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_should_preserve_stdout_and_files_when_source_fails(self):
         with (
-            tempfile.TemporaryDirectory() as workspace,
+            sandbox_temporary_directory() as workspace,
             patch.dict(
                 "os.environ", {"CODE_EXECUTION_WORKSPACE_ROOT": workspace}, clear=False
             ),
@@ -94,7 +95,7 @@ class DirectCodeExecutionTest(unittest.IsolatedAsyncioTestCase):
             ]
         )
         with (
-            tempfile.TemporaryDirectory() as workspace,
+            sandbox_temporary_directory() as workspace,
             patch.dict(
                 "os.environ", {"CODE_EXECUTION_WORKSPACE_ROOT": workspace}, clear=False
             ),
@@ -123,7 +124,7 @@ class DirectCodeExecutionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, uploads.await_count)
 
     async def test_should_use_skilloutput_session_workspace_by_default(self):
-        with tempfile.TemporaryDirectory() as skill_output:
+        with sandbox_temporary_directory() as skill_output:
             env = {
                 key: value
                 for key, value in os.environ.items()
@@ -155,7 +156,7 @@ class DirectCodeExecutionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_should_honor_explicit_workspace_root(self):
         with (
-            tempfile.TemporaryDirectory() as session_root,
+            sandbox_temporary_directory() as session_root,
             patch(
                 "ai4s_tool.tool.direct_code_execution.upload_file_by_path",
                 new=AsyncMock(return_value={"fileName": "a.txt"}),
@@ -180,7 +181,7 @@ class DirectCodeExecutionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_should_read_nested_workspace_file_with_relative_path(self):
         with (
-            tempfile.TemporaryDirectory() as session_root,
+            sandbox_temporary_directory() as session_root,
             patch(
                 "ai4s_tool.tool.direct_code_execution.upload_file_by_path",
                 new=AsyncMock(return_value=None),

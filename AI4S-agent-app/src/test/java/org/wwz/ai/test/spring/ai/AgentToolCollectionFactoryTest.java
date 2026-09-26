@@ -434,6 +434,7 @@ public class AgentToolCollectionFactoryTest {
         Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_read"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_write"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_edit"));
+        Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_append"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_list"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_glob"));
         Assert.assertTrue(toolCollection.getToolMap().containsKey("workspace_grep"));

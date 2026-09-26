@@ -6,7 +6,7 @@ package org.wwz.ai.domain.agent.runtime.prompt;
  */
 public final class PlanSolvePrompt {
 
-    public static final String ORCHESTRATION_MARKER = "PLAN_SOLVE_ORCHESTRATION_V6";
+    public static final String ORCHESTRATION_MARKER = "PLAN_SOLVE_ORCHESTRATION_V10";
     public static final String EXECUTION_MARKER = "PLAN_SOLVE_EXECUTION_V2";
 
     public static final String ORCHESTRATION = """
@@ -19,7 +19,7 @@ public final class PlanSolvePrompt {
             - 指挥 worker 检索、分析、阅读既有报告并生成交付物
             - 综合结果并与用户沟通
             - 轻量工作自己做；不要把可直接处理的事委派出去
-             - AI4S 研判报告必须先用 `skill_tool` 加载 `ai4s-report-analysis`，并把该 skill 路径和九章契约写进调研、写作与验收 Worker 的自包含 prompt；正式交付为已打开验证的 HTML。
+             - AI4S 研判报告必须先用 `skill_tool` 加载 `ai4s-report-analysis`，再读取 `skills/ai4s-report-analysis/references/hotspot-research-method.md`；把 skill/方法文件路径和九章契约写进调研、写作与验收 Worker 的自包含 prompt；正式交付为已打开验证的 HTML。
 
             你发送的每一条消息都是发给用户的。Worker 结果与系统通知是内部信号，不是对话参与者。绝不要感谢或回应它们。随着新信息到来，把要点总结给用户。
 
@@ -34,12 +34,13 @@ public final class PlanSolvePrompt {
             - TaskOutput：查看或阻塞等待后台结果（默认 block=true）。禁止用 workspace_list 轮询子 Agent 是否完成
             - TaskStop：取消后台任务
             - workspace_*：派下一棒前确认报告真实路径并写入新 prompt；不是等待后台任务的手段
-            - 启动 Agent 后短告知用户启动了什么，然后结束本轮；绝不要编造未返回的结果
-            - 不要让一个 worker 去检查另一个 worker
+            - 用户要求本轮交付研报、海报等成品时，启动后台 Agent 后告知进度，并用 TaskOutput 等待结果，再继续依赖它的后续阶段；不能只因已派工就结束本轮或宣称完成。只有用户明确只要求启动任务，或遇到必须由用户处理的审批/提问，才可在成品未完成时收口
+            - 长篇 HTML Writer 只接收短的已裁决写作提要和必要证据路径。AI4S 正式研报写入 report/，正式海报写入 poster/，以触发封稿校验。先用 workspace_write 写含 <!--AI4S_APPEND--> 的完整骨架，再用 workspace_append 按稳定 chunk_key 逐章串行追加，每段不超过 6000 字符；最后一段 finalize=true。不要一次读取全部长台账/质询文件或在一轮模型输出中写完整 HTML。Worker 返回空摘要或 TaskOutput 显示 completed 时，仍须 glob/read 核实文件、九章、引用及海报；文件缺失则缩短上下文和写入片段后修复，不重复相同失败规格
+            - 不要让一个 worker 监督仍在运行的另一个 worker；已完成产物可交给独立验收 worker 复核
             - 同一轮可并行多个相互独立的只读调研/分析 Worker
 
             ## 4. 共享工作区
-            工作区是跨 Agent 共享记忆。Worker 自定报告路径。
+            工作区是跨 Agent 共享记忆。普通任务由 Worker 自定报告路径；AI4S 正式研报和海报分别放在 report/ 与 poster/ 下。
             派「下一棒」前必须 workspace_glob/list 确认真实路径，并写进新 Worker prompt。
             禁止「根据你的发现」「根据研究结果继续」这类懒惰委派。
             向用户汇报时引用路径与关键结论，不要重贴整份报告。
@@ -54,7 +55,7 @@ public final class PlanSolvePrompt {
             | 验收 | 你或新 Worker | 覆盖问题、路径可读、关键数字一致 |
             | 终答 | 你 | 短摘要 + 交付物引用（USER_FACING_REPLY_CONTRACT） |
 
-            调研：拆主题 → 并行 research workers → glob → 综合 → writer → 用户摘要。
+            调研：拆主题 → 并行 research workers → TaskOutput 等全部完成 → glob → 综合 → writer → 验收 → 用户摘要。
             分析：定问题与数据源 → analysis workers → glob → 综合 →（可选）writer → 用户摘要。
 
             并发：只读可并行；写同一交付物或强依赖上游报告时先 TaskOutput 等完成，再 workspace_glob 确认路径后派下一棒。
@@ -127,7 +128,11 @@ public final class PlanSolvePrompt {
                  "PLAN_SOLVE_ORCHESTRATION_V2",
                  "PLAN_SOLVE_ORCHESTRATION_V3",
                  "PLAN_SOLVE_ORCHESTRATION_V4",
-                 "PLAN_SOLVE_ORCHESTRATION_V5"
+                 "PLAN_SOLVE_ORCHESTRATION_V5",
+                 "PLAN_SOLVE_ORCHESTRATION_V6",
+                 "PLAN_SOLVE_ORCHESTRATION_V7",
+                 "PLAN_SOLVE_ORCHESTRATION_V8",
+                 "PLAN_SOLVE_ORCHESTRATION_V9"
         }) {
             if (!base.contains(legacy)) {
                 continue;

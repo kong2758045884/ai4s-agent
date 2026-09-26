@@ -287,6 +287,23 @@ public class SubAgentRunner {
                             .build();
                 }
                 content = finalizeContent(agent, runResult);
+                if (StringUtils.isBlank(content)) {
+                    String reason = "子 Agent 未返回可用摘要；请先核查工作区实际产物，缺失时缩短输入材料和单次写入内容后续跑";
+                    content = emitSubAgentFinalReply(childContext, agent,
+                            buildResumeHintContent(reason, agentId, memoryPersisted));
+                    return SubAgentResult.builder()
+                            .status(SubAgentResult.STATUS_FAILED)
+                            .agentId(agentId)
+                            .agentType(definition.getAgentType())
+                            .description(description)
+                            .prompt(prompt)
+                            .content(content)
+                            .totalToolUseCount(toolUseCount)
+                            .totalDurationMs(System.currentTimeMillis() - start)
+                            .errorMsg(reason)
+                            .memoryPersisted(memoryPersisted)
+                            .build();
+                }
                 content = emitSubAgentFinalReply(childContext, agent, content);
                 return SubAgentResult.builder()
                         .status(SubAgentResult.STATUS_COMPLETED)

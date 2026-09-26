@@ -74,10 +74,14 @@ public final class SubAgentToolFilter {
         if (parentTools.getToolMap() != null) {
             for (Map.Entry<String, BaseTool> entry : parentTools.getToolMap().entrySet()) {
                 String name = entry.getKey();
-                if (disallowed.contains(name)) {
+                if (disallowed.contains(name)
+                        || ("workspace_append".equals(name) && disallowed.contains("workspace_write"))) {
                     continue;
                 }
-                if (!allowAll && !allowed.contains(name)) {
+                // Append can only extend an existing workspace_write file and carries
+                // the same write capability; keep persisted legacy allowlists usable.
+                if (!allowAll && !allowed.contains(name)
+                        && !("workspace_append".equals(name) && allowed.contains("workspace_write"))) {
                     continue;
                 }
                 child.addTool(entry.getValue());

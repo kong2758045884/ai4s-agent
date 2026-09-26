@@ -5,10 +5,13 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import {
   loadStrategicTeamDetail,
+  mapTeam,
+  reviewedTeamPeople,
   type StrategicPerson,
   type StrategicTeam,
   type StrategicTeamDetail as TeamDetail,
 } from "@/services/strategicMap";
+import { recommendationApi } from "@/services/strategicRecommendations";
 import {
   buildStrategicMapPath,
   buildStrategicTeamDetailNavigationPath,
@@ -64,7 +67,7 @@ function TeamBasics({ team }: { team: StrategicTeam }) {
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="break-words text-[13px] font-medium text-[#668096]">{team.institutionName || team.organization || team.name}</p>
-          <h1 className="mt-1 break-words text-[24px] font-semibold leading-tight text-[#174f70] sm:text-[30px]">{team.teamName || "团队信息待核实"}</h1>
+          <h1 className="mt-1 break-words text-[24px] font-semibold leading-tight text-slate-900 sm:text-[30px]">{team.teamName || "科研团队"}</h1>
         </div>
         <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#eef7fd] px-3 py-1.5 text-[12px] font-semibold text-[#2c6a98]">
           <MapPin className="size-3.5" />
@@ -75,6 +78,7 @@ function TeamBasics({ team }: { team: StrategicTeam }) {
       <div className="mt-5 grid min-w-0 gap-4 border-t border-[#e7eef3] pt-4 sm:grid-cols-2">
         <div className="min-w-0">
           <h2 className="text-[12px] font-semibold tracking-wide text-[#71899a]">核心研究方向</h2>
+          {team.coreDirection && <p className="strategic-team-full-direction mt-2 whitespace-pre-wrap break-words text-[14px] leading-7 text-[#456074]">{team.coreDirection}</p>}
           <div className="mt-2 flex min-w-0 flex-wrap gap-2">
             {directions.length ? directions.map((direction) => <span key={direction} className="max-w-full break-words rounded-full bg-[#f1f7fb] px-2.5 py-1 text-[12px] text-[#326b8d]">{direction}</span>) : <span className="text-[13px] text-[#7d909f]">暂无已确认方向</span>}
           </div>
@@ -105,8 +109,17 @@ export default function StrategicTeamDetail() {
       return () => { disposed = true; };
     }
     setLoading(true);
-    loadStrategicTeamDetail(teamId)
-      .then((value) => { if (!disposed) { setDetail(value); setError(""); } })
+    setDetail(null);
+    Promise.all([loadStrategicTeamDetail(teamId), recommendationApi.verifiedTeams()])
+      .then(([value, catalogue]) => {
+        if (disposed) return;
+        if (!catalogue.teamIds.includes(teamId)) throw new Error("该团队尚未发布，请返回团队库选择其他团队。");
+        const published = catalogue.teams?.find((team) => team.id === teamId);
+        setDetail({ ...value, team: published ? mapTeam(published) : value.team, leaders: reviewedTeamPeople(value.leaders),
+          leader: reviewedTeamPeople(value.leader ? [value.leader] : [])[0] || null,
+          members: reviewedTeamPeople(value.members) });
+        setError("");
+      })
       .catch((reason) => { if (!disposed) setError(reason instanceof Error ? reason.message : "读取团队详情失败"); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; };
@@ -133,13 +146,13 @@ export default function StrategicTeamDetail() {
   const returnPath = useMemo(() => buildStrategicMapPath(returnContext), [returnContext]);
 
   return (
-    <div className="strategic-team-detail flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-[#f3f6f9] text-[var(--chat-text)]">
-      <header className="shrink-0 border-b border-[#1a6683] bg-[#105d79] px-4 py-3 text-white sm:px-6 sm:py-4">
+    <div className="strategic-team-detail flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-[#fafafa] text-slate-900">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 text-slate-900 sm:px-6 sm:py-4">
         <div className="mx-auto flex w-full max-w-[1180px] min-w-0 items-center gap-3">
-          <button type="button" onClick={() => navigate(returnPath)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-2 text-[13px] font-medium text-white/90 hover:bg-white/10" aria-label="返回战略图谱">
+          <button type="button" onClick={() => navigate(returnPath)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-2 text-[13px] font-medium text-slate-600 hover:bg-slate-50" aria-label="返回战略图谱">
             <ArrowLeft className="size-4" /> 返回战略图谱
           </button>
-          <span className="hidden min-w-0 truncate text-[13px] text-white/70 sm:block">战略图谱{detail?.domain ? ` · ${detail.domain.name}` : ""}</span>
+          <span className="hidden min-w-0 truncate text-[13px] text-slate-400 sm:block">战略图谱{detail?.domain ? ` · ${detail.domain.name}` : ""}</span>
         </div>
       </header>
       <main className="mx-auto flex w-full max-w-[1180px] min-w-0 flex-1 flex-col gap-4 p-3 sm:gap-5 sm:p-5 lg:p-7">

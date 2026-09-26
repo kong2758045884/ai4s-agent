@@ -55,6 +55,7 @@ public final class PlanModeToolPolicy {
     private static final Set<String> MUTATING = Set.of(
             "workspace_write",
             "workspace_edit",
+            "workspace_append",
             "code_interpreter",
             "document_generate",
             "slides_generate",

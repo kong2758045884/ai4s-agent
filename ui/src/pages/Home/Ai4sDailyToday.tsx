@@ -77,11 +77,12 @@ function HotspotCard({
         <button
           type="button"
           onClick={() => onResearch?.(hotspot)}
+          title="启动多视角取证，生成专题研报与同题海报"
           className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-[var(--chat-accent)] px-3 py-1.5 text-[12px] font-medium text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/35"
           data-testid="ai4s-daily-home-research"
         >
           <SearchCheckIcon className="size-3.5" />
-          深度调研
+          研报与海报
         </button>
       </div>
     </article>

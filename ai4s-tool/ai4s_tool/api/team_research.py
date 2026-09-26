@@ -86,6 +86,13 @@ class OldPersonDecision(Schema):
     citations: list[Citation] = Field(default_factory=list)
 
 
+class CapabilityAssessment(Schema):
+    # An opinion grounded in citations, not a verified institutional fact.
+    level: Literal['待核实', '较低', '一般', '较高'] = '待核实'
+    reason: str = ''
+    citations: list[Citation] = Field(default_factory=list)
+
+
 class Result(Schema):
     institution_name: Fact
     team_name: Fact
@@ -104,6 +111,8 @@ class Result(Schema):
     domestic: Fact = Field(default_factory=Fact)
     domain_relevance: Fact = Field(default_factory=Fact)
     advantage: Fact = Field(default_factory=Fact)
+    ai_assessment: CapabilityAssessment = Field(default_factory=CapabilityAssessment)
+    science_assessment: CapabilityAssessment = Field(default_factory=CapabilityAssessment)
 
 
 class WirePerson(Schema):
@@ -170,6 +179,8 @@ class EvidenceQuality(Schema):
     domain_relevance: Fact
     advantage: Fact
     people: list[MembershipDecision]
+    ai_assessment: CapabilityAssessment = Field(default_factory=CapabilityAssessment)
+    science_assessment: CapabilityAssessment = Field(default_factory=CapabilityAssessment)
 
 
 def canonical_url(url: str) -> str:
@@ -211,7 +222,8 @@ def page_content_id(page: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode('utf-8')).hexdigest() if text else ''
 
 
-def fetch_page(url: str, cached_page: dict[str, Any] | None = None) -> dict[str, Any]:
+def fetch_page(url: str, cached_page: dict[str, Any] | None = None, *,
+               max_text_chars: int | None = 24000, max_links: int | None = 240) -> dict[str, Any]:
     """Read a bounded HTML body and links, retaining HTTP/empty/error provenance."""
     started = time.monotonic()
     captured_at = datetime.now(timezone.utc).isoformat()
@@ -272,15 +284,15 @@ def fetch_page(url: str, cached_page: dict[str, Any] | None = None) -> dict[str,
                     if meta:
                         page['published_at'] = meta.get('content', '')
                     links = {}
-                    for a in soup.find_all('a', href=True):
+                    for a in soup.find_all(['a', 'area'], href=True):
                         try:
                             target = canonical_url(urljoin(current, a['href']))
-                            label = a.get_text(' ', strip=True)
-                            if label:
+                            label = a.get_text(' ', strip=True) or a.get('alt', '')
+                            if label or a.name == 'area':
                                 links.setdefault(target, label[:180])
                         except ValueError:
                             continue
-                    page['links'] = [{'url': u, 'label': label} for u, label in links.items()][:240]
+                    page['links'] = [{'url': u, 'label': label} for u, label in links.items()][:max_links]
                     # Preserve cells/empty columns: flattening a committee table
                     # can turn its chairman into a lab director. This is DOM
                     # structure, not a keyword-based semantic classification.
@@ -292,10 +304,10 @@ def fetch_page(url: str, cached_page: dict[str, Any] | None = None) -> dict[str,
                     for tag in soup(['script', 'style', 'noscript']):
                         tag.decompose()
                     full_text = soup.get_text(' ', strip=True)
-                    page['text'] = full_text[:24000]
+                    page['text'] = full_text[:max_text_chars]
                     page['content_sha256'] = hashlib.sha256(bytes(body)).hexdigest()
                     page['evidence_format_version'] = EVIDENCE_FORMAT_VERSION
-                    page['truncated'] = len(full_text) > 24000
+                    page['truncated'] = max_text_chars is not None and len(full_text) > max_text_chars
                     page['status'] = 'ok' if full_text.strip() else 'empty_body'
                     break
             else:
@@ -369,6 +381,10 @@ profile_url 仅用已获取正文的官方个人主页；姓名/role 引文须�
 
 
 RULES += '''
+分别给出 ai_assessment 和 science_assessment 初步评价，包含 level、reason、citations。
+AI 评价本团队的人工智能方法研发与科研应用能力；科学评价本团队在目标学科中的科研成果与能力。两者独立，不能用资料完整度、机构声望或母机构成果代替团队能力。
+较高需要本团队多项明确成果或有影响力的代表成果；一般需要至少一项对应领域的实质研究或成果；较低必须有明确的能力局限证据，未找到资料绝不等于较低。证据不足填待核实并说明原因。
+每项初评引用当前网页中属于这个具体团队的原文。评价是推断，reason 写明推断依据，不能将其当成原文事实；不得默认双高。人工意见由系统另外保存，不在此处修改。
 领域验收须分别给出 concrete_team（具体科研团队而非机构占位）、domestic（境内所在地）、
 domain_relevance（与输入领域实质相关）、advantage（国家/省级平台认定、明确成果或独特科研能力）四项事实。
 有原文支持才 verified，写明事实与依据，不用默认“较高”或模型记忆。机构院所本身不是具体团队。
@@ -425,7 +441,7 @@ class Research:
                        'duplicate_bodies': 0, 'llm_retries': 0, 'retry_wait_seconds': 0.0,
                        'llm_queue_wait_seconds': 0.0,
                        'llm_input_tokens': 0, 'llm_output_tokens': 0, 'llm_total_tokens': 0,
-                       'llm_usage_unknown': 0}
+                       'llm_usage_unknown': 0, 'llm_estimated_cost_cny': None}
         self.cached_pages = cached_pages if cached_pages is not None else {}
         self.checkpoint = checkpoint
         self.resume = resume or {}
@@ -466,16 +482,23 @@ class Research:
                 kind = 'model_timeout' if isinstance(exc, TimeoutError) or type(exc).__name__ == 'APITimeoutError' else 'model_failed'
                 self.errors.append({'stage': stage, 'kind': kind, 'error': type(exc).__name__})
                 self.event('llm_error', stage=stage, kind=kind, seconds=round(time.monotonic()-started, 3))
+                status = getattr(exc, 'status_code', None)
+                text = str(exc or '').lower()
+                limited = status == 429 or 'rate limit' in text or 'too many requests' in text or 'throttl' in text
+                server_error = isinstance(status, int) and 500 <= status < 600
+                if (limited or server_error) and hasattr(self.cached_pages, 'record_transient'):
+                    self.cached_pages.record_transient({'status_code': status,
+                        'provider_code': 'rate_limit' if limited else 'server_error'})
+                    if getattr(self.cached_pages, 'unavailable', None):
+                        raise ProviderUnavailable('shared provider circuit is open') from exc
                 if attempt:
                     raise
                 self.counts['llm_retries'] += 1
-                status = getattr(exc, 'status_code', None)
-                text = str(exc or '').lower()
-                if status == 429 or 'rate limit' in text or 'too many requests' in text or 'throttl' in text:
-                    wait_seconds = min(8.0, max(0.0, self.deadline-time.monotonic()-5))
+                if limited or server_error:
+                    wait_seconds = min(8.0 if limited else 1.0, max(0.0, self.deadline-time.monotonic()-5))
                     if wait_seconds:
                         self.counts['retry_wait_seconds'] = round(self.counts['retry_wait_seconds']+wait_seconds, 3)
-                        self.event('retry_wait', stage=stage, reason='rate_limit', seconds=wait_seconds)
+                        self.event('retry_wait', stage=stage, reason='rate_limit' if limited else 'server_error', seconds=wait_seconds)
                         time.sleep(wait_seconds)
                 continue
             try:
@@ -493,8 +516,19 @@ class Research:
                     self.counts['llm_input_tokens'] += prompt_tokens
                     self.counts['llm_output_tokens'] += completion_tokens
                     self.counts['llm_total_tokens'] += total_tokens
+                    try:
+                        input_price = float(os.getenv('AI4S_LLM_INPUT_CNY_PER_MILLION', ''))
+                        output_price = float(os.getenv('AI4S_LLM_OUTPUT_CNY_PER_MILLION', ''))
+                    except ValueError:
+                        pass
+                    else:
+                        previous = self.counts['llm_estimated_cost_cny'] or 0.0
+                        self.counts['llm_estimated_cost_cny'] = round(previous +
+                            (prompt_tokens * input_price + completion_tokens * output_price) / 1_000_000, 6)
                 else:
                     self.counts['llm_usage_unknown'] += 1
+                if hasattr(self.cached_pages, 'clear_transient'):
+                    self.cached_pages.clear_transient()
                 self.event('llm', stage=stage, seconds=round(time.monotonic()-started, 3),
                            input_tokens=prompt_tokens, output_tokens=completion_tokens,
                            total_tokens=total_tokens, model=observation.get('model'),
@@ -732,6 +766,12 @@ class Research:
             fact(value[key])
         for direction in value['research_directions']:
             fact(direction)
+        for key in ('ai_assessment', 'science_assessment'):
+            assessment = value.get(key)
+            if assessment and assessment.get('level') != '待核实' and (
+                    not assessment.get('reason', '').strip()
+                    or not self.citations_valid(assessment.get('citations', []))):
+                assessment.update(level='待核实', reason='初评依据不足或原文引文校验未通过', citations=[])
         if value['entity_relation'] != 'same' and not self.citations_valid(value['entity_citations']):
             value['entity_relation'] = 'uncertain'
         for person in ([value['leader']] if review_leader and value['leader'] else []) + value['members']:

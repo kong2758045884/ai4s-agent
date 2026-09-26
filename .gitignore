@@ -102,6 +102,20 @@ Thumbs.db
 /ui/docs/
 /ui/.playwright-mcp/
 
+# 本地 Bug 调试记录、采集日志与调试环境不纳入版本控制
+/.dbg/
+/debug-*.md
+
+# 战略图谱本地 SQLite 数据（数十 MB，含用户数据），不入库
+ai4s-tool/*.db
+ai4s-tool/*.db-shm
+ai4s-tool/*.db-wal
+ai4s-tool/impact_triage.db*
+/strategic-map-export/
+/runtime/hyper-snapshot/
+/runtime/hyper-snapshot-import-*/
+/runtime/hyper-snapshot-backup-*/
+
 # 自动执行旧目录仅保留本地，不再纳入版本控制
 /AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/auto/step/
 /AI4S-agent-domain/src/main/java/org/wwz/ai/domain/agent/service/execute/auto1/step/
@@ -110,3 +124,10 @@ Thumbs.db
 /.codegraph/
 /.codegraph/
 /plans/
+/strategic-map-export.tar.gz
+
+# Local dependency caches, browser profiles, data snapshots and deployment backups.
+/.m2/
+/.test-artifacts/
+/runtime/*
+!/runtime/skills/

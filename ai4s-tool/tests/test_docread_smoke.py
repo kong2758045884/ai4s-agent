@@ -3,14 +3,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 
-import pytest
+
+def test_csv_excel_word_pdf_html_md_text_smoke():
+    asyncio.run(_csv_excel_word_pdf_html_md_text_smoke())
 
 
-@pytest.mark.asyncio
-async def test_csv_excel_word_pdf_html_md_text_smoke():
+async def _csv_excel_word_pdf_html_md_text_smoke():
     from openpyxl import Workbook
     from docx import Document
     import fitz

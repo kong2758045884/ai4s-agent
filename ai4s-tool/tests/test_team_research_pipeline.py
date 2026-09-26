@@ -9,6 +9,8 @@ import unittest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
 _TMP = Path(os.getenv('STRATEGIC_MAP_TEST_TMP', tempfile.gettempdir())) / ('strategic-map-test-' + uuid.uuid4().hex)
 _TMP.mkdir()
@@ -16,9 +18,19 @@ os.environ['STRATEGIC_MAP_DB_PATH'] = str(_TMP / 'isolated.db')
 from ai4s_tool.api import strategic_map as sm
 from ai4s_tool.api import team_research as tr
 from ai4s_tool.api import team_research_store as store
-from sqlalchemy import event
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+# Other test modules may have imported strategic_map before this file set the
+# environment variable. Rebind explicitly so this destructive fixture can
+# never clear a developer's real strategic_map.db.
+_TEST_ENGINE = create_engine(
+    f"sqlite:///{_TMP / 'isolated.db'}",
+    connect_args={"check_same_thread": False},
+)
+sm._ENGINE = _TEST_ENGINE
+sm._SESSION_FACTORY = sessionmaker(bind=_TEST_ENGINE, expire_on_commit=False)
+sm._Base.metadata.create_all(_TEST_ENGINE)
 
 URL = 'https://example.org/team'
 QUOTE = '甲研究组主任甲教授，成员乙研究员。'
@@ -136,6 +148,72 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(before,self.detail())
         with sm._SESSION_FACTORY() as s:self.assertEqual(5,len(store.history(s,'t')))
 
+    def test_dropdown_judgement_persists_in_list_and_detail_and_survives_research(self):
+        self.save(run())
+        before = self.detail()['team']['scoreTotal']
+        response = self.client.put('/v1/strategic-map/teams/t', json={
+            'attention': '重点关注', 'contact': '未接触',
+            'ai_level': '较高', 'science_level': '一般', 'dual_judgement': '旧内容'})
+        self.assertEqual(200, response.status_code)
+        updated = response.json()['data']
+        self.assertEqual(('较高', '一般', 'AI 较高｜科学 一般'),
+                         (updated['aiLevel'], updated['scienceLevel'], updated['dualJudgement']))
+        self.assertEqual(before, updated['scoreTotal'])
+        self.save(run())
+        teams = self.client.get('/v1/strategic-map').json()['data']['teams']
+        for value in (self.detail()['team'], next(t for t in teams if t['id'] == 't')):
+            self.assertEqual('AI 较高｜科学 一般', value['dualJudgement'])
+            self.assertEqual(('较高', '一般'), (value['aiLevel'], value['scienceLevel']))
+
+    def test_judgement_editor_keeps_legacy_text_and_rejects_invalid_levels(self):
+        self.client.put('/v1/strategic-map/teams/t', json={
+            'attention': '持续关注', 'contact': '未接触', 'dual_judgement': '111'})
+        self.client.put('/v1/strategic-map/teams/t', json={'attention': '持续关注', 'contact': '已联系'})
+        for levels in ({'ai_level': '伪造'}, {'ai_level': '较高', 'science_level': '伪造'}):
+            response = self.client.put('/v1/strategic-map/teams/t', json={
+                'attention': '持续关注', 'contact': '已联系', **levels})
+            self.assertEqual(422, response.status_code)
+            self.assertEqual('111', self.detail()['team']['dualJudgement'])
+
+    def test_independent_capability_override_keeps_other_ai_assessment_and_score(self):
+        value = run()
+        value['reviewed']['ai_assessment'] = {'level': '一般', 'reason': '本团队有明确方法成果', 'citations': CITE}
+        value['reviewed']['science_assessment'] = {'level': '较高', 'reason': '本团队有代表科研成果', 'citations': CITE}
+        self.save(value)
+        initial = self.detail()['team']
+        self.assertEqual(('一般', '较高'), (initial['aiLevel'], initial['scienceLevel']))
+        self.assertEqual('ai', initial['capabilityAssessments']['science']['source'])
+        response = self.client.put('/v1/strategic-map/teams/t', json={
+            'attention': '持续关注', 'contact': '未接触', 'ai_level': '较低'})
+        self.assertEqual(200, response.status_code)
+        updated = response.json()['data']
+        self.assertEqual(('较低', '较高'), (updated['aiLevel'], updated['scienceLevel']))
+        self.assertEqual(initial['scoreTotal'], updated['scoreTotal'])
+        self.assertEqual('manual', updated['capabilityAssessments']['ai']['source'])
+        self.assertEqual('ai', updated['capabilityAssessments']['science']['source'])
+        value['reviewed']['ai_assessment']['level'] = '较高'
+        value['reviewed']['science_assessment']['level'] = '一般'
+        self.save(value)
+        saved = self.detail()['team']
+        self.assertEqual(('较低', '一般'), (saved['aiLevel'], saved['scienceLevel']))
+        with sm._SESSION_FACTORY() as session:
+            audit = store.history(session, 't', 'manual')[0]['payload']
+            self.assertNotIn('science_level', audit['fields'])
+            self.assertEqual('一般', audit['before']['ai_level'])
+
+    def test_seed_levels_and_uncited_model_opinions_are_not_ai_assessments(self):
+        self.assertEqual('none', self.detail()['team']['capabilityAssessments']['ai']['source'])
+        self.assertEqual('待核实', self.detail()['team']['aiLevel'])
+        value = run()
+        value['reviewed']['ai_assessment'] = {'level': '较高', 'reason': '没有依据',
+            'citations': [{'url': URL, 'quote': '伪造的原文'}]}
+        research = tr.Research(lambda **kw: '')
+        research.pages[URL] = {'status': 'ok', 'text': QUOTE}
+        research.validate_evidence(value['reviewed'])
+        self.assertEqual('待核实', value['reviewed']['ai_assessment']['level'])
+        self.save(value)
+        self.assertEqual('none', self.detail()['team']['capabilityAssessments']['ai']['source'])
+
     def test_conflict_keeps_both_saved_leaders_visible_and_retains_history(self):
         self.save(run()); changed=run(); changed['reviewed']['leader']=person('丙')
         self.save(changed)
@@ -209,7 +287,9 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(before,self.detail())
             self.assertFalse(any(s.lstrip().upper().startswith(('UPDATE','INSERT','DELETE','CREATE','ALTER')) for s in statements))
         finally:event.remove(sm._ENGINE,'before_cursor_execute',observe)
-        self.assertEqual('较高',before['team']['aiLevel'])
+        self.assertEqual('待核实',before['team']['aiLevel'])
+        with sm._SESSION_FACTORY() as session:
+            self.assertEqual('较高', session.get(sm.StrategicTeamRow, 't').ai_level)
         self.assertEqual('近期',before['team']['recentUpdate'])
 
     def test_collected_data_is_published_without_review(self):
@@ -257,6 +337,21 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual('accepted', first.json()['data']['state'])
         self.assertFalse(first.json()['data']['terminal'])
         self.assertEqual(2, launch.call_count)
+
+    def test_subdomain_refresh_persists_scope_and_passes_it_to_research(self):
+        with sm._SESSION_FACTORY() as s:
+            s.add(sm.StrategicDomainRow(id='sub',parent_id='d',name='精确子领域'))
+            s.commit()
+        with patch.object(sm,'_launch_refresh_task'):
+            response=self.client.post('/v1/strategic-map/domains/d/refreshes?subdomain_id=sub')
+        self.assertEqual(202,response.status_code)
+        task_id=response.json()['data']['taskId']
+        self.assertEqual('sub',response.json()['data']['subdomainId'])
+        with patch.object(sm,'_sync_domain',return_value={'teamCount':1}) as sync:
+            sm._run_refresh_task(task_id)
+        self.assertEqual('sub',sync.call_args.kwargs['subdomain'].id)
+        with sm._SESSION_FACTORY() as s:
+            self.assertEqual('sub',s.get(sm.StrategicRefreshTaskRow,task_id).subdomain_id)
 
     def test_refresh_worker_persists_success_terminal(self):
         with sm._SESSION_FACTORY() as s:

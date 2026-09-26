@@ -30,6 +30,7 @@ public class WorkspaceEditTool extends AbstractWorkspacePathTool {
                 "对工作区文件做精确字符串替换（局部编辑）。\n"
                         + "Usage:\n"
                         + "- 编辑前必须先用 workspace_read 读取该文件；未读过会失败。\n"
+                        + "- 若本轮已读过但上下文压缩清除了读取状态，可显式设 allow_unread=true；仅对唯一章节占位标记或至少 24 字符的精确原文生效。\n"
                         + "- 从 read 结果复制文本时，不要包含行号前缀（形如 `12 | `），只保留真实文件内容。\n"
                         + "- old_string 必须在文件中唯一；若不唯一，请扩大上下文，或设 replace_all=true。\n"
                         + "- replace_all 适合重命名变量等批量替换。\n"
@@ -45,6 +46,7 @@ public class WorkspaceEditTool extends AbstractWorkspacePathTool {
         properties.put("old_string", Map.of("type", "string", "description", "要被替换的原文（必须精确匹配）"));
         properties.put("new_string", Map.of("type", "string", "description", "替换后的新文本（必须与 old_string 不同）"));
         properties.put("replace_all", Map.of("type", "boolean", "description", "是否替换全部匹配项，默认 false"));
+        properties.put("allow_unread", Map.of("type", "boolean", "description", "上下文压缩清除读取状态后的严格精确替换兜底；默认 false"));
 
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("type", "object");
@@ -66,22 +68,6 @@ public class WorkspaceEditTool extends AbstractWorkspacePathTool {
             if (agentContext == null) {
                 return failResult("workspace_edit requires agent context");
             }
-            WorkspaceFileReadState readState = agentContext.getWorkspaceFileReadState(absolutePath);
-            if (readState == null) {
-                return failResult("You must use workspace_read at least once on this file before editing: "
-                        + toAgentPath(filePath));
-            }
-            long mtimeMs = Files.getLastModifiedTime(filePath).toMillis();
-            String currentContent = Files.readString(filePath, StandardCharsets.UTF_8);
-            String currentHash = WorkspaceReadStateStore.sha256Hex(currentContent);
-            if (mtimeMs > readState.getMtimeMs()) {
-                // mtime 变化时，hash 相同则放行；不同则要求重读
-                if (readState.getContentHash() == null || !readState.getContentHash().equals(currentHash)) {
-                    return failResult("File has been modified since read, either by the user or another tool. "
-                            + "Read it again with workspace_read before editing: " + absolutePath);
-                }
-            }
-
             Object oldValue = params.get("old_string");
             Object newValue = params.get("new_string");
             if (oldValue == null) {
@@ -98,8 +84,27 @@ public class WorkspaceEditTool extends AbstractWorkspacePathTool {
             if (oldString.isEmpty()) {
                 return failResult("old_string must not be empty");
             }
+            WorkspaceFileReadState readState = agentContext.getWorkspaceFileReadState(absolutePath);
+            boolean allowUnread = readBoolean(params, "allow_unread", false);
+            if (readState == null && (!allowUnread || !isSafeUnreadAnchor(oldString))) {
+                return failResult("You must use workspace_read at least once on this file before editing: "
+                        + toAgentPath(filePath));
+            }
+            long mtimeMs = Files.getLastModifiedTime(filePath).toMillis();
+            String currentContent = Files.readString(filePath, StandardCharsets.UTF_8);
+            String currentHash = WorkspaceReadStateStore.sha256Hex(currentContent);
+            if (readState != null && mtimeMs > readState.getMtimeMs()) {
+                // mtime 变化时，hash 相同则放行；不同则要求重读
+                if (readState.getContentHash() == null || !readState.getContentHash().equals(currentHash)) {
+                    return failResult("File has been modified since read, either by the user or another tool. "
+                            + "Read it again with workspace_read before editing: " + absolutePath);
+                }
+            }
 
             boolean replaceAll = readBoolean(params, "replace_all", false);
+            if (readState == null && replaceAll) {
+                return failResult("allow_unread requires a unique old_string; replace_all is not allowed");
+            }
             String original = Files.readString(filePath, StandardCharsets.UTF_8);
             if (original.length() > workspaceRuntimeOptions.getMaxWriteChars()) {
                 return failResult("file too large to edit safely, size=" + original.length());
@@ -153,6 +158,10 @@ public class WorkspaceEditTool extends AbstractWorkspacePathTool {
             log.error("{} workspace_edit error, input={}", requestId(), input, e);
             return failResult("workspace_edit execute failed");
         }
+    }
+
+    private boolean isSafeUnreadAnchor(String oldString) {
+        return oldString.length() >= 24 || oldString.matches("<!--CH[1-9]-->");
     }
 
     private int countOccurrences(String content, String target) {

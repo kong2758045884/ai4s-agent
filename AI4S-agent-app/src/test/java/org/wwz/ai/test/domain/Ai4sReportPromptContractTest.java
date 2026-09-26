@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 
 /** AI4S 正式研判必须加载运行时 skill，并保持老师认可的九章契约。 */
 public class Ai4sReportPromptContractTest {
@@ -39,5 +40,29 @@ public class Ai4sReportPromptContractTest {
         }
         Assert.assertTrue(content.contains("科学问题、输入输出和评价指标写入“技术路线”"));
         Assert.assertFalse(content.contains("输出十个独立章节"));
+        Assert.assertTrue(content.contains("多视角质询"));
+        Assert.assertTrue(content.contains("单页可打印的 HTML 海报"));
+        Assert.assertTrue(content.contains("先用 `workspace_write` 写完整的标题、样式和 HTML 骨架"));
+        Assert.assertTrue(content.contains("唯一 `<!--AI4S_APPEND-->`"));
+        Assert.assertTrue(content.contains("后续用 `workspace_append` 按九章顺序逐段插入"));
+        Assert.assertTrue(content.contains("最后一段设 `finalize=true`"));
+    }
+
+    @Test
+    public void seededReportAgentShouldUseTheSameNineChapters() throws Exception {
+        String seed;
+        try (var stream = Objects.requireNonNull(
+                getClass().getClassLoader().getResourceAsStream("db/data.sql"),
+                "db/data.sql missing")) {
+            seed = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        String reportAgent = seed.lines()
+                .filter(line -> line.startsWith("INSERT IGNORE INTO ai_agent_sub_agent_definition")
+                        && line.contains("'report_agent'"))
+                .findFirst()
+                .orElseThrow();
+        Assert.assertTrue(reportAgent.contains("仅使用九个一级章节标题"));
+        Assert.assertTrue(reportAgent.contains("事件概览、技术路线、主要创新、论文团队、前序工作、竞争路线、AI4S意义、待观察问题、来源证据"));
+        Assert.assertFalse(reportAgent.contains("事件概览、科学问题、技术路线"));
     }
 }

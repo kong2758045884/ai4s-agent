@@ -166,6 +166,15 @@ def _is_permission_or_policy_block_error(err: Exception) -> bool:
     return any(signal in err_text for signal in signals)
 
 
+def _is_non_retryable_model_error(err: Exception) -> bool:
+    """A missing model/channel is configuration, even if a gateway uses 503."""
+    message = str(err).lower()
+    return any(
+        marker in message
+        for marker in ("model_not_found", "model not found", "no available channel for model")
+    )
+
+
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -896,6 +905,12 @@ async def ask_llm(
                     )
                 fallback_switched = True
                 continue
+
+            if _is_non_retryable_model_error(e):
+                logger.error(
+                    f"[ask_llm] Model/channel unavailable; not retrying: {e}"
+                )
+                raise
 
             if attempt == max_retries:
                 if (

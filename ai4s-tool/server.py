@@ -60,8 +60,9 @@ def create_app() -> FastAPI:
     # create_app 是 Uvicorn factory 边界：每个 worker 子进程独立创建 middleware 和
     # router，避免父进程共享请求态或把启动期副作用复制到错误的进程生命周期。
     from ai4s_tool.api.strategic_map import start_strategic_map_scheduler
+    from ai4s_tool.db.db_engine import init_db
 
-    _app = FastAPI(on_startup=[log_setting, start_strategic_map_scheduler])
+    _app = FastAPI(on_startup=[log_setting, init_db, start_strategic_map_scheduler])
 
     register_middleware(_app)
     register_router(_app)

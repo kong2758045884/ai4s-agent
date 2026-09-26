@@ -65,6 +65,10 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: ROUTES.WORKSPACE_IMPACT_TRIAGE,
+        element: <Navigate to={`${ROUTES.WORKSPACE_STRATEGIC_MAP}?smMode=intelligence`} replace />,
+      },
+      {
         path: ROUTES.STRATEGIC_TEAM_DETAIL,
         element: (
           <Suspense fallback={<Loading loading={true} className="h-full"/>}>

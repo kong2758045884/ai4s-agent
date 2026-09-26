@@ -900,6 +900,12 @@ def _resolve_policy_path(
     candidate_path = Path(raw_path)
     if candidate_path.is_absolute():
         return str(candidate_path.resolve())
+    if ".." in candidate_path.parts:
+        raise CodeExecutionPermissionError(
+            "path_outside_allowed_roots",
+            f"相对路径不能通过上级目录跳出授权范围：{raw_path}",
+            policy=policy,
+        )
 
     # 读取时先尝试输入文件逻辑名；其它相对路径才落到 workspace/output 根目录，写入不会把逻辑名当作可写文件。
     if access_mode == "read":
@@ -907,7 +913,14 @@ def _resolve_policy_path(
         if mapped_input_path is not None:
             return mapped_input_path
 
-    return str(Path(policy.workspace_root).joinpath(candidate_path).resolve())
+    # In analysis mode a bare output name is a generated artifact, not a
+    # workspace-root file. Workspace mode keeps ordinary relative paths.
+    base = (
+        policy.output_dir
+        if access_mode == "write" and policy.profile == "analysis"
+        else policy.workspace_root
+    )
+    return str(Path(base).joinpath(candidate_path).resolve())
 
 
 def _resolve_input_file_name(

@@ -1,25 +1,3 @@
-import os
-import sys
-from types import ModuleType
-
-
-llm_util_stub = ModuleType("ai4s_tool.util.llm_util")
-setattr(llm_util_stub, "ask_llm", None)
-
-
-def resolve_openai_compat_env(prefix):
-    normalized = prefix.upper()
-    deepsearch_base = os.getenv(f"{normalized}_BASE_URL", "").strip()
-    deepsearch_key = os.getenv(f"{normalized}_API_KEY", "").strip()
-    return {
-        "api_base": deepsearch_base or os.getenv("OPENAI_BASE_URL", "").strip(),
-        "api_key": deepsearch_key or os.getenv("OPENAI_API_KEY", "").strip(),
-    }
-
-
-setattr(llm_util_stub, "resolve_openai_compat_env", resolve_openai_compat_env)
-sys.modules["ai4s_tool.util.llm_util"] = llm_util_stub
-
 from ai4s_tool.tool.search_component.query_process import (
     parse_report_structure,
 )

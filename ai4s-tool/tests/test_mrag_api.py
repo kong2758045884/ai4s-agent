@@ -241,7 +241,10 @@ class MragApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         events = [line.removeprefix("data: ") for line in lines if line.startswith("data: ")]
         self.assertEqual("[DONE]", events[-1])
-        error_chunk = json.loads(events[0])
+        stage_error = json.loads(events[0])
+        self.assertEqual("error", stage_error["stage"])
+        self.assertTrue(stage_error["isFinal"])
+        error_chunk = json.loads(events[1])
         self.assertEqual("stop", error_chunk["choices"][0]["finishReason"])
         self.assertIn("MRAG 检索失败", error_chunk["choices"][0]["delta"]["content"])
 

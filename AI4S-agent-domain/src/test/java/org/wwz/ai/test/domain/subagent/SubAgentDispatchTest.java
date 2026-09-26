@@ -84,6 +84,34 @@ public class SubAgentDispatchTest {
     }
 
     @Test
+    public void shouldGrantAppendToExistingWriterAllowlistOnly() {
+        ToolCollection parent = new ToolCollection();
+        parent.addTool(new StubTool("workspace_write"));
+        parent.addTool(new StubTool("workspace_append"));
+        SubAgentDefinition writer = SubAgentDefinition.builder()
+                .agentType("report-agent")
+                .allowedTools(java.util.Set.of("workspace_write"))
+                .build();
+        ToolCollection writerTools = SubAgentToolFilter.filter(parent, writer);
+        Assert.assertTrue(writerTools.getToolMap().containsKey("workspace_append"));
+
+        SubAgentDefinition reader = SubAgentDefinition.builder()
+                .agentType("reader")
+                .allowedTools(java.util.Set.of("workspace_read"))
+                .build();
+        ToolCollection readerTools = SubAgentToolFilter.filter(parent, reader);
+        Assert.assertFalse(readerTools.getToolMap().containsKey("workspace_append"));
+
+        SubAgentDefinition writeDenied = SubAgentDefinition.builder()
+                .agentType("write-denied")
+                .allowedTools(java.util.Set.of("*"))
+                .disallowedTools(java.util.Set.of("workspace_write"))
+                .build();
+        ToolCollection deniedTools = SubAgentToolFilter.filter(parent, writeDenied);
+        Assert.assertFalse(deniedTools.getToolMap().containsKey("workspace_append"));
+    }
+
+    @Test
     public void shouldRejectBlankPromptWithoutCallingRunner() {
         SubAgentRegistry registry = new SubAgentRegistry();
         SubAgentRunner runner = new SubAgentRunner(registry);

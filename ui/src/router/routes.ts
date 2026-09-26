@@ -4,6 +4,7 @@ export const ROUTES = {
   FEATURED_CONVERSATION_DETAIL: "/featured-conversations/:featuredId",
   WORKSPACE: "/workspace",
   WORKSPACE_STRATEGIC_MAP: "/workspace/strategic-map",
+  WORKSPACE_IMPACT_TRIAGE: "/workspace/impact-triage",
   STRATEGIC_TEAM_DETAIL: "/strategic-map/team/:teamId",
   WORKSPACE_MRAG: "/workspace/mrag",
   WORKSPACE_IMAGE_GENERATION: "/workspace/image-generation",

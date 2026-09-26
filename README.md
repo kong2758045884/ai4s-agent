@@ -452,6 +452,14 @@ uv run python -m ai4s_tool.db.db_engine
 
 `SQLITE_DB_PATH` 控制文件服务元数据库位置。默认值为 `autobots.db`，相对路径相对于 `ai4s-tool` 目录。该初始化命令使用 SQLModel 的 `FileInfo` 元数据幂等建表；修改路径后，请先在当前终端设置同名环境变量再执行命令。MRAG 使用的 `SQLITE_PATH` 由对应 Store 在首次使用时自动创建表。
 
+如需导入已有 Hyper-Extract 图谱，在仓库根目录运行：
+
+```powershell
+.\scripts\import-hyper-snapshot.ps1 -ArchivePath 'D:\path\to\Hyper-Extract.zip'
+```
+
+脚本只提取 `ZN/GW` 图谱 JSON 到 `runtime/hyper-snapshot`，不会导入压缩包里的 `.env` 或虚拟环境。Python 服务会自动读取该快照；历史快照支持图谱浏览和搜索，实时扫描任务仍需单独运行兼容的 Hyper 服务。再次导入时加 `-Replace`，旧快照会保留为带时间戳的备份。
+
 ### 4. 启动 Java Backend
 
 在新的终端回到仓库根目录：
@@ -507,5 +515,4 @@ Compose 部署时，`WORKSPACE_ROOT` 应保持为 `/data/skilloutput`，Backend 
 ```text
 你是本仓库的部署代理。请先阅读 README.md、CLAUDE.md 以及相关模块说明，默认使用源码部署，不要默认使用 Docker Compose；只有用户明确要求容器部署时才切换到 Docker。开始前检查 JDK 21、Maven 3.8+、MySQL 8、Python 3.11+、uv、Node.js 18+ 和 pnpm，检查 Git 工作区并保留用户已有改动，禁止 reset、checkout 或覆盖未提交文件。按照 README 的顺序配置并启动 MySQL、ai4s-tool、AI4S-agent-app 和 ui：没有 ai4s-tool/.env 时从 ai4s-tool/.env_template 创建，但不要覆盖已有 .env；首次启动执行 `uv run python -m ai4s_tool.db.db_engine` 初始化 autobots.db；创建或确认 MySQL 数据库后导入 db/schema.sql 和 db/data.sql；使用 application-prod.yml 作为无真实凭证的部署配置，保留源码部署所需的 127.0.0.1 服务地址，不要把 application-dev.yml 中的真实密钥复制到生产配置。只使用用户明确提供的 LLM、搜索、E2B、Qdrant、ES、OCR、对象存储和登录态凭证，绝不能猜测、生成或输出这些凭证；如果缺少 MySQL 密码、LLM_BASE_URL/OPENAI_BASE_URL、OPENAI_API_KEY、模型名或其他必需配置，停止启动并列出变量名、用途和示例格式。先启动 ai4s-tool，再用 `mvn -pl AI4S-agent-app -am package '-Dmaven.test.skip=true'` 构建并启动 Java Backend，最后在 ui 执行 `pnpm install` 和 `pnpm dev`。启动后检查 ai4s-tool、`http://127.0.0.1:8100/web/health` 和 `http://localhost:3000`，失败时读取日志并修复配置后重试。只有健康检查通过、SQLite 初始化完成且没有把敏感信息写入 README、日志或 Git 跟踪文件时，才报告部署成功；最后列出实际执行命令、访问地址、数据库和 SQLite 文件位置、仍未配置的可选能力以及需要用户后续处理的事项。不要修改业务代码或删除数据，除非用户明确授权。
 ```
-
 

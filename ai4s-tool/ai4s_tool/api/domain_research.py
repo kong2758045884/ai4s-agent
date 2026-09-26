@@ -8,11 +8,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import re
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from pydantic import Field
 from typing import Literal
@@ -41,7 +44,7 @@ class Candidate(tr.Schema):
 
 
 class Candidates(tr.Schema):
-    candidates: list[Candidate] = Field(default_factory=list, max_length=24)
+    candidates: list[Candidate] = Field(default_factory=list, max_length=100)
     unresolved: list[str] = Field(default_factory=list)
 
 
@@ -145,9 +148,11 @@ def review_qualification(run, domain, llm, *, seconds=90, cache=None, existing=N
 
 def qualified(run):
     value = run.get('reviewed') or {}
+    leader = value.get('leader') or {}
     return run.get('status') == 'reviewed' and (run.get('qualification_review') or {}).get('version')==2 and value.get('entity_relation') in ('same','rename') and all(
         value.get(k, {}).get('status') == 'verified' and value[k].get('value') and value[k].get('citations')
-        for k in ('team_name','institution_name','concrete_team','domestic','domain_relevance','advantage'))
+        for k in ('team_name','institution_name','concrete_team','domestic','domain_relevance','advantage')) and (
+        leader.get('status') == 'verified' and leader.get('name') and leader.get('citations'))
 
 
 def missing_fields(run):
@@ -184,6 +189,411 @@ def retryable_evidence_gap(run):
     if any(fact.get('status') != 'verified' for fact in facts):
         return True
     return bool(missing_fields(run))
+
+
+_OFFICIAL_RESEARCH_HOST_SUFFIXES = (
+    ".edu.cn",
+    ".ac.cn",
+    ".cas.cn",
+    ".gov.cn",
+    ".org.cn",
+)
+_NON_PERSON_LEADER_VALUES = {
+    "负责制",
+    "联系我们",
+    "领导下",
+    "等组成",
+    "单位为",
+    "委员会",
+    "工作报告",
+    "会议主持",
+    "相关人员",
+}
+
+
+def _official_research_url(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").casefold()
+    except ValueError:
+        return False
+    return bool(host) and (
+        host.endswith(_OFFICIAL_RESEARCH_HOST_SUFFIXES)
+        or host in {"edu.cn", "ac.cn", "cas.cn", "gov.cn", "org.cn"}
+    )
+
+
+def _team_aliases(team_name: str) -> tuple[str, ...]:
+    values = [team_name.strip()]
+    values.extend(
+        item.strip()
+        for item in re.findall(r"[（(]([^）)]+)[）)]", team_name)
+        if len(item.strip()) >= 3
+    )
+    outside = re.sub(r"[（(][^）)]+[）)]", "", team_name).strip()
+    if outside:
+        values.append(outside)
+    return tuple(dict.fromkeys(value for value in values if len(value) >= 3))
+
+
+def _extract_explicit_leader(
+    text: str,
+    *,
+    published_at: str = "",
+) -> dict[str, str] | None:
+    """Extract only an explicitly assigned current team leadership role."""
+    normalized = " ".join(text.split())
+    published_year = next(
+        (
+            int(value)
+            for value in re.findall(r"(?<!\d)(20\d{2})(?!\d)", published_at)
+        ),
+        0,
+    )
+    name_pattern = (
+        r"([\u4e00-\u9fff]{2,4}?(?=研究员|教授|院士|博士|[\s,，。；;（(]|$)|"
+        r"[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){1,3})"
+    )
+    patterns = (
+        (
+            "PI",
+            re.compile(
+                rf"(?i)\b(?:principal investigator|PI)\b\s*[:：]?\s*{name_pattern}"
+            ),
+        ),
+        (
+            "团队负责人",
+            re.compile(
+                rf"(?:现任)?(?:团队负责人|实验室负责人|课题组负责人|课题组长)"
+                rf"\s*(?:为|是|[:：])\s*{name_pattern}"
+            ),
+        ),
+        (
+            "主任",
+            re.compile(
+                rf"(?:现任)?(?:实验室主任|中心主任|主任)"
+                rf"(?!助理|负责制)\s*(?:(?:为|是|[:：])\s*)?{name_pattern}"
+            ),
+        ),
+        (
+            "主任",
+            re.compile(
+                r"(?:现任)?(?:实验室主任|中心主任|主任)(?!助理|负责制)"
+                r"\s*([\u4e00-\u9fff]{2,4})(?=研究员|教授|院士|博士)"
+            ),
+        ),
+        (
+            "主任",
+            re.compile(
+                r"(?:中国(?:科学院|工程院)院士\s*)?"
+                r"([\u4e00-\u9fff]{2,4})"
+                r"(?:院士|研究员|教授|博士)?\s*(?:现任|任|担任)"
+                r"(?:该|本)?(?:实验室主任|中心主任|主任)"
+            ),
+        ),
+    )
+    for role, pattern in patterns:
+        for match in pattern.finditer(normalized):
+            context_prefix = normalized[max(0, match.start() - 80) : match.start()]
+            prefix = context_prefix[-20:]
+            if role == "主任" and re.search(
+                r"(?:学术委员会|委员会|学委会)\s*$",
+                prefix,
+            ):
+                continue
+            if role == "主任" and prefix.endswith("副"):
+                continue
+            years = [
+                int(value)
+                for value in re.findall(r"(?<!\d)(20\d{2})(?!\d)", context_prefix)
+            ]
+            if (
+                years
+                and max(years) < datetime.now(timezone.utc).year - 1
+                and published_year < datetime.now(timezone.utc).year - 1
+                and "现任" not in normalized[max(0, match.start() - 24) : match.end()]
+            ):
+                return None
+            name = re.sub(r"^(?:由|为)", "", match.group(1)).strip()
+            tail = normalized[match.end() : match.end() + 36]
+            chinese = re.match(r"\s*[（(]\s*([\u4e00-\u9fff]{2,4})", tail)
+            if chinese:
+                name = chinese.group(1)
+            if name in _NON_PERSON_LEADER_VALUES:
+                continue
+            quote = normalized[max(0, match.start() - 40) : match.end() + 60]
+            return {"name": name, "role": role, "quote": quote}
+    return None
+
+
+def _leader_near_exact_team(
+    text: str,
+    aliases: tuple[str, ...],
+    *,
+    published_at: str = "",
+) -> dict[str, str] | None:
+    """Find a leadership statement near an exact team-name occurrence."""
+    folded = text.casefold()
+    for alias in aliases:
+        needle = alias.casefold()
+        offset = 0
+        while True:
+            index = folded.find(needle, offset)
+            if index < 0:
+                break
+            leader = _extract_explicit_leader(
+                text[max(0, index - 160) : index + 1200],
+                published_at=published_at,
+            )
+            if leader:
+                return leader
+            offset = index + len(needle)
+    return None
+
+
+def enrich_official_team_leaders(factory, domain_id: str, subdomain_id: str | None) -> int:
+    """Follow exact official team links and persist explicit leadership claims."""
+    from . import strategic_map as sm
+    from .team_research_store import upsert_people
+
+    with factory() as session:
+        query = session.query(sm.StrategicTeamRow).filter_by(
+            domain_id=domain_id,
+            deleted=False,
+        )
+        if subdomain_id:
+            query = query.filter(sm.StrategicTeamRow.subdomain_id == subdomain_id)
+        pending = []
+        for team in query.all():
+            leaders = session.query(sm.StrategicPersonRow).filter_by(
+                team_id=team.id,
+                deleted=False,
+                is_leader=True,
+            ).all()
+            trusted_leader = next(
+                (
+                    person
+                    for person in leaders
+                    if person.verification_status == "verified"
+                    and not (person.source_type or "").startswith("Hyper-Extract")
+                    and any(
+                        str(url).startswith(("http://", "https://"))
+                        for url in (person.source_urls or [])
+                    )
+                ),
+                None,
+            )
+            if trusted_leader:
+                continue
+            for person in leaders:
+                person.is_leader = False
+                if (person.source_type or "").startswith("Hyper-Extract"):
+                    person.role = "关联作者"
+                    person.verification_status = "collected"
+                    person.confidence = min(float(person.confidence or 0), 0.6)
+                    person.last_verified_at = None
+            if leaders:
+                team.leader_confidence = 0
+                sm._update_team_score(session, team)
+            urls = [
+                url
+                for url in dict.fromkeys(
+                    [*(team.source_urls or []), *(team.evidence_urls or [])]
+                )
+                if isinstance(url, str)
+                and url.startswith(("http://", "https://"))
+                and _official_research_url(url)
+            ]
+            pending.append(
+                (
+                    team.id,
+                    team.institution_name or team.name,
+                    team.team_name,
+                    urls,
+                )
+            )
+        session.commit()
+    if not pending:
+        return 0
+
+    source_urls = sorted({url for _, _, _, urls in pending for url in urls})
+    with ThreadPoolExecutor(max_workers=max(1, min(6, len(source_urls)))) as pool:
+        futures = {url: pool.submit(tr.fetch_page, url) for url in source_urls}
+        source_pages = {url: future.result() for url, future in futures.items()}
+
+    discoveries: dict[str, dict[str, str]] = {}
+    detail_requests: dict[str, list[tuple[str, str]]] = {}
+    for team_id, _, team_name, urls in pending:
+        aliases = _team_aliases(team_name)
+        for source_url in urls:
+            page = source_pages.get(source_url) or {}
+            if page.get("status") != "ok":
+                continue
+            for link in page.get("links", []):
+                label = " ".join(str(link.get("label") or "").split())
+                if not any(alias.casefold() in label.casefold() for alias in aliases):
+                    continue
+                leader = _extract_explicit_leader(
+                    label,
+                    published_at=str(page.get("published_at") or ""),
+                )
+                target_url = str(link.get("url") or source_url)
+                if leader:
+                    discoveries[team_id] = {
+                        **leader,
+                        "url": source_url,
+                    }
+                    break
+                target = (team_id, team_name)
+                if target not in detail_requests.setdefault(target_url, []):
+                    detail_requests[target_url].append(target)
+            if team_id in discoveries:
+                break
+            page_text = " ".join(str(page.get("text") or "").split())
+            leader = _leader_near_exact_team(
+                page_text,
+                aliases,
+                published_at=str(page.get("published_at") or ""),
+            )
+            if leader:
+                discoveries[team_id] = {
+                    **leader,
+                    "url": source_url,
+                }
+            if team_id in discoveries:
+                break
+            if any(alias.casefold() in page_text.casefold() for alias in aliases):
+                target = (team_id, team_name)
+                if target not in detail_requests.setdefault(source_url, []):
+                    detail_requests[source_url].append(target)
+
+    if detail_requests:
+        with ThreadPoolExecutor(max_workers=min(6, len(detail_requests))) as pool:
+            futures = {url: pool.submit(tr.fetch_page, url) for url in detail_requests}
+            detail_pages = {url: future.result() for url, future in futures.items()}
+        for url, targets in detail_requests.items():
+            page = detail_pages.get(url) or {}
+            if page.get("status") != "ok":
+                continue
+            text = " ".join(str(page.get("text") or "").split())
+            for team_id, team_name in targets:
+                if team_id in discoveries:
+                    continue
+                leader = _leader_near_exact_team(
+                    text,
+                    _team_aliases(team_name),
+                    published_at=str(page.get("published_at") or ""),
+                )
+                if leader:
+                    discoveries[team_id] = {**leader, "url": url}
+
+    unresolved = [
+        item
+        for item in pending
+        if item[0] not in discoveries
+    ]
+    if unresolved:
+        def official_search(
+            item: tuple[str, str, str, list[str]],
+        ) -> tuple[str, str, list[str]]:
+            team_id, institution_name, team_name, _ = item
+            aliases = _team_aliases(team_name)
+            found: list[str] = []
+            queries = [
+                f'"{team_name}" 主任 {institution_name}',
+                f'"{team_name}" 负责人 PI {institution_name}',
+            ]
+            for query_text in queries:
+                hits = sm._bing_html_search(query_text, max_results=6)
+                if not hits:
+                    hits = sm._duckduckgo_html_search(query_text, max_results=6)
+                for hit in hits:
+                    url = str(hit.get("link") or "")
+                    searchable = " ".join(
+                        (
+                            str(hit.get("title") or ""),
+                            str(hit.get("snippet") or ""),
+                        )
+                    ).casefold()
+                    if (
+                        _official_research_url(url)
+                        and any(alias.casefold() in searchable for alias in aliases)
+                        and url not in found
+                    ):
+                        found.append(url)
+            return team_id, team_name, found[:6]
+
+        with ThreadPoolExecutor(max_workers=min(6, len(unresolved))) as pool:
+            searched = list(pool.map(official_search, unresolved))
+        searched_targets: dict[str, list[tuple[str, str]]] = {}
+        for team_id, team_name, urls in searched:
+            for url in urls:
+                target = (team_id, team_name)
+                if target not in searched_targets.setdefault(url, []):
+                    searched_targets[url].append(target)
+        if searched_targets:
+            with ThreadPoolExecutor(max_workers=min(6, len(searched_targets))) as pool:
+                futures = {url: pool.submit(tr.fetch_page, url) for url in searched_targets}
+                searched_pages = {url: future.result() for url, future in futures.items()}
+            for url, targets in searched_targets.items():
+                page = searched_pages.get(url) or {}
+                if page.get("status") != "ok":
+                    continue
+                text = " ".join(str(page.get("text") or "").split())
+                for team_id, team_name in targets:
+                    if team_id in discoveries:
+                        continue
+                    leader = _leader_near_exact_team(
+                        text,
+                        _team_aliases(team_name),
+                        published_at=str(page.get("published_at") or ""),
+                    )
+                    if leader:
+                        discoveries[team_id] = {**leader, "url": url}
+
+    if not discoveries:
+        return 0
+    with factory() as session:
+        added = 0
+        for team_id, leader in discoveries.items():
+            team = session.get(sm.StrategicTeamRow, team_id)
+            if not team or team.deleted:
+                continue
+            existing = session.query(sm.StrategicPersonRow).filter_by(
+                team_id=team.id,
+                deleted=False,
+                is_leader=True,
+            ).first()
+            if existing:
+                continue
+            upsert_people(
+                session,
+                team,
+                {
+                    "name": leader["name"],
+                    "role": leader["role"],
+                    "bio": "",
+                    "profile_url": leader["url"],
+                    "source_urls": [leader["url"]],
+                    "source_type": "官方团队页面·规则核验",
+                    "verification_status": "verified",
+                    "confidence": 0.95,
+                    "evidence": json.dumps(
+                        {
+                            "url": leader["url"],
+                            "quote": leader["quote"],
+                            "rule": "exact-team-link+explicit-leadership-role",
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+                [],
+            )
+            team.leader_confidence = max(float(team.leader_confidence or 0), 0.95)
+            sm._update_team_score(session, team)
+            team.updated_at = sm._now()
+            added += 1
+        session.commit()
+    return added
 
 
 def persist_duplicates(factory, valid, decision, reviewer):
@@ -249,17 +659,56 @@ def fresh(page):
     return tr.cached_page_usable(page) and 0 <= age < 86400
 
 
+def _prioritize_team_work(work, previous):
+    """Spend a bounded run on fresh and deferred teams before stale rechecks.
+
+    Stable sorting retains the candidate order within a tier. Oldest deferred
+    jobs go first, so a large domain can make progress across daily runs.
+    """
+    def priority(item):
+        old = previous.get(item[0])
+        if not old:
+            return (1, 0)
+        payload = old.get('payload') or {}
+        run = payload.get('run') or {}
+        state = old.get('state')
+        if state != 'complete' and run.get('status') == 'reviewed':
+            tier = 0  # Only the independent qualification may remain.
+        elif state == 'budget_exhausted':
+            tier = 2
+        elif state in ('running', 'failed', 'blocked_provider', 'queued'):
+            tier = 3
+        elif state == 'complete':
+            tier = 5
+        else:
+            tier = 4
+        return (tier, float(old.get('updated') or 0))
+
+    return sorted(work, key=priority)
+
+
 class BatchCache(dict):
     """24h evidence TTL, including original capture time; coalesce concurrent URLs."""
     def __init__(self):
         super().__init__(); self.lock = threading.RLock(); self.url_locks = {}; self.search_results = {}; self.query_locks = {}
-        self.unavailable=None; self.on_failure=None
+        self.unavailable=None; self.on_failure=None; self.transient_failures=0
 
     def trip(self, failure):
         with self.lock:
             if self.unavailable:return
             self.unavailable=failure
             if self.on_failure:self.on_failure(failure)
+
+    def record_transient(self, failure):
+        """Open the shared batch circuit after three consecutive 429/5xx model errors."""
+        with self.lock:
+            self.transient_failures += 1
+            if self.transient_failures >= 3:
+                self.trip({**failure, 'kind': 'transient_circuit_open'})
+
+    def clear_transient(self):
+        with self.lock:
+            self.transient_failures = 0
 
     def search(self, query):
         with self.lock:
@@ -289,36 +738,72 @@ class BatchCache(dict):
             return observed, False
 
 
-def discovery(domain_name, existing, research, rounds=2, scope=None):
+def discovery(
+    domain_name,
+    existing,
+    research,
+    rounds=2,
+    scope=None,
+    graph_seeds=None,
+    coverage_offset=0,
+):
     """LLM plans queries; configured MixSearch yields candidate hints, not facts."""
+    graph_seeds = list(graph_seeds or [])
     hits = []
+
+    def run_search(query, initiator):
+        if query in research.queries or len(research.queries) >= 4:
+            return
+        research.queries.add(query); research.counts['logical_queries'] += 1
+        started=time.monotonic()
+        try:
+            if hasattr(research.cached_pages,'search'):
+                result,reused=research.cached_pages.search(query)
+            else:
+                result,reused=asyncio.run(tr.search_links(query)),False
+            research.counts['search'] += int(not reused);research.counts['search_reuse'] += int(reused)
+            hits.extend(result)
+            research.add_links(result)
+            research.event('search',initiator=initiator,tool='MixSearch',query=query,
+                           seconds=round(time.monotonic()-started,3),results=result,reused=reused)
+        except Exception as exc:
+            research.counts['search'] += 1
+            research.errors.append({'stage':'discovery-search','kind':type(exc).__name__})
+            research.event('search_error',query=query,error=type(exc).__name__,seconds=round(time.monotonic()-started,3))
+
+    existing_institutions={
+        str(item.get('institution_name') or '').strip().casefold()
+        for item in existing
+        if item.get('institution_name')
+    }
+    uncovered_seeds=[
+        seed for seed in graph_seeds
+        if seed.strip().casefold() not in existing_institutions
+    ]
+    subjects=[
+        str(subject).strip()
+        for subject in (scope or {}).get('included_subjects',[])
+        if str(subject).strip()
+    ]
     for index in range(rounds):
         plan = research.call('domain-plan', tr.Plan, {'domain':domain_name,'existing_teams':existing,
             'domain_scope':scope,
+            'graph_seed_institutions':graph_seeds,
             'results':hits,'already_queried':sorted(research.queries),
-            'instruction_detail':'发现中国境内本领域优势具体科研团队，至少8个目标。先根据domain_scope把用户领域拆成不同技术任务和常见学术表达，每轮查询覆盖不同included_subjects；输入词、上位学科和相邻方向不是自动同义词，候选仍须用具体任务原文核实。针对现有缺口找不同具体实验室/研究部/PI团队；不要列整所整校或泛新能源机构。只规划最多2条简短查询，避免重复；不提供预置团队答案。'})
+            'instruction_detail':'发现中国境内本领域全部可检索到的优势具体科研团队，不设置8个或其它固定数量目标。graph_seed_institutions来自Hyper图谱，只能作为优先检索机构线索，不能直接证明其拥有具体团队或优势。先根据domain_scope把用户领域拆成不同技术任务和常见学术表达，每轮查询覆盖不同included_subjects；输入词、上位学科和相邻方向不是自动同义词，候选仍须用具体任务原文核实。针对现有缺口找不同具体实验室/研究部/PI团队；不要列整所整校或泛新能源机构。只规划最多2条简短查询，避免重复；不提供预置团队答案。'})
         for query in plan.queries:
-            if query in research.queries or len(research.queries) >= 4:
-                continue
-            research.queries.add(query); research.counts['logical_queries'] += 1
-            started=time.monotonic()
-            try:
-                if hasattr(research.cached_pages,'search'):
-                    result,reused=research.cached_pages.search(query)
-                else:
-                    result,reused=asyncio.run(tr.search_links(query)),False
-                research.counts['search'] += int(not reused);research.counts['search_reuse'] += int(reused)
-                hits.extend(result)
-                research.add_links(result)
-                research.event('search',initiator='model',tool='MixSearch',query=query,
-                               seconds=round(time.monotonic()-started,3),results=result,reused=reused)
-            except Exception as exc:
-                research.counts['search'] += 1
-                research.errors.append({'stage':'discovery-search','kind':type(exc).__name__})
-                research.event('search_error',query=query,error=type(exc).__name__,seconds=round(time.monotonic()-started,3))
+            run_search(query,'model')
+        coverage_index=coverage_offset+index
+        if coverage_index<len(uncovered_seeds):
+            seed=uncovered_seeds[coverage_index]
+            run_search(f'"{seed}" "{domain_name}" 实验室 研究组 团队','graph-seed')
+        if subjects:
+            subject=subjects[coverage_index%len(subjects)]
+            run_search(f'"{subject}" 中国 实验室 研究组 团队','scope-coverage')
     value=research.call('domain-candidates',Candidates,{'domain':domain_name,'existing_teams':existing,'search_results':hits,
         'domain_scope':scope,
-        'instruction_detail':'仅从检索结果提出有明确名称的具体团队及机构，合并同一实体的别名/重复。不要重复existing_teams，不把机构作为团队，不用记忆补名单。concrete_team_named只在标题或摘要明确提到具体实验室/科研组/研究部/PI团队时为true，并在name_evidence逐字引用该标题/摘要；没有具体名称不能编造“研究团队”占位。source_urls只能取实际检索URL。目标12个候选以应对过滤，来源不足就少返回，绝不填充模糊机构。后续仍需正文独立核验，这里仅为命名线索。'})
+        'graph_seed_institutions':graph_seeds,
+        'instruction_detail':'仅从检索结果提出有明确名称的具体团队及机构，返回本轮命中且满足命名证据要求的全部候选，不设置固定数量上限；合并同一实体的别名/重复。不要重复existing_teams，不把机构作为团队，不用记忆补名单。concrete_team_named只在标题或摘要明确提到具体实验室/科研组/研究部/PI团队时为true，并在name_evidence逐字引用该标题/摘要；没有具体名称不能编造“研究团队”占位。source_urls只能取实际检索URL。来源不足就少返回，绝不填充模糊机构。后续仍需正文独立核验，这里仅为命名线索。'})
     allowed={h['url'] for h in hits}
     candidates=[]
     for c in value.candidates:
@@ -326,18 +811,28 @@ def discovery(domain_name, existing, research, rounds=2, scope=None):
         cited=bool(item['name_evidence']) and all(any(h['url']==cite['url'] and
             ''.join(cite['quote'].split()) in ''.join((h.get('label','')+' '+h.get('snippet','')).split())
             and len(''.join(cite['quote'].split()))>=2 for h in hits) for cite in item['name_evidence'])
-        if item['source_urls'] and item['concrete_team_named'] and cited:
+        normalized_name=''.join(item['team_name'].split()).casefold()
+        name_in_result=bool(normalized_name) and any(
+            hit['url'] in item['source_urls']
+            and normalized_name in ''.join((hit.get('label','')+' '+hit.get('snippet','')).split()).casefold()
+            for hit in hits
+        )
+        if item['source_urls'] and item['concrete_team_named'] and (cited or name_in_result):
             candidates.append(item)
         else:
             research.event('candidate_deferred',candidate=item,reason='缺少可核对的具体团队命名线索；未消耗逐队调查预算')
     return candidates
 
 
-def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
+def sync_domain(session, domain, *, subdomain=None, seconds=2400, team_seconds=210, workers=2):
     from . import strategic_map as sm
     from .team_research_store import history, persist, append_history, apply_reviewed_run
     started=time.monotonic(); deadline=started+seconds
-    domain_id,domain_name=domain.id,domain.name
+    domain_id,root_domain_name=domain.id,domain.name
+    subdomain_id=subdomain.id if subdomain is not None else None
+    domain_name=subdomain.name if subdomain is not None else root_domain_name
+    scope_key='domain:'+domain_id+(f':{subdomain_id}' if subdomain_id else '')
+    scope_job_id='scope:'+domain_id+(f':{subdomain_id}' if subdomain_id else '')
     engine=session.get_bind(); factory=sessionmaker(bind=engine,expire_on_commit=False)
     session.commit()
     # Serialize first-use DDL too: two domains may start in different workers.
@@ -346,20 +841,80 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
         connection.exec_driver_sql('BEGIN IMMEDIATE')
         META.create_all(connection); HISTORY.create(connection,checkfirst=True)
         connection.commit()
-    with factory() as check:
-        circuit=check.execute(select(JOBS).where(JOBS.c.id=='provider:shared-agent')).mappings().first()
-        if circuit and circuit['state']=='blocked_provider' and time.time()-circuit['updated']<300:
-            raise sm._SyncQualityError('原模型服务不可用（'+str(circuit['payload'].get('provider_code','authorization'))+'）；已保留进度，5分钟内不重复调用')
     owner=uuid.uuid4().hex; key='domain:'+domain_id
     if not acquire(factory,key,owner,seconds+300):
         raise sm._SyncQualityError('该领域正在处理，未重复执行；请稍后读取已有结果')
     cache=BatchCache(); results=[]; discovered=[]; discovery_run=None; scope_run=None
-    cache.on_failure=lambda failure:save_job(factory,'provider:shared-agent',None,None,'blocked_provider',failure)
     try:
+        from .strategic_graph import graph_institution_seeds
+        graph_seeds = graph_institution_seeds(root_domain_name, domain_name if subdomain_id else "", limit=None)
+    except Exception:
+        graph_seeds = []
+    from .triage_discovery import institution_seeds
+    graph_seeds = list(dict.fromkeys([
+        *institution_seeds(domain_id, domain_name if subdomain_id else ""), *graph_seeds,
+    ]))
+    cache.on_failure=lambda failure:save_job(factory,'provider:shared-agent',None,None,'blocked_provider',failure)
+    official_leader_count = 0
+    try:
+        from . import official_team_directory
+        from . import team_enrichment
+        directory_summary = official_team_directory.sync(session, domain, subdomain)
+        official_leader_count = enrich_official_team_leaders(
+            factory, domain_id, subdomain_id,
+        )
+        # Generic per-team enrichment: covers teams that no directory adapter
+        # matches yet (e.g. a brand-new sub-domain), by fetching each team's
+        # official URL and running the shared roster extractors.
+        enrichment_summary = team_enrichment.enrich_teams(
+            factory, only_missing=True, domain_id=domain_id, subdomain_id=subdomain_id,
+            deadline=min(deadline - team_seconds - 180, time.monotonic() + min(300, seconds * 0.2)),
+        )
+        session.expire_all()
+        if not sm._llm_config():
+            query = session.query(sm.StrategicTeamRow).filter_by(domain_id=domain_id, deleted=False)
+            if subdomain_id:
+                query = query.filter_by(subdomain_id=subdomain_id)
+            current = query.all()
+            people = [sm._team_people(session, row.id) for row in current]
+            summary = {
+                "provider": "官方课题组目录", "pipeline": "official-directory→incremental",
+                **directory_summary, "teamCount": len(current), "namedTeamCount": len(current),
+                "leaderCount": sum(bool(heads) for heads, _ in people),
+                "officialLeaderCount": official_leader_count,
+                "memberTeamCount": sum(bool(members) for _, members in people),
+                "memberCount": sum(len(members) for _, members in people),
+                "genericLeadersAdded": enrichment_summary["leaders_added"],
+                "genericMembersAdded": enrichment_summary["members_added"],
+                "seconds": round(time.monotonic()-started, 3),
+                "updatedAt": sm._now().isoformat(), "incompleteReason": "model_not_configured",
+            }
+            session.commit()
+            save_job(factory, scope_key, domain_id, None, "incomplete", summary)
+            raise sm._SyncQualityError(
+                f'{domain_name} 已保存 {len(current)} 个团队；官方目录本轮新增 '
+                f'{directory_summary["directoryCreated"]} 个、补充 '
+                f'{directory_summary["directoryMembers"]} 条成员资料。'
+                '模型服务未配置，深度联网调查尚未完成；已保存资料可立即查看'
+            )
+        with factory() as check:
+            circuit=check.execute(select(JOBS).where(JOBS.c.id=='provider:shared-agent')).mappings().first()
+            if circuit and circuit['state']=='blocked_provider' and time.time()-circuit['updated']<300:
+                raise sm._SyncQualityError(
+                    '官方团队页已完成增量核验；原模型服务不可用（'
+                    +str(circuit['payload'].get('provider_code','authorization'))
+                    +'），5分钟内不重复调用'
+                )
         with factory() as s:
-            rows=s.query(sm.StrategicTeamRow).filter_by(domain_id=domain_id,deleted=False).all()
+            query=s.query(sm.StrategicTeamRow).filter_by(domain_id=domain_id,deleted=False)
+            if subdomain_id:
+                query=query.filter(sm.StrategicTeamRow.subdomain_id==subdomain_id)
+            rows=query.all()
             rows.sort(key=lambda r:(r.verification_status!='conflict',bool(r.leader_confidence),bool(r.description),bool(r.research_directions)))
             previous={r['team_id']:dict(r) for r in s.execute(select(JOBS).where(JOBS.c.domain_id==domain_id)).mappings() if r['team_id']}
+            if subdomain_id:
+                scoped_ids={row.id for row in rows}
+                previous={team_id:job for team_id,job in previous.items() if team_id in scoped_ids}
             work=[]
             for row in rows:
                 context=tr.public_context(sm._research_existing(s,row))
@@ -387,12 +942,11 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                         results.append({'team_id':team_id,'state':'reused_complete','run':job['payload']['run']})
                     else:
                         work.append((team_id,job['payload']['context']))
-            # A source-contract upgrade needs only the independent check, not
-            # another network investigation. Finish these cheap saved steps first.
-            work.sort(key=lambda item: not ((previous.get(item[0],{}).get('payload',{}).get('run') or {}).get('status')=='reviewed'))
+            # Order the full queue after discovery below: fresh candidates and
+            # never-attempted backlog must not trail stale completed rechecks.
 
         with factory() as s:
-            scope_job=s.execute(select(JOBS).where(JOBS.c.id=='scope:'+domain_id)).mappings().first()
+            scope_job=s.execute(select(JOBS).where(JOBS.c.id==scope_job_id)).mappings().first()
         scope=None
         if scope_job and scope_job['payload'].get('domain_name')==domain_name and time.time()-scope_job['updated']<86400:
             scope=scope_job['payload']['scope']
@@ -401,7 +955,7 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
             try:
                 scope=planner.call('domain-scope',DomainScope,{'input_domain':domain_name,
                     'instruction_detail':'在看到任何候选之前，解释用户输入学科的准确范围。给出核心研究对象、应纳入的研究内容、仅相邻但不足以纳入的方向及必须提供的联系证据。不能把具体下位领域泛化为整个上位大类；不要推荐团队/机构/URL，不编造团队事实。这是检索定义，不是团队优势评价。'}).model_dump()
-                save_job(factory,'scope:'+domain_id,domain_id,None,'complete',{'domain_name':domain_name,'scope':scope})
+                save_job(factory,scope_job_id,domain_id,None,'complete',{'domain_name':domain_name,'scope':scope})
             except Exception as exc:
                 planner.errors.append({'stage':'domain-scope','kind':type(exc).__name__})
             scope_run={'trace':planner.trace,'counts':planner.counts,'errors':planner.errors}
@@ -416,8 +970,16 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 return {'team_id':team_id,'state':'blocked_provider'}
             remaining=deadline-time.monotonic()
             if remaining < 105:
-                prior = previous.get(team_id, {}).get('payload', {})
-                save_job(factory,job_id,domain_id,team_id,'budget_exhausted',{**prior,'context':context,'reason':'领域预算不足以启动单团队'})
+                old = previous.get(team_id)
+                # A deferred recheck is not a failed investigation. Preserve
+                # an earlier reviewed/complete job, its evidence and timestamp.
+                # New or explicitly queued candidates still get a durable
+                # budget marker for the next run.
+                if not old or old['state'] == 'queued':
+                    prior = (old or {}).get('payload') or {}
+                    save_job(factory,job_id,domain_id,team_id,'budget_exhausted',{
+                        **prior,'context':context,'reason':'领域预算不足以启动单团队',
+                    })
                 return {'team_id':team_id,'state':'budget_exhausted'}
             token=uuid.uuid4().hex
             if not acquire(factory,'team:'+team_id,token,min(team_seconds,remaining)+90):
@@ -434,6 +996,23 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                     run=old['payload']['run']
                 else:
                     run=research.run(context,domain_name)
+                if run.get('status') == 'collected' and run.get('extracted') and deadline-time.monotonic()>30:
+                    run=tr.review_cached_result(
+                        run,
+                        context,
+                        domain_name,
+                        sm._shared_agent_llm_text,
+                    )
+                if run.get('status') == 'reviewed' and deadline-time.monotonic()>15:
+                    run=review_qualification(
+                        run,
+                        domain_name,
+                        sm._shared_agent_llm_text,
+                        seconds=min(90, max(15, int(deadline-time.monotonic()))),
+                        cache=cache,
+                        existing=context,
+                        scope=scope,
+                    )
                 storage_started=time.monotonic()
                 with factory() as s:
                     s.execute(text('BEGIN IMMEDIATE'))
@@ -450,18 +1029,22 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                         from .team_research_store import collected_identity
                         if row is None and run.get('extracted') and collected_identity(run):
                             value=run['extracted']
-                            row=sm.StrategicTeamRow(id=team_id,domain_id=domain_id,
+                            row=sm.StrategicTeamRow(id=team_id,domain_id=domain_id,subdomain_id=subdomain_id,
                                 name=value['institution_name']['value'],institution_name=value['institution_name']['value'],
                                 team_name=value['team_name']['value'])
                             s.add(row);s.flush()
                             published=persist(s,row,run)
                         elif row is None and qualified(run):
-                            published=apply_reviewed_run(s,team_id,run,allowed_domains={domain_name},domain_id=domain_id)
+                            published=apply_reviewed_run(s,team_id,run,allowed_domains={root_domain_name},domain_id=domain_id)
+                            if published and subdomain_id:
+                                s.get(sm.StrategicTeamRow,team_id).subdomain_id=subdomain_id
                         else:
                             published=bool(row is not None and persist(s,row,run))
                             if row is None: append_history(s,team_id,'pending',{'run':run,'published':False})
                         s.commit()
-                        state='blocked_provider' if cache.unavailable else ('complete' if published else 'no_new_data')
+                        state='blocked_provider' if cache.unavailable else (
+                            'complete' if published and qualified(run) else
+                            'needs_review' if published else 'no_new_data')
                 storage_seconds=round(time.monotonic()-storage_started,3)
                 save_job(factory,job_id,domain_id,team_id,state,{'context':context,'run':run,
                     'missing_fields':missing_fields(run)})
@@ -483,17 +1066,28 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 futures=[pool.submit(process,item,time.monotonic()) for item in work]
                 for future in as_completed(futures): results.append(future.result())
 
-        batch(work)
         discovery_runs=[]
         attempted=[context for _,context in work]
-        for discovery_round in range(2):
-            if cache.unavailable or sum(qualified(r.get('run',{})) for r in results)>=8 or deadline-time.monotonic()<=300:
+        discovered_work=[]
+        max_discovery_rounds=max(1,min(12,int(os.getenv('STRATEGIC_MAP_DISCOVERY_ROUNDS','6'))))
+        max_stagnant_rounds=max(1,min(4,int(os.getenv('STRATEGIC_MAP_DISCOVERY_STAGNANT_ROUNDS','2'))))
+        stagnant_rounds=0
+        for discovery_round in range(max_discovery_rounds):
+            if cache.unavailable or deadline-time.monotonic()<=max(180,team_seconds+60):
                 break
-            research=tr.Research(sm._shared_agent_llm_text,seconds=min(300,int(deadline-time.monotonic())),cached_pages=cache)
+            research=tr.Research(sm._shared_agent_llm_text,seconds=min(180,int(deadline-time.monotonic()-120)),cached_pages=cache)
             existing=[{'institution_name':r.institution_name,'team_name':r.team_name} for r in rows]+[
                 {'institution_name':c['institution_name'],'team_name':c['team_name']} for c in attempted]
+            more=[]
             try:
-                candidates=discovery(domain_name,existing,research,scope=scope)
+                candidates=discovery(
+                    domain_name,
+                    existing,
+                    research,
+                    scope=scope,
+                    graph_seeds=graph_seeds,
+                    coverage_offset=discovery_round*2,
+                )
                 discovered.extend(candidates)
                 known={sm._canonical_team_key(c['institution_name'],c['team_name']) for c in existing}
                 more=[]
@@ -506,10 +1100,42 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                     save_job(factory,team_id,domain_id,team_id,'queued',{'context':context})
                     more.append((team_id,context))
                     attempted.append(context)
-                batch(more)
+                if more:
+                    with factory() as s:
+                        s.execute(text('BEGIN IMMEDIATE'))
+                        for team_id,context in more:
+                            row=s.get(sm.StrategicTeamRow,team_id)
+                            if row is None:
+                                row=sm.StrategicTeamRow(
+                                    id=team_id,
+                                    domain_id=domain_id,
+                                    subdomain_id=subdomain_id,
+                                    name=context['institution_name'],
+                                    institution_name=context['institution_name'],
+                                    team_name=context['team_name'],
+                                )
+                                s.add(row)
+                            if row.verification_status not in ('verified','conflict','duplicate','out_of_scope'):
+                                urls=list(dict.fromkeys([*(row.source_urls or []),*context.get('source_urls',[])]))
+                                row.deleted=False
+                                row.subdomain_id=subdomain_id or row.subdomain_id
+                                row.source='公开检索命名线索'
+                                row.source_urls=urls
+                                row.evidence_urls=list(dict.fromkeys([*(row.evidence_urls or []),*urls]))
+                                row.evidence_summary='检索结果已明确命名该具体团队；负责人、领域优势与正文证据待逐队核验。'
+                                row.verification_status='collected'
+                                row.team_confidence=max(float(row.team_confidence or 0),0.3)
+                                row.updated_at=sm._now()
+                                sm._update_team_score(s,row)
+                        s.commit()
+                    discovered_work.extend(more)
             except Exception as exc:
                 research.errors.append({'stage':'discovery','kind':type(exc).__name__})
             discovery_runs.append({'round':discovery_round+1,'trace':research.trace,'counts':research.counts,'errors':research.errors})
+            stagnant_rounds=0 if more else stagnant_rounds+1
+            if stagnant_rounds>=max_stagnant_rounds:
+                break
+        batch(_prioritize_team_work([*work,*discovered_work], previous))
         if discovery_runs:
             discovery_run={'rounds':discovery_runs,'candidates':discovered}
         # Independent semantic alias review, never count different labels twice.
@@ -528,28 +1154,45 @@ def sync_domain(session, domain, *, seconds=2400, team_seconds=210, workers=2):
                 dedupe_run={'decision':decision,'trace':reviewer.trace,'counts':reviewer.counts,'errors':reviewer.errors}
             except Exception as exc:
                 dedupe_run={'error':type(exc).__name__,'counts':reviewer.counts,'errors':reviewer.errors}
-        qualified_ids=[r['team_id'] for r in results if r['state'] in ('complete','reused_complete')]
-        count=len(set(qualified_ids))
+        qualified_ids=[r['team_id'] for r in results if r['state'] in ('complete','reused_complete') and qualified(r.get('run',{}))]
         with factory() as s:
-            published_people=[sm._team_people(s,i) for i in qualified_ids]
+            published_query=s.query(sm.StrategicTeamRow).filter_by(domain_id=domain_id,deleted=False)
+            if subdomain_id:
+                published_query=published_query.filter(sm.StrategicTeamRow.subdomain_id==subdomain_id)
+            published_ids=[row.id for row in published_query.all()]
+            published_people=[sm._team_people(s,i) for i in published_ids]
+        count=len(set(published_ids))
         summary={'provider':'公开来源','pipeline':'resumable-domain→team-evidence→incremental',
+            **directory_summary,
             'teamCount':count,'namedTeamCount':count,'candidateCount':len(results),'reportCount':0,
             'leaderCount':sum(bool(leaders) for leaders,members in published_people),
+            'officialLeaderCount':official_leader_count,
             'memberTeamCount':sum(bool(members) for leader,members in published_people),
             'memberCount':sum(len(members) for leader,members in published_people),
             'pendingCount':sum(r['state'] not in ('complete','reused_complete','duplicate') for r in results),
+            'deferredCount':sum(r['state']=='budget_exhausted' for r in results),
             'duplicateCount':sum(r['state']=='duplicate' for r in results),
             'seconds':round(time.monotonic()-started,3),'results':results,'discovery':discovery_run,'deduplication':dedupe_run,
-            'scope':scope,'scope_run':scope_run,
+            'scope':scope,'scope_run':scope_run,'graphSeeds':graph_seeds,
             'updatedAt':sm._now().isoformat()}
         dedupe_complete = len(valid)<2 or bool(dedupe_run and 'decision' in dedupe_run)
         summary['deduplicationComplete']=dedupe_complete
-        incomplete = count<8 or not dedupe_complete or any(r['state'] in ('failed','budget_exhausted','busy','concurrent_change','blocked_provider') for r in results)
-        save_job(factory,'domain:'+domain_id,domain_id,None,'incomplete' if incomplete else 'complete',summary)
+        discovery_failed = any(
+            round_run.get('errors') for round_run in discovery_runs
+        ) or bool((scope_run or {}).get('errors'))
+        incomplete = (
+            not dedupe_complete
+            or discovery_failed
+            or (not results and not discovered)
+            or any(r['state'] not in ('complete','reused_complete','duplicate') for r in results)
+        )
+        save_job(factory,scope_key,domain_id,None,'incomplete' if incomplete else 'complete',summary)
         session.expire_all()
         if incomplete:
             provider_reason=('；原模型服务不可用：'+str(cache.unavailable.get('provider_code','authorization'))) if cache.unavailable else ''
-            raise sm._SyncQualityError(f'{domain_name} 已保存本轮 {count} 个团队的资料，部分资料获取尚未完成{provider_reason}；已有数据保持展示')
+            deferred_reason=(f'；{summary["deferredCount"]} 个团队因本轮时间预算待下轮继续'
+                if summary['deferredCount'] else '')
+            raise sm._SyncQualityError(f'{domain_name} 已保存本轮 {count} 个团队的资料，部分资料获取尚未完成{deferred_reason}{provider_reason}；已有数据保持展示')
         return {k:v for k,v in summary.items() if k not in ('results','discovery','deduplication','scope','scope_run')}
     finally:
         release(factory,key,owner)

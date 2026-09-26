@@ -68,6 +68,22 @@ function Test-ProcessAlive([int]$processId) {
     return $null -ne (Get-ProcessInfo $processId)
 }
 
+function Test-BootJar([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($path)
+        try {
+            return $null -ne $archive.GetEntry('org/springframework/boot/loader/launch/JarLauncher.class') -and
+                $null -ne $archive.GetEntry('BOOT-INF/classes/org/wwz/ai/Application.class')
+        } finally {
+            $archive.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
 function Test-ProjectProcess([int]$processId, [string]$marker) {
     # A Uvicorn worker may run from uv's managed Python path. Follow its parent
     # chain so we can still identify it without touching unrelated Python apps.
@@ -275,8 +291,8 @@ if ([string]::IsNullOrWhiteSpace($mysqlUser)) { $mysqlUser = 'root' }
 
 Ensure-MySql $mysqlHost $mysqlPortValue $mysqlDatabase $mysqlUser $mysqlPassword
 
-# Build the executable automatically when it is missing or older than source.
-$buildRequired = -not (Test-Path $jar)
+# Build the executable automatically when it is missing, invalid or older than source.
+$buildRequired = -not (Test-BootJar $jar)
 if (-not $buildRequired) {
     $jarTime = (Get-Item $jar).LastWriteTime
     $buildInputs = @((Get-Item (Join-Path $root 'pom.xml')))
@@ -290,6 +306,27 @@ if (-not $buildRequired) {
 }
 
 if ($buildRequired) {
+    $javaBeforeBuild = Get-Listener $javaPort
+    if ($javaBeforeBuild) {
+        $runningJavaPid = [int]$javaBeforeBuild.OwningProcess
+        if (-not (Test-ProjectProcess $runningJavaPid $jar)) {
+            Fail-Service 'Java 构建' "端口 $javaPort 被其他进程占用（PID $runningJavaPid），不会改写正在使用的 JAR"
+        }
+        if ($env:AI4S_RESTART_JAVA_FOR_CHANGES -ne '1') {
+            throw "Java 源码比运行中的 JAR 新；为避免 Windows 文件锁破坏 JAR，保留当前服务。确认无进行中的任务后，设置 AI4S_RESTART_JAVA_FOR_CHANGES=1 再运行本脚本。"
+        }
+        Write-Host "停止本项目 Java PID $runningJavaPid 后构建新版本。"
+        Stop-ProcessTree $runningJavaPid
+        $deadline = (Get-Date).AddSeconds(10)
+        while ((Get-Listener $javaPort) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+        if (Get-Listener $javaPort) {
+            Fail-Service 'Java 构建' "旧项目进程未退出，端口 $javaPort 仍被占用"
+        }
+    }
+    $lastGoodJar = Join-Path $logRoot 'AI4S-agent-app.last-good.jar'
+    if (Test-BootJar $jar) {
+        Copy-Item -LiteralPath $jar -Destination $lastGoodJar -Force
+    }
     Write-Host 'Java JAR 不存在或已过期，开始构建 AI4S-agent-app（首次可能需要约 1-2 分钟）...'
     Remove-Item $buildLog, $buildErrorLog -Force -ErrorAction SilentlyContinue
     $mvn = Get-Command mvn.cmd -ErrorAction SilentlyContinue
@@ -298,7 +335,11 @@ if ($buildRequired) {
     $buildProcess = Start-Process -FilePath $mvn.Source -WorkingDirectory $root -ArgumentList @(
         '-pl', 'AI4S-agent-app', '-am', 'package', '-Dmaven.test.skip=true'
     ) -RedirectStandardOutput $buildLog -RedirectStandardError $buildErrorLog -WindowStyle Hidden -Wait -PassThru
-    if ($buildProcess.ExitCode -ne 0 -or -not (Test-Path $jar)) {
+    if ($buildProcess.ExitCode -ne 0 -or -not (Test-BootJar $jar)) {
+        if (Test-BootJar $lastGoodJar) {
+            Copy-Item -LiteralPath $lastGoodJar -Destination $jar -Force
+            Write-Host "[WARN] 构建失败，已恢复上一版可运行 JAR: $jar" -ForegroundColor Yellow
+        }
         Fail-Service 'Java 构建' "Maven 退出码 $($buildProcess.ExitCode)" @($buildLog, $buildErrorLog)
     }
     Write-Host "[PASS] Java 构建完成: $jar"
@@ -412,41 +453,45 @@ Write-Host "[PASS] ai4s-tool HTTP API http://127.0.0.1:$toolPort/v1/strategic-ma
 
 # MRAG's OpenAI-compatible embedding client has its own environment variable
 # names. The fallback above makes the local .env usable without duplicating a
-# working DashScope URL and key; exercise the real endpoint before declaring
-# the Python backend ready.
-$embeddingReady = Wait-ToolEmbeddingReady $toolPort 45
-if (-not $embeddingReady.Ready -and $toolListener -and (-not $toolOpenApiMatches) -and (Test-ProjectProcess $toolPid $toolRoot)) {
-    # A server started by an older copy of this script may still have the
-    # broken empty TEXT_EMBEDDING_* environment. Restart only this project's
-    # process once so the fallback values above take effect.
-    Write-Host "ai4s-tool embedding readiness failed; restarting the project process to apply current embedding configuration."
-    $toolRootPid = if (Test-ProjectProcess $toolPid $toolRoot) { Get-ProjectRootPid $toolPid $toolRoot } else { $toolPid }
-    Stop-ProcessTree $toolRootPid
-    $deadline = (Get-Date).AddSeconds(10)
-    while ((Get-Listener $toolPort) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
-    if (Get-Listener $toolPort) {
-        Fail-Service 'ai4s-tool' "旧项目进程无法退出，端口 $toolPort 仍被占用" @($toolStdoutLog, $toolStderrLog)
-    }
-    Remove-Item $toolStdoutLog, $toolStderrLog -Force -ErrorAction SilentlyContinue
-    $toolProcess = Start-Process -FilePath $pythonExe -WorkingDirectory $toolRoot -ArgumentList @(
-        'server.py', '--host', '127.0.0.1', '--port', "$toolPort", '--workers', '1', '--role', 'all'
-    ) -RedirectStandardOutput $toolStdoutLog -RedirectStandardError $toolStderrLog -WindowStyle Hidden -PassThru
-    Write-Host "Restarted ai4s-tool (PID $($toolProcess.Id), WorkingDirectory $toolRoot)."
-    $embeddingReady = Wait-ToolEmbeddingReady $toolPort 45
-}
-if (-not $embeddingReady.Ready) {
-    if ($toolOpenApiMatches) {
-        # An already-running tool process may have been created by an older
-        # shell with empty TEXT_EMBEDDING_* variables. Its core routes are
-        # healthy; embedding depends on the optional external provider and is
-        # reported without blocking Java/tool startup.
-        Write-Host "[WARN] ai4s-tool embedding API 当前不可用: $($embeddingReady.LastError)" -ForegroundColor Yellow
-        Write-Host "       这是可选外部向量服务；核心 Tool/文件/战略地图/代码执行路由仍继续检查。" -ForegroundColor Yellow
-    } else {
-        Fail-Service 'ai4s-tool embedding API' "真实 embedding API 未就绪: $($embeddingReady.LastError)" @($toolStdoutLog, $toolStderrLog, (Join-Path $toolRoot 'logs\server.log'))
-    }
+# working DashScope URL and key. A Java-only restart can skip the external
+# embedding call when the already-running Python process passed core readiness.
+if ($env:AI4S_SKIP_EMBEDDING_HEALTH -eq '1' -and $toolOpenApiReady.Ready -and $toolApiReady.Ready) {
+    Write-Host '[SKIP] ai4s-tool 已通过 OpenAPI 与战略地图检查；按要求跳过可能计费的 embedding 调用。'
 } else {
-    Write-Host "[PASS] ai4s-tool embedding API http://127.0.0.1:$toolPort/v1/tool/embedding/text"
+    $embeddingReady = Wait-ToolEmbeddingReady $toolPort 45
+    if (-not $embeddingReady.Ready -and $toolListener -and (-not $toolOpenApiMatches) -and (Test-ProjectProcess $toolPid $toolRoot)) {
+        # A server started by an older copy of this script may still have the
+        # broken empty TEXT_EMBEDDING_* environment. Restart only this project's
+        # process once so the fallback values above take effect.
+        Write-Host "ai4s-tool embedding readiness failed; restarting the project process to apply current embedding configuration."
+        $toolRootPid = if (Test-ProjectProcess $toolPid $toolRoot) { Get-ProjectRootPid $toolPid $toolRoot } else { $toolPid }
+        Stop-ProcessTree $toolRootPid
+        $deadline = (Get-Date).AddSeconds(10)
+        while ((Get-Listener $toolPort) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+        if (Get-Listener $toolPort) {
+            Fail-Service 'ai4s-tool' "旧项目进程无法退出，端口 $toolPort 仍被占用" @($toolStdoutLog, $toolStderrLog)
+        }
+        Remove-Item $toolStdoutLog, $toolStderrLog -Force -ErrorAction SilentlyContinue
+        $toolProcess = Start-Process -FilePath $pythonExe -WorkingDirectory $toolRoot -ArgumentList @(
+            'server.py', '--host', '127.0.0.1', '--port', "$toolPort", '--workers', '1', '--role', 'all'
+        ) -RedirectStandardOutput $toolStdoutLog -RedirectStandardError $toolStderrLog -WindowStyle Hidden -PassThru
+        Write-Host "Restarted ai4s-tool (PID $($toolProcess.Id), WorkingDirectory $toolRoot)."
+        $embeddingReady = Wait-ToolEmbeddingReady $toolPort 45
+    }
+    if (-not $embeddingReady.Ready) {
+        if ($toolOpenApiMatches) {
+            # An already-running tool process may have been created by an older
+            # shell with empty TEXT_EMBEDDING_* variables. Its core routes are
+            # healthy; embedding depends on the optional external provider and is
+            # reported without blocking Java/tool startup.
+            Write-Host "[WARN] ai4s-tool embedding API 当前不可用: $($embeddingReady.LastError)" -ForegroundColor Yellow
+            Write-Host "       这是可选外部向量服务；核心 Tool/文件/战略地图/代码执行路由仍继续检查。" -ForegroundColor Yellow
+        } else {
+            Fail-Service 'ai4s-tool embedding API' "真实 embedding API 未就绪: $($embeddingReady.LastError)" @($toolStdoutLog, $toolStderrLog, (Join-Path $toolRoot 'logs\server.log'))
+        }
+    } else {
+        Write-Host "[PASS] ai4s-tool embedding API http://127.0.0.1:$toolPort/v1/tool/embedding/text"
+    }
 }
 
 # Spring Boot local development overrides. The production YAML is still used
@@ -462,6 +507,22 @@ $env:SPRING_DATASOURCE_MYSQL_USERNAME = $mysqlUser
 $env:SPRING_DATASOURCE_MYSQL_PASSWORD = $mysqlPassword
 $env:SPRING_DATASOURCE_QUERY_USERNAME = $mysqlUser
 $env:SPRING_DATASOURCE_QUERY_PASSWORD = $mysqlPassword
+# Windows PowerShell honors the user's local system proxy, while the Java
+# WebFetch client does not automatically inherit that setting. Prefer an
+# explicit project setting; otherwise reuse a local loopback proxy so known
+# primary-source URLs remain reachable during research.
+if ([string]::IsNullOrWhiteSpace($env:AI4S_WEB_FETCH_PROXY)) {
+    $configuredWebFetchProxy = Get-DotEnvValue 'AI4S_WEB_FETCH_PROXY'
+    if (-not [string]::IsNullOrWhiteSpace($configuredWebFetchProxy)) {
+        $env:AI4S_WEB_FETCH_PROXY = $configuredWebFetchProxy
+    } else {
+        $internetSettings = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue
+        if ($internetSettings.ProxyEnable -eq 1 -and
+            $internetSettings.ProxyServer -match '^(127\.0\.0\.1|localhost):([0-9]{1,5})$') {
+            $env:AI4S_WEB_FETCH_PROXY = "http://$($internetSettings.ProxyServer)"
+        }
+    }
+}
 # application-prod.yml owns the complete JDBC URL. Only credentials are
 # injected here; putting the ampersand-rich URL in a Windows environment
 # variable makes Spring's relaxed binding split it on some JDK/PowerShell

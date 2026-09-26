@@ -4,6 +4,7 @@ import {
 } from "./routes";
 
 export type StrategicMapRoute = "home" | "workspace";
+export type StrategicMapWorkspaceMode = "recommend" | "teams" | "graph" | "intelligence";
 
 export type StrategicMapScrollState = {
   page: number;
@@ -15,6 +16,8 @@ export type StrategicMapScrollState = {
 
 export type StrategicMapNavigationContext = {
   route: StrategicMapRoute;
+  mode?: StrategicMapWorkspaceMode;
+  recommendAcrossDomains?: boolean;
   domainId: string;
   subdomainId: string;
   teamId: string;
@@ -25,6 +28,8 @@ export type StrategicMapNavigationContext = {
 
 const PARAMS = {
   view: "view",
+  mode: "smMode",
+  recommendAcrossDomains: "smAll",
   domainId: "smDomain",
   subdomainId: "smSubdomain",
   teamId: "smTeam",
@@ -59,6 +64,8 @@ function appendSelectionParams(
   params: URLSearchParams,
   context: StrategicMapNavigationContext,
 ) {
+  if (context.mode) params.set(PARAMS.mode, context.mode);
+  if (context.recommendAcrossDomains) params.set(PARAMS.recommendAcrossDomains, "1");
   if (context.domainId) params.set(PARAMS.domainId, context.domainId);
   params.set(PARAMS.subdomainId, context.subdomainId || ALL_SUBDOMAINS);
   if (context.teamId) params.set(PARAMS.teamId, context.teamId);
@@ -86,8 +93,13 @@ function readSelectionParams(
   fallbackTeamId = "",
 ): StrategicMapNavigationContext {
   const subdomain = params.get(PARAMS.subdomainId);
+  const rawMode = params.get(PARAMS.mode);
+  const mode = rawMode === "recommend" || rawMode === "teams" || rawMode === "graph" || rawMode === "intelligence"
+    ? rawMode : undefined;
   return {
     route,
+    ...(mode ? { mode } : {}),
+    ...(params.get(PARAMS.recommendAcrossDomains) === "1" ? { recommendAcrossDomains: true } : {}),
     domainId: params.get(PARAMS.domainId)?.trim() ?? "",
     subdomainId: subdomain && subdomain !== ALL_SUBDOMAINS ? subdomain : "",
     teamId: params.get(PARAMS.teamId)?.trim() || fallbackTeamId,

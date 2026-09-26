@@ -10,7 +10,7 @@ import org.wwz.ai.domain.agent.runtime.subagent.SubAgentRegistry;
 public class PlanSolvePromptOrchestrationTest {
 
     @Test
-    public void ensureOrchestrationIsIdempotentAndUsesV6() {
+    public void ensureOrchestrationIsIdempotentAndWaitsForRequestedDeliverables() {
         String once = PlanSolvePrompt.ensureOrchestration("");
         String twice = PlanSolvePrompt.ensureOrchestration(once);
         Assert.assertEquals(once, twice);
@@ -22,6 +22,11 @@ public class PlanSolvePromptOrchestrationTest {
         Assert.assertTrue(once.contains("禁止用 workspace_list 轮询子 Agent 是否完成"));
         Assert.assertTrue(once.contains("已结束/失败才 resume；运行中用 SendMessage"));
         Assert.assertTrue(once.contains("先 TaskOutput 等完成"));
+        Assert.assertTrue(once.contains("不能只因已派工就结束本轮"));
+        Assert.assertTrue(once.contains("workspace_append 按稳定 chunk_key 逐章串行追加"));
+        Assert.assertTrue(once.contains("AI4S 正式研报写入 report/，正式海报写入 poster/"));
+        Assert.assertTrue(once.contains("TaskOutput 等全部完成 → glob"));
+        Assert.assertFalse(once.contains("启动 Agent 后短告知用户启动了什么，然后结束本轮"));
         Assert.assertEquals(1, once.split(PlanSolvePrompt.ORCHESTRATION_MARKER, -1).length - 1);
     }
 
@@ -41,6 +46,43 @@ public class PlanSolvePromptOrchestrationTest {
         Assert.assertTrue(upgraded.contains(PlanSolvePrompt.ORCHESTRATION_MARKER));
         Assert.assertFalse(upgraded.contains("PLAN_SOLVE_ORCHESTRATION_V5"));
         Assert.assertTrue(upgraded.contains("运行中禁止 Agent(resume_agent_id)"));
+    }
+
+    @Test
+    public void ensureOrchestrationReplacesPrematureCompletionV6Block() {
+        String legacy = "# Plan-Execute 主代理职责 (PLAN_SOLVE_ORCHESTRATION_V6)\n"
+                + "- 启动 Agent 后短告知用户启动了什么，然后结束本轮\n";
+        String upgraded = PlanSolvePrompt.ensureOrchestration(legacy);
+        Assert.assertTrue(upgraded.contains(PlanSolvePrompt.ORCHESTRATION_MARKER));
+        Assert.assertFalse(upgraded.contains("PLAN_SOLVE_ORCHESTRATION_V6"));
+        Assert.assertFalse(upgraded.contains("启动 Agent 后短告知用户启动了什么，然后结束本轮"));
+    }
+
+    @Test
+    public void ensureOrchestrationReplacesUnboundedWriterV7Block() {
+        String legacy = "# Plan-Execute 主代理职责 (PLAN_SOLVE_ORCHESTRATION_V7)\n- old\n";
+        String upgraded = PlanSolvePrompt.ensureOrchestration(legacy);
+        Assert.assertTrue(upgraded.contains(PlanSolvePrompt.ORCHESTRATION_MARKER));
+        Assert.assertFalse(upgraded.contains("PLAN_SOLVE_ORCHESTRATION_V7"));
+        Assert.assertTrue(upgraded.contains("workspace_append 按稳定 chunk_key 逐章串行追加"));
+    }
+
+    @Test
+    public void ensureOrchestrationReplacesReadStateDependentV8Block() {
+        String legacy = "# Plan-Execute 主代理职责 (PLAN_SOLVE_ORCHESTRATION_V8)\n- old\n";
+        String upgraded = PlanSolvePrompt.ensureOrchestration(legacy);
+        Assert.assertTrue(upgraded.contains(PlanSolvePrompt.ORCHESTRATION_MARKER));
+        Assert.assertFalse(upgraded.contains("PLAN_SOLVE_ORCHESTRATION_V8"));
+        Assert.assertTrue(upgraded.contains("workspace_append 按稳定 chunk_key 逐章串行追加"));
+    }
+
+    @Test
+    public void ensureOrchestrationReplacesV9WithValidatedReportPaths() {
+        String legacy = "# Plan-Execute 主代理职责 (PLAN_SOLVE_ORCHESTRATION_V9)\n- Worker 自定报告路径\n";
+        String upgraded = PlanSolvePrompt.ensureOrchestration(legacy);
+        Assert.assertTrue(upgraded.contains(PlanSolvePrompt.ORCHESTRATION_MARKER));
+        Assert.assertFalse(upgraded.contains("PLAN_SOLVE_ORCHESTRATION_V9"));
+        Assert.assertTrue(upgraded.contains("AI4S 正式研报写入 report/，正式海报写入 poster/"));
     }
 
     @Test

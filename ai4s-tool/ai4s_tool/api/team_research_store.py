@@ -38,6 +38,59 @@ def manual_fields(session, team_id):
     return {name for run in history(session, team_id, 'manual') for name in run['payload']['fields']}
 
 
+def capability_history(session, team_id):
+    """Only load opinion/audit metadata, not thousands of source page bodies."""
+    if not inspect(session.connection()).has_table(HISTORY.name):
+        return []
+    payload = HISTORY.c.payload
+    query = select(HISTORY.c.id, HISTORY.c.status, HISTORY.c.created_at,
+        payload['fields'].label('fields'), payload['published'].label('published'),
+        payload['run']['reviewed']['ai_assessment'].label('ai'),
+        payload['run']['reviewed']['science_assessment'].label('science'))
+    rows = session.execute(query.where(HISTORY.c.team_id == team_id,
+        HISTORY.c.status.in_(('manual', 'verified'))).order_by(HISTORY.c.created_at.desc())).mappings()
+    return [{'id': r['id'], 'status': r['status'], 'created_at': r['created_at'],
+        'payload': {'fields': r['fields'] or [], 'published': r['published'],
+            'run': {'reviewed': {'ai_assessment': r['ai'], 'science_assessment': r['science']}}}}
+        for r in rows]
+
+
+def capability_assessments(team, runs):
+    """Resolve each dimension independently; audited human values always win.
+
+    Old seed levels and free-text dual judgements are not model assessments.
+    No schema migration or write occurs when building this projection.
+    """
+    output = {}
+    for dimension in ('ai', 'science'):
+        field = dimension + '_level'
+        manual = next((r for r in runs if r['status'] == 'manual'
+                       and field in r['payload'].get('fields', [])), None)
+        if manual:
+            output[dimension] = {'level': getattr(team, field), 'source': 'manual',
+                'reason': '人工修改', 'citations': [], 'runId': manual['id'],
+                'updatedAt': manual['created_at'].isoformat()}
+            continue
+        output[dimension] = {'level': '待核实', 'source': 'none',
+            'reason': '尚无附原文依据的 AI 初评', 'citations': []}
+        for entry in runs:
+            if entry['status'] != 'verified' or not entry['payload'].get('published'):
+                continue
+            reviewed = entry['payload'].get('run', {}).get('reviewed') or {}
+            assessment = reviewed.get(dimension + '_assessment')
+            if not assessment:
+                continue
+            # A newer explicit insufficient-evidence decision supersedes old AI opinions.
+            if (assessment.get('level') in ('较低', '一般', '较高')
+                    and assessment.get('reason', '').strip() and assessment.get('citations')):
+                output[dimension] = {**assessment, 'source': 'ai', 'runId': entry['id'],
+                    'updatedAt': entry['created_at'].isoformat()}
+            else:
+                output[dimension]['reason'] = assessment.get('reason') or output[dimension]['reason']
+            break
+    return output
+
+
 def _fact(value):
     return value.get('value', '') if value and value.get('status') == 'verified' else ''
 
@@ -108,7 +161,7 @@ def persist(session, team, run):
 
     Does not commit: caller owns the team, people and history transaction.
     """
-    from .strategic_map import StrategicPersonRow, _now, _team_to_dict
+    from .strategic_map import StrategicPersonRow, _now, _team_to_dict, _update_team_score
     if run.get('extracted') and not run.get('reviewed'):
         return persist_collected(session, team, run)
     before = _team_to_dict(team, session)
@@ -152,8 +205,13 @@ def persist(session, team, run):
             for k in ('concrete_team','domestic','domain_relevance','advantage')):
         team.verification_status = 'out_of_scope'
     team.team_confidence = 1.0
-    # The pipeline has no AI/science evaluation. Never invent an assessment.
-    team.ai_level = team.science_level = '待核实'
+    # Independent model opinions; manual values survive later research runs.
+    for field, key in (('ai_level', 'ai_assessment'), ('science_level', 'science_assessment')):
+        if field not in protected:
+            assessment = reviewed.get(key) or {}
+            level = assessment.get('level', '待核实')
+            supported = assessment.get('reason') and assessment.get('citations')
+            setattr(team, field, level if supported else '待核实')
     if 'dual_judgement' not in protected and team.dual_judgement in ('AI 较高｜科学 较高', '', 'AI 待核实｜科学 待核实'):
         team.dual_judgement = 'AI 待核实｜科学 待核实'
     people = session.query(StrategicPersonRow).filter_by(team_id=team.id, deleted=False).all()
@@ -219,7 +277,10 @@ def persist(session, team, run):
             h['payload'].get('managed_recent_update') == team.recent_update for h in history(session, team.id, 'verified'))):
         team.recent_update = _now().strftime('%Y-%m-%d')
     team.updated_at = _now()
+    session.flush()
+    _update_team_score(session, team)
     append_history(session, team.id, status, {'run': run, 'before': before, 'published': True,
+                   'after_score': team.score_total, 'after_score_version': team.score_version,
                    'managed_recent_update': team.recent_update if 'recent_update' not in protected else None})
     return True
 
@@ -236,7 +297,7 @@ def collected_identity(run):
 
 def persist_collected(session, team, run):
     """Add sourced discoveries immediately without approval or destructive replacement."""
-    from .strategic_map import _now, _team_to_dict
+    from .strategic_map import _now, _team_to_dict, _update_team_score
     from .team_research import Research
     value = run.get('extracted') or {}
     before = _team_to_dict(team, session)
@@ -276,6 +337,8 @@ def persist_collected(session, team, run):
     team.verification_status = 'collected'
     team.source = '公开来源'
     team.updated_at = _now()
+    session.flush()
+    _update_team_score(session, team)
     append_history(session, team.id, 'collected', {'run': run, 'before': before, 'published': True})
     return True
 

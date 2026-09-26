@@ -18,15 +18,16 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, create_engine, text as sql_text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from ai4s_tool.util.log_util import logger
 
@@ -40,6 +41,49 @@ _DB_PATH = Path(_DB_ENV or (Path(__file__).resolve().parents[2] / "strategic_map
 if not _DB_PATH.is_absolute():
     _DB_PATH = Path.cwd() / _DB_PATH
 _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+_FIXED_DOMAIN_TAXONOMY: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "科学通用底座",
+        "支撑科学发现的数据、计算、模型与自主科研基础设施",
+        ("科研数据与知识工程", "科学计算与仿真", "科学基础模型", "自主实验室与科研Agent"),
+    ),
+    (
+        "通用 AI",
+        "面向科学研究的基础模型、智能体、系统与可信治理能力",
+        ("基础模型与多模态", "推理与智能体", "AI系统与算力", "安全评测与治理"),
+    ),
+    (
+        "高能物理与量子科技",
+        "高能粒子、核物理、量子信息与精密测量",
+        ("高能粒子物理", "核物理与加速器", "量子计算与模拟", "量子通信与精密测量"),
+    ),
+    (
+        "化学与材料",
+        "计算化学、材料发现、能源材料与先进结构材料",
+        ("计算化学与分子设计", "材料发现与材料基因组", "催化与能源材料", "合金与结构材料"),
+    ),
+    (
+        "生命科学与医学",
+        "生命机制、药物研发、临床医学与生物工程",
+        ("蛋白质结构与设计", "药物研发", "基因组与单细胞", "医学影像与临床AI", "合成生物与智能育种"),
+    ),
+    (
+        "地球科学",
+        "天气气候、地理空间、海洋水文与地质灾害",
+        ("天气与气候", "遥感与地理空间", "海洋与水文", "地质资源与灾害"),
+    ),
+)
+_FIXED_DOMAIN_NAMES = frozenset(item[0] for item in _FIXED_DOMAIN_TAXONOMY)
+_LEGACY_ROOT_ALIASES = {
+    "生命科学": "生命科学与医学",
+    "合金材料": "化学与材料",
+    "集成电路": "通用 AI",
+    "电力求解器": "科学通用底座",
+    "航空航天": "地球科学",
+}
+_SCORE_VERSION = "hybrid-evidence-v3"
+_CANDIDATE_SCORE_THRESHOLD = 60.0
 
 _ENGINE = create_engine(
     f"sqlite:///{_DB_PATH}",
@@ -104,6 +148,12 @@ class StrategicTeamRow(_Base):
     member_confidence = Column(Float, nullable=False, default=0.0)
     evidence_urls = Column(JSON, nullable=False, default=list)
     verification_status = Column(String(48), nullable=False, default="unverified")
+    eligibility = Column(JSON, nullable=False, default=dict)
+    score_breakdown = Column(JSON, nullable=False, default=dict)
+    score_total = Column(Float, nullable=False, default=0.0)
+    score_evidence_ids = Column(JSON, nullable=False, default=list)
+    score_version = Column(String(48), nullable=False, default="")
+    scored_at = Column(DateTime, nullable=True)
     deleted = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, nullable=False, default=_now)
     updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
@@ -160,6 +210,7 @@ class StrategicRefreshTaskRow(_Base):
 
     id = Column(String(64), primary_key=True)
     domain_id = Column(String(64), nullable=False, index=True)
+    subdomain_id = Column(String(64), nullable=True, index=True)
     state = Column(String(32), nullable=False, default="accepted", index=True)
     message = Column(Text, nullable=False, default="")
     result = Column(JSON, nullable=False, default=dict)
@@ -191,6 +242,12 @@ def _ensure_team_schema() -> None:
         "member_confidence": "FLOAT NOT NULL DEFAULT 0",
         "evidence_urls": "JSON NOT NULL DEFAULT '[]'",
         "verification_status": "VARCHAR(48) NOT NULL DEFAULT 'unverified'",
+        "eligibility": "JSON NOT NULL DEFAULT '{}'",
+        "score_breakdown": "JSON NOT NULL DEFAULT '{}'",
+        "score_total": "FLOAT NOT NULL DEFAULT 0",
+        "score_evidence_ids": "JSON NOT NULL DEFAULT '[]'",
+        "score_version": "VARCHAR(48) NOT NULL DEFAULT ''",
+        "scored_at": "DATETIME",
     }
     with _ENGINE.begin() as connection:
         existing = {
@@ -257,6 +314,27 @@ def _ensure_people_schema() -> None:
 _ensure_people_schema()
 
 
+def _ensure_refresh_task_schema() -> None:
+    with _ENGINE.begin() as connection:
+        existing = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                "PRAGMA table_info(strategic_map_refresh_task)"
+            ).fetchall()
+        }
+        if "subdomain_id" not in existing:
+            connection.exec_driver_sql(
+                "ALTER TABLE strategic_map_refresh_task ADD COLUMN subdomain_id VARCHAR(64)"
+            )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_strategic_map_refresh_task_subdomain_id "
+            "ON strategic_map_refresh_task (subdomain_id)"
+        )
+
+
+_ensure_refresh_task_schema()
+
+
 class DomainPayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=255)
@@ -278,6 +356,8 @@ class TeamStatusPayload(BaseModel):
     contact: str = Field(min_length=1, max_length=32)
     core_direction: str | None = Field(default=None, max_length=500)
     dual_judgement: str | None = Field(default=None, max_length=120)
+    ai_level: Literal["待核实", "较低", "一般", "较高"] | None = None
+    science_level: Literal["待核实", "较低", "一般", "较高"] | None = None
     contact_record: str | None = Field(default=None, max_length=255)
     internal_review: str | None = Field(default=None, max_length=500)
     recent_update: str | None = Field(default=None, max_length=64)
@@ -288,43 +368,215 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
+def _legacy_domain_target(name: str) -> str:
+    if name in _FIXED_DOMAIN_NAMES:
+        return name
+    if name in _LEGACY_ROOT_ALIASES:
+        return _LEGACY_ROOT_ALIASES[name]
+    if "量子" in name or "高能" in name or "粒子" in name:
+        return "高能物理与量子科技"
+    if "材料" in name or "化学" in name or "合金" in name:
+        return "化学与材料"
+    if any(term in name for term in ("生命", "医学", "药物", "育种", "蛋白")):
+        return "生命科学与医学"
+    if any(term in name for term in ("气候", "遥感", "海洋", "地球", "地质", "空间")):
+        return "地球科学"
+    if any(term in name for term in ("AI", "智能", "芯片", "模型", "Agent")):
+        return "通用 AI"
+    return "科学通用底座"
+
+
+def _ensure_fixed_domain_taxonomy(session: Session) -> None:
+    """Migrate legacy roots into the six immutable strategic domains.
+
+    Existing team IDs and manual fields stay untouched. Legacy subdomains are
+    re-parented rather than deleted. Curated children are seeded only for a
+    brand-new database; after that the child taxonomy is user-managed.
+    """
+    roots = session.query(StrategicDomainRow).filter(
+        StrategicDomainRow.parent_id.is_(None),
+        StrategicDomainRow.deleted.is_(False),
+    ).order_by(StrategicDomainRow.sort_order.asc()).all()
+    by_name = {row.name: row for row in roots}
+    canonical: dict[str, StrategicDomainRow] = {}
+
+    for sort_order, (name, description, _) in enumerate(_FIXED_DOMAIN_TAXONOMY):
+        row = by_name.get(name)
+        if row is None:
+            alias = next(
+                (
+                    legacy
+                    for legacy in roots
+                    if _LEGACY_ROOT_ALIASES.get(legacy.name) == name
+                    and legacy.id not in {item.id for item in canonical.values()}
+                ),
+                None,
+            )
+            row = alias or StrategicDomainRow(id=_new_id("domain"))
+            if alias is None:
+                session.add(row)
+        row.name = name
+        row.description = description
+        row.parent_id = None
+        row.sort_order = sort_order
+        row.deleted = False
+        canonical[name] = row
+    session.flush()
+
+    for legacy in roots:
+        if legacy.id in {item.id for item in canonical.values()}:
+            continue
+        children = session.query(StrategicDomainRow).filter(
+            StrategicDomainRow.parent_id == legacy.id,
+            StrategicDomainRow.deleted.is_(False),
+        ).all()
+        for child in children:
+            target = canonical[_legacy_domain_target(child.name)]
+            child.parent_id = target.id
+        teams = session.query(StrategicTeamRow).filter(
+            StrategicTeamRow.domain_id == legacy.id
+        ).all()
+        for team in teams:
+            child = session.get(StrategicDomainRow, team.subdomain_id) if team.subdomain_id else None
+            target_name = _legacy_domain_target(child.name if child else legacy.name)
+            team.domain_id = canonical[target_name].id
+        legacy.deleted = True
+
+    if not roots:
+        for root_name, _, child_names in _FIXED_DOMAIN_TAXONOMY:
+            parent = canonical[root_name]
+            for child_order, child_name in enumerate(child_names):
+                session.add(StrategicDomainRow(
+                    id=_new_id("subdomain"),
+                    name=child_name,
+                    description="",
+                    parent_id=parent.id,
+                    sort_order=child_order,
+                ))
+    session.commit()
+
+
+def _score_team(team: StrategicTeamRow, leaders: list[dict[str, Any]], members: list[dict[str, Any]]) -> dict[str, Any]:
+    evidence_ids = list(
+        dict.fromkeys(
+            [
+                *(team.evidence_urls or []),
+                *(team.source_urls or []),
+                *(team.score_evidence_ids or []),
+            ]
+        )
+    )
+    directions = [str(item).strip() for item in (team.research_directions or []) if str(item).strip()]
+    concrete = bool(team.team_name and team.team_name != _UNKNOWN_TEAM_LABEL and evidence_ids)
+    geography = bool(team.location and evidence_ids)
+    relevance = bool(directions and evidence_ids)
+    advantage = team.verification_status in ("verified", "graph_verified") and bool(
+        team.evidence_summary and evidence_ids
+    )
+    leader_evidence = any(
+        leader.get("name")
+        and leader.get("verificationStatus") == "verified"
+        and leader.get("sourceUrls")
+        for leader in leaders
+    )
+    eligibility = {
+        "concreteTeam": concrete,
+        "geography": geography,
+        "domainRelevance": relevance,
+        "advantageEvidence": advantage,
+        "leaderEvidence": leader_evidence,
+        "eligible": concrete and geography and relevance and advantage,
+    }
+
+    confidence = max(0.0, min(float(team.team_confidence or 0), 1.0))
+    evidence_count = len(evidence_ids)
+    try:
+        observed = datetime.fromisoformat(team.recent_update)
+        age_days = max(0, (_now() - observed).days)
+    except (TypeError, ValueError):
+        age_days = 9999
+    activity = 15 if age_days <= 30 else 12 if age_days <= 90 else 8 if age_days <= 365 else 3
+    breakdown = {
+        "achievementQuality": min(25.0, 8.0 + evidence_count * 3.0 + (4.0 if team.report_title else 0.0)),
+        "domainRelevance": min(15.0, 5.0 + len(directions) * 2.0 + confidence * 4.0),
+        "recentActivity": float(activity),
+        "evidenceReliability": min(10.0, evidence_count * 2.0 + (4.0 if team.verification_status == "verified" else 0.0)),
+        "graphInfluence": min(10.0, 2.0 + len(directions) + len(leaders) * 2.0 + len(members)),
+        "teamCompleteness": min(5.0, len(leaders) * 3.0 + min(len(members), 2)),
+        "aiEvidenceReview": round(confidence * 20.0, 1),
+    }
+    breakdown = {key: round(value, 1) for key, value in breakdown.items()}
+    total = round(sum(breakdown.values()), 1) if eligibility["eligible"] else 0.0
+    return {
+        "eligibility": eligibility,
+        "breakdown": breakdown,
+        "total": total,
+        "evidenceIds": evidence_ids,
+        "version": _SCORE_VERSION,
+    }
+
+
+def _update_team_score(session: Session, team: StrategicTeamRow) -> dict[str, Any]:
+    leaders, members = _team_people(session, team.id)
+    score = _score_team(team, leaders, members)
+    team.eligibility = score["eligibility"]
+    team.score_breakdown = score["breakdown"]
+    team.score_total = score["total"]
+    team.score_evidence_ids = score["evidenceIds"]
+    team.score_version = score["version"]
+    team.scored_at = _now()
+    return score
+
+
+def _promote_explicit_team_heads(session: Session) -> int:
+    """Repair role extraction when an explicit team head was stored as a member."""
+    promoted = 0
+    explicit_roles = {
+        "pi",
+        "负责人",
+        "团队负责人",
+        "主任",
+        "实验室主任",
+        "课题组长",
+        "研究组长",
+        "首席科学家",
+    }
+    team_ids = [
+        row[0]
+        for row in session.query(StrategicPersonRow.team_id).filter(
+            StrategicPersonRow.deleted.is_(False)
+        ).distinct()
+    ]
+    for team_id in team_ids:
+        people = session.query(StrategicPersonRow).filter(
+            StrategicPersonRow.team_id == team_id,
+            StrategicPersonRow.deleted.is_(False),
+        ).all()
+        if any(person.is_leader for person in people):
+            continue
+        candidates = [
+            person
+            for person in people
+            if person.role.strip().casefold() in explicit_roles
+            and person.verification_status == "verified"
+            and any(
+                str(url).startswith(("http://", "https://"))
+                for url in (person.source_urls or [])
+            )
+        ]
+        if len(candidates) == 1:
+            candidates[0].is_leader = True
+            promoted += 1
+    return promoted
+
+
 def _clean(value: Any, fallback: str = "") -> str:
     text = str(value or "").strip()
     return text or fallback
 
 
 def _seed_defaults(session: Session) -> None:
-    if session.query(StrategicDomainRow).filter(StrategicDomainRow.deleted.is_(False)).count():
-        return
-
-    defaults = [
-        ("生命科学", "药物、结构与生物计算", ["生物结构", "药物研发", "生物计算"]),
-        ("合金材料", "先进材料、工艺与装备", ["高温合金", "轻量化材料", "材料基因组"]),
-        ("集成电路", "器件、芯片与设计自动化", ["EDA 智能设计", "先进器件"]),
-        ("电力求解器", "电网、能源与复杂系统计算", ["智能调度", "储能优化"]),
-        ("航空航天", "飞行器、推进与空间任务", ["飞行器设计", "空间任务规划"]),
-        ("其他重点领域", "待扩展的战略观察对象", ["交叉前沿探索"]),
-    ]
-    for index, (name, description, children) in enumerate(defaults):
-        domain = StrategicDomainRow(
-            id=_new_id("domain"),
-            name=name,
-            description=description,
-            sort_order=index,
-        )
-        session.add(domain)
-        session.flush()
-        for child_index, child_name in enumerate(children):
-            session.add(
-                StrategicDomainRow(
-                    id=_new_id("subdomain"),
-                    name=child_name,
-                    description="",
-                    parent_id=domain.id,
-                    sort_order=child_index,
-                )
-            )
-    session.commit()
+    _ensure_fixed_domain_taxonomy(session)
 
 
 # A presentation must remain useful when the latest Daily issue contains only
@@ -616,22 +868,14 @@ def _domain_query(session: Session, parent_id: str | None = None) -> list[Strate
 
 
 def _domain_to_dict(session: Session, domain: StrategicDomainRow, *, include_legacy: bool = False) -> dict[str, Any]:
-    # A selectable subdomain must have at least one current candidate. Empty
-    # buckets make the map look artificial and can never produce a useful
-    # filtered view, so hide them from the navigation payload.
-    children = [
-        child for child in _domain_query(session, domain.id)
-        if session.query(StrategicTeamRow.id).filter(
-            StrategicTeamRow.subdomain_id == child.id,
-            StrategicTeamRow.deleted.is_(False),
-        ).first()
-    ]
+    children = _domain_query(session, domain.id)
     return {
         "id": domain.id,
         "name": domain.name,
         "label": domain.name,
         "description": domain.description,
         "parentId": domain.parent_id,
+        "locked": domain.parent_id is None and domain.name in _FIXED_DOMAIN_NAMES,
         "subdomains": [
             {
                 "id": child.id,
@@ -732,6 +976,17 @@ def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dic
         "member_confidence": float(team.member_confidence or 0),
         "verificationStatus": team.verification_status,
         "verification_status": team.verification_status,
+        "eligibility": dict(team.eligibility or {}),
+        "scoreBreakdown": dict(team.score_breakdown or {}),
+        "score_breakdown": dict(team.score_breakdown or {}),
+        "scoreTotal": float(team.score_total or 0),
+        "score_total": float(team.score_total or 0),
+        "scoreEvidenceIds": list(team.score_evidence_ids or []),
+        "score_evidence_ids": list(team.score_evidence_ids or []),
+        "scoreVersion": team.score_version or "",
+        "score_version": team.score_version or "",
+        "scoredAt": team.scored_at.isoformat() if team.scored_at else "",
+        "scored_at": team.scored_at.isoformat() if team.scored_at else "",
         "evidenceSummary": team.evidence_summary,
         "reportId": team.report_id,
         "reportTitle": team.report_title,
@@ -739,8 +994,13 @@ def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dic
     }
     # Legacy pipeline templates are not scientific assessments. Read projection
     # only: do not migrate rows or change timestamps while serving a GET.
-    from .team_research_store import manual_fields
-    protected = manual_fields(session, team.id) if session is not None else set()
+    from .team_research_store import capability_history, capability_assessments
+    runs = capability_history(session, team.id) if session is not None else []
+    protected = {field for run in runs if run['status'] == 'manual' for field in run['payload'].get('fields', [])}
+    payload['capabilityAssessments'] = capability_assessments(team, runs)
+    payload['aiLevel'] = payload['capabilityAssessments']['ai']['level']
+    payload['scienceLevel'] = payload['capabilityAssessments']['science']['level']
+    payload['coreDirectionSource'] = 'manual' if 'core_direction' in protected else 'research'
     if "recent_update" in protected:
         payload["recentUpdate"] = team.recent_update
     if "dual_judgement" not in protected and team.dual_judgement == "AI 较高｜科学 较高":
@@ -755,7 +1015,43 @@ def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dic
         payload["members"] = members
         payload["leader_id"] = leader["id"] if leader else ""
         payload["leaderId"] = leader["id"] if leader else ""
+        # Minimum acceptance rule (uniform across domains and sub-domain scans):
+        # description ≥ 40 chars + at least one verified leader + ≥ 2 members.
+        payload["meetsBaseline"] = _meets_display_baseline(team, leaders, members)
+        payload["meets_baseline"] = payload["meetsBaseline"]
+        payload["candidateQualified"] = bool(
+            payload["meetsBaseline"]
+            and payload["eligibility"].get("eligible")
+            and payload["scoreTotal"] >= _CANDIDATE_SCORE_THRESHOLD
+        )
+        payload["candidate_qualified"] = payload["candidateQualified"]
     return payload
+
+
+def _meets_display_baseline(team: "StrategicTeamRow", leaders: list[dict], members: list[dict]) -> bool:
+    """Uniform baseline: description + verified leader + ≥ 2 members.
+
+    Applied to every existing domain and to every newly scanned sub-domain,
+    so a team below the bar never reaches the workspace.
+    """
+    description = (team.description or "").strip()
+    if len(description) < 40:
+        return False
+    if not leaders:
+        return False
+    if not any(
+        leader.get("name")
+        and leader.get("verificationStatus") == "verified"
+        and leader.get("sourceUrls")
+        for leader in leaders
+    ):
+        return False
+    return len([
+        member for member in members
+        if member.get("name")
+        and member.get("verificationStatus") == "verified"
+        and member.get("sourceUrls")
+    ]) >= 2
 
 
 def _response(data: Any, **extra: Any) -> dict[str, Any]:
@@ -1378,7 +1674,7 @@ def _llm_config() -> tuple[str, str, str] | None:
 _SHARED_LLM_CLIENT_LOCK = threading.Lock()
 _SHARED_LLM_CLIENT = None
 _SHARED_LLM_CLIENT_CONFIG = None
-_SHARED_LLM_CONCURRENCY = max(1, min(2, int(os.getenv("STRATEGIC_MAP_LLM_CONCURRENCY", "2"))))
+_SHARED_LLM_CONCURRENCY = max(1, min(4, int(os.getenv("STRATEGIC_MAP_LLM_CONCURRENCY", "4"))))
 _SHARED_LLM_SLOTS = threading.BoundedSemaphore(_SHARED_LLM_CONCURRENCY)
 
 
@@ -1401,8 +1697,14 @@ def _shared_llm_client(config):
                 _normalize_openai_compatible_base_url,
             )
 
-            client = LLMClient()
             api_key, base_url, model = config
+            # ``_llm_config`` intentionally accepts the legacy OPENAI_* names,
+            # while the shared MRAG client reads only LLM_*. Normalize the
+            # fallback once so both paths instantiate the same client.
+            os.environ.setdefault("LLM_API_KEY", api_key)
+            os.environ.setdefault("LLM_MODEL_BASE_URL", base_url)
+            os.environ.setdefault("LLM_MODEL_NAME", model)
+            client = LLMClient()
             expected_base_url = _normalize_openai_compatible_base_url(base_url)
             if (client.api_key, client.model_base_url, client.model_name) != (
                 api_key,
@@ -1453,7 +1755,7 @@ def _shared_agent_llm_text(*, task: str, system: str, user: str, timeout: int) -
             completion = client.completions(
                 messages, max_tokens=max(max_tokens, 16000) if structured else max_tokens,
                 temperature=0, stream=False, timeout=remaining_timeout,
-                max_retries=0 if structured else None,
+                max_retries=0 if structured else 2,
                 response_format={"type": "json_object"} if structured else None,
                 include_usage=structured,
             )
@@ -1645,7 +1947,7 @@ def _llm_resolve_team_conflict(domain: StrategicDomainRow, existing: StrategicTe
 def _purge_non_china_teams(session: Session) -> None:
     """软删除历史同步中遗留的海外、泛化或无法确认归属的候选。
 
-    The map database is intentionally kept across weekly refreshes.  A filter
+    The map database is intentionally kept across daily refreshes.  A filter
     that only runs while extracting new reports would therefore leave stale
     foreign/generic cards visible forever; apply the same quality gate to
     existing rows whenever the map is loaded or refreshed.
@@ -2062,7 +2364,7 @@ def _collect_candidate_material(
     # Keep the discovery stage bounded and auditable: approximately 25 distinct
     # institution/section candidates are sent to entity resolution. Additional
     # hits remain represented by reportCount and will be explored on the next
-    # weekly run rather than overwhelming one LLM batch with noisy snippets.
+    # daily run rather than overwhelming one LLM batch with noisy snippets.
     return list(grouped.values())[:25], list(all_reports.values())
 
 
@@ -2445,6 +2747,113 @@ def _curated_fallback_records(domain: StrategicDomainRow) -> list[dict[str, Any]
     return result
 
 
+def _seed_nationwide_scan_candidates(session: Session) -> dict[str, Any]:
+    """Materialize official, named research units before deep verification.
+
+    These official named units form the initial graph snapshot. Their baseline
+    evidence score is published immediately; later web research enriches people,
+    achievements and recency without blocking the initial page.
+    """
+    from .nationwide_team_seeds import NATIONWIDE_TEAM_SEEDS
+
+    _ensure_fixed_domain_taxonomy(session)
+    roots = {
+        row.name: row
+        for row in session.query(StrategicDomainRow).filter(
+            StrategicDomainRow.parent_id.is_(None),
+            StrategicDomainRow.deleted.is_(False),
+        )
+    }
+    created = 0
+    retained = 0
+    by_domain: dict[str, int] = {}
+    for domain_name, seeds in NATIONWIDE_TEAM_SEEDS.items():
+        domain = roots.get(domain_name)
+        if domain is None:
+            continue
+        subdomains = {
+            row.name: row
+            for row in session.query(StrategicDomainRow).filter(
+                StrategicDomainRow.parent_id == domain.id,
+                StrategicDomainRow.deleted.is_(False),
+            )
+        }
+        count = 0
+        for seed in seeds:
+            institution = _clean(seed.get("institution"))
+            team_name = _clean(seed.get("team"))
+            if not institution or not team_name:
+                continue
+            key = _canonical_team_key(institution, team_name)
+            team_id = _candidate_id(domain.id, key)
+            row = session.get(StrategicTeamRow, team_id)
+            if row is None:
+                row = StrategicTeamRow(
+                    id=team_id,
+                    domain_id=domain.id,
+                    name=institution,
+                    institution_name=institution,
+                    team_name=team_name,
+                )
+                session.add(row)
+                created += 1
+            elif row.verification_status in ("verified", "graph_verified"):
+                retained += 1
+                count += 1
+                continue
+
+            directions = [
+                _clean(item)
+                for item in seed.get("directions", [])
+                if _clean(item)
+            ]
+            url = _clean(seed.get("url"))
+            subdomain = subdomains.get(_clean(seed.get("subdomain")))
+            row.deleted = False
+            row.name = institution
+            row.institution_name = institution
+            row.team_name = team_name
+            row.subdomain_id = subdomain.id if subdomain else None
+            row.focus = "、".join(directions)[:255]
+            row.core_direction = "、".join(directions)[:500]
+            row.description = (
+                f"{team_name}是{institution}公开列出的具体科研单位，"
+                f"研究方向包括{'、'.join(directions)}。"
+            )[:1200]
+            row.research_directions = directions
+            row.location = "中国大陆"
+            row.is_domestic = True
+            row.team_confidence = 0.7
+            row.source = "全国图谱扫描 + 官方公开来源"
+            row.source_urls = [url] if url else []
+            row.evidence_urls = [url] if url else []
+            row.evidence_summary = (
+                f"官方页面明确列出“{team_name}”及其研究方向；"
+                "该官方科研单位记录已纳入全国图谱基线，后续增量任务持续补充成果与人员。"
+            )
+            row.report_id = f"nationwide-seed-{hashlib.sha1(url.encode('utf-8')).hexdigest()[:16]}"
+            row.report_title = f"{institution}官方科研单位页面"
+            row.recent_update = ""
+            row.verification_status = "graph_verified"
+            row.attention = "待核实"
+            from .team_research_store import manual_fields
+            protected = manual_fields(session, row.id)
+            for field in ("ai_level", "science_level"):
+                if field not in protected:
+                    setattr(row, field, "待核实")
+            row.updated_at = _now()
+            _update_team_score(session, row)
+            count += 1
+        by_domain[domain_name] = count
+    session.commit()
+    return {
+        "total": sum(by_domain.values()),
+        "created": created,
+        "retainedVerified": retained,
+        "byDomain": by_domain,
+    }
+
+
 def _upsert_team_people(session: Session, team: StrategicTeamRow,
                         leader: dict[str, Any] | None, members: list[dict[str, Any]]) -> None:
     from .team_research_store import upsert_people
@@ -2716,18 +3125,124 @@ def _review_team_merge(
     return candidate, "pending_review"
 
 
-def _sync_domain(session: Session, domain: StrategicDomainRow) -> dict[str, Any]:
-    """Public pipeline entry used by new-domain, manual and scheduled refreshes."""
+def _sync_domain(
+    session: Session,
+    domain: StrategicDomainRow,
+    *,
+    subdomain: StrategicDomainRow | None = None,
+) -> dict[str, Any]:
+    """Import the graph snapshot first, then use the web as an enrichment fallback."""
+    from .strategic_graph import sync_hyper_snapshot
     from .domain_research import sync_domain
-    return sync_domain(session, domain,
+    graph_result = sync_hyper_snapshot(session, domain, subdomain)
+    _promote_explicit_team_heads(session)
+    session.commit()
+    graph_team_count = int(graph_result.get("teamCount") or 0)
+    graph_roster_complete = (
+        graph_team_count > 0
+        and int(graph_result.get("leaderCount") or 0) >= graph_team_count
+        and int(graph_result.get("memberTeamCount") or 0) >= graph_team_count
+    )
+    if subdomain is not None and graph_roster_complete:
+        return {
+            **graph_result,
+            "provider": "Hyper-Extract graph → neighborhood",
+            "graphCandidateCount": graph_result["candidateCount"],
+            "graphLeaderCount": graph_result["leaderCount"],
+            "graphMemberTeamCount": graph_result["memberTeamCount"],
+        }
+    web_result = sync_domain(session, domain, subdomain=subdomain,
         seconds=max(60,min(7200,int(os.getenv('STRATEGIC_MAP_DOMAIN_SECONDS','2400')))),
         team_seconds=max(60,min(300,int(os.getenv('STRATEGIC_MAP_TEAM_SECONDS','210')))))
+    _promote_explicit_team_heads(session)
+    session.commit()
+    return {
+        **graph_result,
+        **web_result,
+        "provider": "Hyper-Extract graph → neighborhood → public Web fallback",
+        "graphCandidateCount": graph_result["candidateCount"],
+        "graphLeaderCount": graph_result["leaderCount"],
+        "graphMemberTeamCount": graph_result["memberTeamCount"],
+    }
 
 
-# Strategic map data is refreshed once a week.  The scheduler still wakes up
+# Strategic map data is refreshed once a day.  The scheduler still wakes up
 # hourly so a restarted process can pick up the next due refresh promptly,
 # while the persisted timestamp prevents duplicate refreshes across workers.
-_AUTO_REFRESH_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+_AUTO_REFRESH_INTERVAL_SECONDS = 24 * 60 * 60
+_SCHEDULER_LEASE_KEY = "scheduled_refresh_lease"
+_SCHEDULER_DOMAIN_SUCCESS_PREFIX = "last_auto_domain_refresh:"
+_SCHEDULER_DOMAIN_ATTEMPT_PREFIX = "last_auto_domain_attempt:"
+_SCHEDULER_LEASE_SECONDS = 15 * 60
+_SCHEDULER_HEARTBEAT_SECONDS = 60
+
+
+def _scheduler_lease_value(owner: str, expires_at: datetime) -> str:
+    return json.dumps(
+        {"owner": owner, "expiresAt": expires_at.isoformat()},
+        separators=(",", ":"),
+    )
+
+
+def _scheduler_lease_state(row: StrategicSyncMetaRow | None) -> tuple[str, datetime]:
+    try:
+        value = json.loads(row.value) if row else {}
+        owner = str(value.get("owner") or "")
+        expires_at = datetime.fromisoformat(str(value.get("expiresAt") or ""))
+        if expires_at.tzinfo is not None:
+            expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+        return owner, expires_at
+    except (TypeError, ValueError, AttributeError):
+        return "", datetime.min
+
+
+def _acquire_scheduler_lease(owner: str) -> bool:
+    """SQLite's immediate transaction makes the cross-worker claim atomic."""
+    with _SESSION_FACTORY() as session:
+        session.execute(sql_text("BEGIN IMMEDIATE"))
+        row = session.get(StrategicSyncMetaRow, _SCHEDULER_LEASE_KEY)
+        current_owner, expires_at = _scheduler_lease_state(row)
+        now = _now()
+        if current_owner and expires_at > now:
+            session.rollback()
+            return False
+        if row is None:
+            row = StrategicSyncMetaRow(key=_SCHEDULER_LEASE_KEY)
+            session.add(row)
+        row.value = _scheduler_lease_value(
+            owner, now + timedelta(seconds=_SCHEDULER_LEASE_SECONDS)
+        )
+        row.updated_at = now
+        session.commit()
+        return True
+
+
+def _renew_scheduler_lease(owner: str) -> bool:
+    with _SESSION_FACTORY() as session:
+        session.execute(sql_text("BEGIN IMMEDIATE"))
+        row = session.get(StrategicSyncMetaRow, _SCHEDULER_LEASE_KEY)
+        current_owner, expires_at = _scheduler_lease_state(row)
+        now = _now()
+        if current_owner != owner or expires_at <= now:
+            session.rollback()
+            return False
+        row.value = _scheduler_lease_value(
+            owner, now + timedelta(seconds=_SCHEDULER_LEASE_SECONDS)
+        )
+        row.updated_at = now
+        session.commit()
+        return True
+
+
+def _release_scheduler_lease(owner: str) -> None:
+    with _SESSION_FACTORY() as session:
+        session.execute(sql_text("BEGIN IMMEDIATE"))
+        row = session.get(StrategicSyncMetaRow, _SCHEDULER_LEASE_KEY)
+        if _scheduler_lease_state(row)[0] == owner:
+            session.delete(row)
+            session.commit()
+        else:
+            session.rollback()
 
 
 def _auto_refresh_due(session: Session) -> bool:
@@ -2741,6 +3256,66 @@ def _auto_refresh_due(session: Session) -> bool:
     except ValueError:
         return True
     return (_now() - last).total_seconds() >= _AUTO_REFRESH_INTERVAL_SECONDS
+
+
+def _auto_domain_event_recent(session: Session, domain_id: str, prefix: str) -> bool:
+    row = session.get(StrategicSyncMetaRow, f"{prefix}{domain_id}")
+    if not row or not row.value:
+        return False
+    try:
+        refreshed_at = datetime.fromisoformat(row.value)
+        if refreshed_at.tzinfo is not None:
+            refreshed_at = refreshed_at.astimezone(timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        return False
+    age = (_now() - refreshed_at).total_seconds()
+    return 0 <= age < _AUTO_REFRESH_INTERVAL_SECONDS
+
+
+def _auto_domain_refresh_recent(session: Session, domain_id: str) -> bool:
+    return _auto_domain_event_recent(session, domain_id, _SCHEDULER_DOMAIN_SUCCESS_PREFIX)
+
+
+def _auto_domain_attempt_recent(session: Session, domain_id: str) -> bool:
+    if _auto_domain_event_recent(session, domain_id, _SCHEDULER_DOMAIN_ATTEMPT_PREFIX):
+        return True
+    # Existing installations already have a durable domain-research job from
+    # the previous scheduler. Honor its last completed attempt when upgrading
+    # so a service restart cannot immediately repeat hours of paid research.
+    try:
+        row = session.execute(
+            sql_text(
+                "SELECT state, updated FROM strategic_map_research_job "
+                "WHERE id = :job_id"
+            ),
+            {"job_id": f"domain:{domain_id}"},
+        ).first()
+    except OperationalError:
+        session.rollback()
+        return False
+    if not row or row.state not in {"complete", "incomplete"} or not row.updated:
+        return False
+    age = time.time() - float(row.updated)
+    return 0 <= age < _AUTO_REFRESH_INTERVAL_SECONDS
+
+
+def _record_auto_domain_event(session: Session, domain_id: str, prefix: str) -> None:
+    key = f"{prefix}{domain_id}"
+    row = session.get(StrategicSyncMetaRow, key)
+    if row is None:
+        row = StrategicSyncMetaRow(key=key)
+        session.add(row)
+    row.value = _now().isoformat()
+    row.updated_at = _now()
+    session.commit()
+
+
+def _record_auto_domain_refresh(session: Session, domain_id: str) -> None:
+    _record_auto_domain_event(session, domain_id, _SCHEDULER_DOMAIN_SUCCESS_PREFIX)
+
+
+def _record_auto_domain_attempt(session: Session, domain_id: str) -> None:
+    _record_auto_domain_event(session, domain_id, _SCHEDULER_DOMAIN_ATTEMPT_PREFIX)
 
 
 def _record_refresh_failure(session: Session, domain: StrategicDomainRow, error: Exception) -> None:
@@ -2774,6 +3349,7 @@ def _refresh_task_to_dict(row: StrategicRefreshTaskRow) -> dict[str, Any]:
     return {
         "taskId": row.id,
         "domainId": row.domain_id,
+        "subdomainId": row.subdomain_id,
         "state": row.state,
         "terminal": row.state in _REFRESH_TERMINAL_STATES,
         "message": row.message or "",
@@ -2785,20 +3361,26 @@ def _refresh_task_to_dict(row: StrategicRefreshTaskRow) -> dict[str, Any]:
     }
 
 
-def _domain_research_summary(session: Session, domain_id: str) -> dict[str, Any]:
+def _domain_research_summary(
+    session: Session,
+    domain_id: str,
+    subdomain_id: str | None = None,
+) -> dict[str, Any]:
     """Read the compact domain checkpoint without exposing per-team prompt traces."""
     from .domain_research import JOBS
 
-    row = session.execute(
-        JOBS.select().where(JOBS.c.id == f"domain:{domain_id}")
-    ).mappings().first()
+    key = f"domain:{domain_id}" + (f":{subdomain_id}" if subdomain_id else "")
+    row = session.execute(JOBS.select().where(JOBS.c.id == key)).mappings().first()
     if not row:
         return {}
     payload = dict(row["payload"] or {})
     public_keys = {
         "provider", "pipeline", "teamCount", "namedTeamCount", "candidateCount",
         "reportCount", "leaderCount", "memberTeamCount", "memberCount",
-        "pendingCount", "duplicateCount", "seconds", "deduplicationComplete",
+        "officialLeaderCount",
+        "directoryCreated", "directoryUpdated", "directoryMembers", "directoryConflicts",
+        "incompleteReason",
+        "pendingCount", "deferredCount", "duplicateCount", "seconds", "deduplicationComplete",
         "updatedAt",
     }
     return {key: value for key, value in payload.items() if key in public_keys}
@@ -2814,7 +3396,15 @@ def _finish_refresh_task(
 ) -> None:
     task.state = state
     task.message = message[:2000]
-    task.result = result or {}
+    previous = dict(task.result or {})
+    task.result = {
+        **(result or {}),
+        **(
+            {"nationwideBatchId": previous["nationwideBatchId"]}
+            if previous.get("nationwideBatchId")
+            else {}
+        ),
+    }
     task.updated_at = _now()
     task.finished_at = _now()
     session.commit()
@@ -2841,13 +3431,25 @@ def _run_refresh_task(task_id: str) -> None:
                     session, task, state="failed", message="领域不存在或已删除"
                 )
                 return
+            subdomain = None
+            if task.subdomain_id:
+                subdomain = session.query(StrategicDomainRow).filter(
+                    StrategicDomainRow.id == task.subdomain_id,
+                    StrategicDomainRow.parent_id == domain.id,
+                    StrategicDomainRow.deleted.is_(False),
+                ).first()
+                if not subdomain:
+                    _finish_refresh_task(
+                        session, task, state="failed", message="子领域不存在、已删除或不属于当前领域"
+                    )
+                    return
             task.state = "running"
             task.started_at = task.started_at or _now()
             task.updated_at = _now()
             task.message = "正在调查并增量保存团队证据"
             session.commit()
             try:
-                result = _sync_domain(session, domain)
+                result = _sync_domain(session, domain, subdomain=subdomain)
             except _SyncQualityError as exc:
                 # Incomplete quality is not a transport failure: team-level
                 # commits are already durable and must become visible in UI.
@@ -2862,7 +3464,7 @@ def _run_refresh_task(task_id: str) -> None:
                     task,
                     state="partial",
                     message=str(exc),
-                    result=_domain_research_summary(session, domain.id),
+                    result=_domain_research_summary(session, domain.id, task.subdomain_id),
                 )
             except TimeoutError as exc:
                 session.rollback()
@@ -2872,7 +3474,7 @@ def _run_refresh_task(task_id: str) -> None:
                     task,
                     state="timed_out",
                     message=f"调查超时，已保存完成的增量结果：{exc}",
-                    result=_domain_research_summary(session, domain.id),
+                    result=_domain_research_summary(session, domain.id, task.subdomain_id),
                 )
             except Exception as exc:
                 session.rollback()
@@ -2887,7 +3489,7 @@ def _run_refresh_task(task_id: str) -> None:
                     task,
                     state="failed",
                     message=f"调查失败：{type(exc).__name__}: {exc}",
-                    result=_domain_research_summary(session, domain.id),
+                    result=_domain_research_summary(session, domain.id, task.subdomain_id),
                 )
             else:
                 task = session.get(StrategicRefreshTaskRow, task_id)
@@ -2918,58 +3520,171 @@ def _launch_refresh_task(task_id: str) -> None:
         thread.start()
 
 
+def _launch_refresh_batch(task_ids: list[str]) -> None:
+    """Run nationwide domain refreshes sequentially to protect LLM capacity."""
+    if not task_ids:
+        return
+
+    def run() -> None:
+        for task_id in task_ids:
+            _run_refresh_task(task_id)
+
+    threading.Thread(
+        target=run,
+        name=f"strategic-map-nationwide-{task_ids[0][:8]}",
+        daemon=True,
+    ).start()
+
+
 def _recover_refresh_tasks() -> None:
     """Close orphaned running rows and resume requests not yet started."""
     accepted: list[str] = []
+    nationwide: dict[str, list[str]] = {}
+    interrupted_domains: set[str] = set()
     with _SESSION_FACTORY() as session:
         rows = session.query(StrategicRefreshTaskRow).filter(
             StrategicRefreshTaskRow.state.in_(tuple(_REFRESH_ACTIVE_STATES))
         ).all()
         for row in rows:
             if row.state == "accepted":
-                accepted.append(row.id)
+                batch_id = str((row.result or {}).get("nationwideBatchId") or "")
+                if batch_id:
+                    nationwide.setdefault(batch_id, []).append(row.id)
+                else:
+                    accepted.append(row.id)
                 continue
+            interrupted_domains.add(row.domain_id)
             row.state = "failed"
             row.message = "服务在调查期间重启；逐队增量结果已保留，可重新研判继续补查"
             row.updated_at = _now()
             row.finished_at = _now()
+        if interrupted_domains:
+            from . import domain_research as dr
+
+            dr.META.create_all(session.connection())
+            team_ids = [
+                value
+                for value in session.execute(
+                    dr.JOBS.select().with_only_columns(dr.JOBS.c.team_id).where(
+                        dr.JOBS.c.domain_id.in_(interrupted_domains),
+                        dr.JOBS.c.team_id.is_not(None),
+                    )
+                ).scalars()
+                if value
+            ]
+            lease_ids = [
+                *(f"domain:{domain_id}" for domain_id in interrupted_domains),
+                *(f"team:{team_id}" for team_id in team_ids),
+            ]
+            if lease_ids:
+                session.execute(
+                    dr.LEASES.delete().where(dr.LEASES.c.id.in_(lease_ids))
+                )
         session.commit()
     for task_id in accepted:
         _launch_refresh_task(task_id)
+    for task_ids in nationwide.values():
+        _launch_refresh_batch(task_ids)
 
 
 def _run_scheduled_refresh() -> None:
-    """后台定时刷新：每周运行一次。"""
-    with _SESSION_FACTORY() as session:
-        _seed_defaults(session)
-        if not _auto_refresh_due(session):
-            return
-        domains = _domain_query(session)
-        successful = 0
-        for domain in domains:
+    """Run one daily pass across workers, retaining partial results on failure."""
+    owner = uuid.uuid4().hex
+    if not _acquire_scheduler_lease(owner):
+        return
+
+    heartbeat_stop = threading.Event()
+    lease_lost = threading.Event()
+
+    def heartbeat() -> None:
+        while not heartbeat_stop.wait(_SCHEDULER_HEARTBEAT_SECONDS):
             try:
-                _sync_domain(session, domain)
-                successful += 1
-            except Exception as exc:
-                # 单个领域失败不阻塞其它领域；下一轮仍会重试。
-                session.rollback()
+                if not _renew_scheduler_lease(owner):
+                    lease_lost.set()
+                    return
+            except Exception:
+                # Transient SQLite contention can be retried at the next
+                # heartbeat. The owner is rechecked before publishing success.
+                logger.exception("strategic-map scheduled refresh lease renewal failed")
+
+    monitor = threading.Thread(
+        target=heartbeat,
+        name="strategic-map-scheduler-lease",
+        daemon=True,
+    )
+    monitor.start()
+    try:
+        with _SESSION_FACTORY() as session:
+            _seed_defaults(session)
+            # Another worker may have completed the day immediately before we
+            # obtained the lease; check the watermark only after claiming it.
+            if not _auto_refresh_due(session):
+                return
+            domain_ids = [domain.id for domain in _domain_query(session)]
+
+        successful = 0
+        for domain_id in domain_ids:
+            if lease_lost.is_set():
+                break
+            with _SESSION_FACTORY() as session:
+                if _auto_domain_refresh_recent(session, domain_id):
+                    successful += 1
+                    continue
+                # A partial investigation is not success, but repeating six
+                # long, paid investigations every hourly scheduler wake-up is
+                # neither the promised daily cadence nor a useful retry.
+                if _auto_domain_attempt_recent(session, domain_id):
+                    continue
+                domain = _get_root_domain(session, domain_id)
                 try:
-                    _record_refresh_failure(session, domain, exc)
-                except Exception:
+                    _sync_domain(session, domain)
+                    _record_auto_domain_refresh(session, domain_id)
+                    successful += 1
+                except Exception as exc:
+                    # One failed domain must not erase other saved snapshots.
                     session.rollback()
-        # Advance the weekly watermark only after every domain produced a
-        # valid snapshot.  A partial run must be retried next hour; otherwise
-        # one failed domain would be hidden for a full week.
-        if domains and successful == len(domains):
-            meta = session.query(StrategicSyncMetaRow).filter(
-                StrategicSyncMetaRow.key == "last_auto_refresh"
-            ).first()
-            if not meta:
-                meta = StrategicSyncMetaRow(key="last_auto_refresh")
-                session.add(meta)
-            meta.value = _now().isoformat()
-            meta.updated_at = _now()
-            session.commit()
+                    try:
+                        _record_refresh_failure(session, domain, exc)
+                    except Exception:
+                        session.rollback()
+                        logger.exception("strategic-map failed to record refresh error")
+                finally:
+                    _record_auto_domain_attempt(session, domain_id)
+
+        # A partial or lease-lost run must be retried; it cannot move the
+        # 24-hour watermark and hide missing domain updates.
+        if domain_ids and successful == len(domain_ids) and not lease_lost.is_set():
+            if not _renew_scheduler_lease(owner):
+                return
+            with _SESSION_FACTORY() as session:
+                meta = session.get(StrategicSyncMetaRow, "last_auto_refresh")
+                if not meta:
+                    meta = StrategicSyncMetaRow(key="last_auto_refresh")
+                    session.add(meta)
+                meta.value = _now().isoformat()
+                meta.updated_at = _now()
+                session.commit()
+            # Freeze a report only after every domain completed. The renderer
+            # consumes stored batches and reviews; it makes no model calls.
+            try:
+                from .impact_store import business_today
+                from .task_recommendations import freeze_intelligence_daily
+                freeze_intelligence_daily(date.fromisoformat(business_today()))
+            except Exception:
+                logger.exception("strategic-map daily intelligence freeze failed")
+    finally:
+        heartbeat_stop.set()
+        monitor.join(timeout=5)
+        _release_scheduler_lease(owner)
+
+
+def _startup_snapshot_sync_enabled() -> bool:
+    return os.getenv('STRATEGIC_MAP_SKIP_STARTUP_SYNC', 'true').strip().lower() not in {'1', 'true', 'yes'}
+
+
+def _daily_scheduler_enabled() -> bool:
+    # Daily research uses paid providers; enable it only with an explicit budget decision.
+    return os.getenv('STRATEGIC_MAP_SCHEDULER_ENABLED', 'false').strip().lower() in {'1', 'true', 'yes'}
 
 
 def start_strategic_map_scheduler() -> None:
@@ -2977,15 +3692,33 @@ def start_strategic_map_scheduler() -> None:
     import threading
     import time
 
-    # User-triggered jobs are independent of the weekly scheduler switch.
+    with _SESSION_FACTORY() as session:
+        _seed_defaults(session)
+        _seed_nationwide_scan_candidates(session)
+        # Hyper snapshot sync fans out per-domain paid LLM calls. Reuse the
+        # persisted graph by default; setting STRATEGIC_MAP_SKIP_STARTUP_SYNC=false
+        # explicitly opts into a fresh startup sync. Manual refresh is separate.
+        if _startup_snapshot_sync_enabled():
+            from .strategic_graph import sync_hyper_snapshot
+            for domain in _domain_query(session):
+                sync_hyper_snapshot(session, domain)
+        _promote_explicit_team_heads(session)
+        for team in session.query(StrategicTeamRow).filter(
+            StrategicTeamRow.deleted.is_(False),
+            StrategicTeamRow.score_version != _SCORE_VERSION,
+        ).all():
+            _update_team_score(session, team)
+        session.commit()
+
+    # User-triggered jobs are independent of the daily scheduler switch.
     _recover_refresh_tasks()
-    if os.getenv('STRATEGIC_MAP_SCHEDULER_ENABLED', 'true').lower() not in {'1', 'true', 'yes'}:
+    if not _daily_scheduler_enabled():
         return
 
     def loop() -> None:
         while True:
             # A development reload must not immediately start network research.
-            # Hourly checks still enforce the persisted weekly refresh watermark.
+            # Hourly checks still enforce the persisted daily refresh watermark.
             time.sleep(60 * 60)
             try:
                 _run_scheduled_refresh()
@@ -2993,7 +3726,7 @@ def start_strategic_map_scheduler() -> None:
                 # 后台任务不能影响 HTTP 服务生命周期。
                 pass
 
-    thread = threading.Thread(target=loop, name="strategic-map-weekly-refresh", daemon=True)
+    thread = threading.Thread(target=loop, name="strategic-map-daily-refresh", daemon=True)
     thread.start()
 
 
@@ -3002,6 +3735,7 @@ def get_strategic_map(
     refresh: bool = Query(False),
     domain_id: str | None = Query(None),
     include_legacy: bool = Query(False),
+    include_incomplete: bool = Query(True),
 ) -> dict[str, Any]:
     # Retained for old clients only: all non-deleted saved records are visible.
     with _SESSION_FACTORY() as session:
@@ -3020,13 +3754,20 @@ def get_strategic_map(
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             source["refreshed"] = True
         domains = [_domain_to_dict(session, domain, include_legacy=include_legacy) for domain in _domain_query(session)]
-        teams = [
+        raw_teams = [
             _team_to_dict(team, session)
             for team in session.query(StrategicTeamRow)
             .filter(StrategicTeamRow.deleted.is_(False))
             .order_by(StrategicTeamRow.updated_at.desc())
             .all()
         ]
+        # Keep leads accessible by default, but expose the exact candidate
+        # decision so the UI can separate admitted teams from pending leads.
+        teams = raw_teams if include_incomplete else [t for t in raw_teams if t.get("candidateQualified")]
+        source["baselinePassed"] = sum(1 for t in raw_teams if t.get("meetsBaseline"))
+        source["baselineTotal"] = len(raw_teams)
+        source["candidateQualified"] = sum(1 for t in raw_teams if t.get("candidateQualified"))
+        source["candidateThreshold"] = _CANDIDATE_SCORE_THRESHOLD
         return _response({"domains": domains, "teams": teams, "source": source})
 
 
@@ -3048,62 +3789,17 @@ def get_domain(domain_id: str) -> dict[str, Any]:
 
 @router.post("/domains")
 def create_domain(payload: DomainPayload) -> dict[str, Any]:
-    with _SESSION_FACTORY() as session:
-        _seed_defaults(session)
-        if session.query(StrategicDomainRow).filter(
-            StrategicDomainRow.parent_id.is_(None),
-            StrategicDomainRow.name == payload.name.strip(),
-            StrategicDomainRow.deleted.is_(False),
-        ).first():
-            raise HTTPException(status_code=409, detail="领域名称已存在")
-        order = session.query(StrategicDomainRow).filter(
-            StrategicDomainRow.parent_id.is_(None), StrategicDomainRow.deleted.is_(False)
-        ).count()
-        row = StrategicDomainRow(id=_new_id("domain"), name=payload.name.strip(), description=payload.description.strip(), sort_order=order)
-        session.add(row)
-        session.commit()
-        # 新领域首次保存时立即完成一次研判，后续由页面按钮或后台周期任务更新。
-        try:
-            source = _sync_domain(session, row)
-        except _SyncQualityError as exc:
-            session.rollback()
-            _record_refresh_failure(session, row, exc)
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-        return _response({"domain": _domain_to_dict(session, row), "source": source})
+    raise HTTPException(status_code=405, detail="六大根领域已锁定，仅允许管理子领域")
 
 
 @router.put("/domains/{domain_id}")
 def update_domain(domain_id: str, payload: DomainPayload) -> dict[str, Any]:
-    with _SESSION_FACTORY() as session:
-        row = _get_domain(session, domain_id)
-        if row.parent_id:
-            raise HTTPException(status_code=400, detail="子领域请使用子领域接口修改")
-        duplicate = session.query(StrategicDomainRow).filter(
-            StrategicDomainRow.id != row.id,
-            StrategicDomainRow.parent_id.is_(None),
-            StrategicDomainRow.name == payload.name.strip(),
-            StrategicDomainRow.deleted.is_(False),
-        ).first()
-        if duplicate:
-            raise HTTPException(status_code=409, detail="领域名称已存在")
-        row.name = payload.name.strip()
-        row.description = payload.description.strip()
-        row.updated_at = _now()
-        session.commit()
-        return _response(_domain_to_dict(session, row))
+    raise HTTPException(status_code=405, detail="六大根领域已锁定，仅允许管理子领域")
 
 
 @router.delete("/domains/{domain_id}")
 def delete_domain(domain_id: str) -> dict[str, Any]:
-    with _SESSION_FACTORY() as session:
-        row = _get_domain(session, domain_id)
-        row.deleted = True
-        for child in _domain_query(session, row.id):
-            child.deleted = True
-        for team in session.query(StrategicTeamRow).filter(StrategicTeamRow.domain_id == row.id).all():
-            team.deleted = True
-        session.commit()
-        return _response({"id": domain_id, "deleted": True})
+    raise HTTPException(status_code=405, detail="六大根领域已锁定，不能删除")
 
 
 @router.post("/domains/{domain_id}/subdomains")
@@ -3177,15 +3873,38 @@ def delete_subdomain(subdomain_id: str) -> dict[str, Any]:
 
 
 @router.post("/domains/{domain_id}/refreshes", status_code=202)
-def start_domain_refresh(domain_id: str) -> dict[str, Any]:
-    """Accept or reuse one durable refresh for a root domain."""
+def start_domain_refresh(
+    domain_id: str,
+    subdomain_id: str | None = Query(None),
+) -> dict[str, Any]:
+    """Accept or reuse one durable refresh for a root domain or one child scope."""
     with _SESSION_FACTORY() as session:
         session.execute(sql_text("BEGIN IMMEDIATE"))
         domain = _get_root_domain(session, domain_id)
-        active = session.query(StrategicRefreshTaskRow).filter(
+        subdomain = None
+        if subdomain_id:
+            subdomain = session.query(StrategicDomainRow).filter(
+                StrategicDomainRow.id == subdomain_id,
+                StrategicDomainRow.parent_id == domain.id,
+                StrategicDomainRow.deleted.is_(False),
+            ).first()
+            if not subdomain:
+                raise HTTPException(status_code=404, detail="子领域不存在或不属于当前领域")
+        active_query = session.query(StrategicRefreshTaskRow).filter(
             StrategicRefreshTaskRow.domain_id == domain.id,
             StrategicRefreshTaskRow.state.in_(tuple(_REFRESH_ACTIVE_STATES)),
-        ).order_by(StrategicRefreshTaskRow.created_at.desc()).first()
+        )
+        if subdomain is not None:
+            active_query = active_query.filter(
+                StrategicRefreshTaskRow.subdomain_id == subdomain.id
+            )
+        else:
+            active_query = active_query.filter(
+                StrategicRefreshTaskRow.subdomain_id.is_(None)
+            )
+        active = active_query.order_by(
+            StrategicRefreshTaskRow.created_at.desc()
+        ).first()
         if active:
             session.commit()
             task_id = active.id
@@ -3195,6 +3914,7 @@ def start_domain_refresh(domain_id: str) -> dict[str, Any]:
             task = StrategicRefreshTaskRow(
                 id=task_id,
                 domain_id=domain.id,
+                subdomain_id=subdomain.id if subdomain else None,
                 state="accepted",
                 message="任务已受理，等待开始调查",
             )
@@ -3205,13 +3925,78 @@ def start_domain_refresh(domain_id: str) -> dict[str, Any]:
     return _response(payload)
 
 
+@router.post("/nationwide/refreshes", status_code=202)
+def start_nationwide_refresh() -> dict[str, Any]:
+    """Seed all six domains and launch durable evidence refreshes."""
+    batch_id = "nationwide_" + uuid.uuid4().hex
+    launch_ids: list[str] = []
+    tasks: list[dict[str, Any]] = []
+    with _SESSION_FACTORY() as session:
+        seeded = _seed_nationwide_scan_candidates(session)
+        from .strategic_graph import sync_hyper_snapshot
+        domains = _domain_query(session)
+        hyper = {
+            domain.name: sync_hyper_snapshot(session, domain)
+            for domain in domains
+        }
+        seeded["promotedLeaders"] = _promote_explicit_team_heads(session)
+        seeded["hyperGraph"] = hyper
+        seeded["total"] = session.query(StrategicTeamRow).filter(
+            StrategicTeamRow.deleted.is_(False)
+        ).count()
+        seeded["byDomain"] = {
+            domain.name: session.query(StrategicTeamRow).filter(
+                StrategicTeamRow.domain_id == domain.id,
+                StrategicTeamRow.deleted.is_(False),
+            ).count()
+            for domain in domains
+        }
+        for domain in domains:
+            active = session.query(StrategicRefreshTaskRow).filter(
+                StrategicRefreshTaskRow.domain_id == domain.id,
+                StrategicRefreshTaskRow.state.in_(tuple(_REFRESH_ACTIVE_STATES)),
+            ).order_by(StrategicRefreshTaskRow.created_at.desc()).first()
+            if active:
+                tasks.append(_refresh_task_to_dict(active))
+                continue
+            task = StrategicRefreshTaskRow(
+                id="refresh_" + uuid.uuid4().hex,
+                domain_id=domain.id,
+                state="accepted",
+                message="全国扫描已受理，等待按领域核验",
+                result={"nationwideBatchId": batch_id},
+            )
+            session.add(task)
+            session.flush()
+            launch_ids.append(task.id)
+            tasks.append(_refresh_task_to_dict(task))
+        session.commit()
+    _launch_refresh_batch(launch_ids)
+    return _response({"batchId": batch_id, "seeded": seeded, "tasks": tasks})
+
+
 @router.get("/domains/{domain_id}/refreshes/latest")
-def get_latest_domain_refresh(domain_id: str) -> dict[str, Any]:
+def get_latest_domain_refresh(
+    domain_id: str,
+    subdomain_id: str | None = Query(None),
+) -> dict[str, Any]:
     with _SESSION_FACTORY() as session:
         domain = _get_root_domain(session, domain_id)
-        task = session.query(StrategicRefreshTaskRow).filter(
+        query = session.query(StrategicRefreshTaskRow).filter(
             StrategicRefreshTaskRow.domain_id == domain.id
-        ).order_by(StrategicRefreshTaskRow.created_at.desc()).first()
+        )
+        if subdomain_id:
+            subdomain = session.query(StrategicDomainRow).filter(
+                StrategicDomainRow.id == subdomain_id,
+                StrategicDomainRow.parent_id == domain.id,
+                StrategicDomainRow.deleted.is_(False),
+            ).first()
+            if not subdomain:
+                raise HTTPException(status_code=404, detail="子领域不存在或不属于当前领域")
+            query = query.filter(StrategicRefreshTaskRow.subdomain_id == subdomain.id)
+        else:
+            query = query.filter(StrategicRefreshTaskRow.subdomain_id.is_(None))
+        task = query.order_by(StrategicRefreshTaskRow.created_at.desc()).first()
         return _response({"task": _refresh_task_to_dict(task) if task else None})
 
 
@@ -3230,6 +4015,7 @@ def list_domain_teams(
     refresh: bool = Query(False),
     subdomain_id: str | None = Query(None),
     include_legacy: bool = Query(False),
+    include_incomplete: bool = Query(True),
 ) -> dict[str, Any]:
     # Evidence status never controls whether an existing record is displayed.
     # The handler is called directly by the sync endpoint and by a few
@@ -3256,9 +4042,15 @@ def list_domain_teams(
         )
         if subdomain_id:
             query = query.filter(StrategicTeamRow.subdomain_id == subdomain_id)
-        teams = query.order_by(StrategicTeamRow.updated_at.desc(), StrategicTeamRow.name.asc()).all()
+        rows = query.order_by(StrategicTeamRow.updated_at.desc(), StrategicTeamRow.name.asc()).all()
+        raw_teams = [_team_to_dict(team, session) for team in rows]
+        teams = raw_teams if include_incomplete else [t for t in raw_teams if t.get("candidateQualified")]
+        source["baselinePassed"] = sum(1 for t in raw_teams if t.get("meetsBaseline"))
+        source["baselineTotal"] = len(raw_teams)
+        source["candidateQualified"] = sum(1 for t in raw_teams if t.get("candidateQualified"))
+        source["candidateThreshold"] = _CANDIDATE_SCORE_THRESHOLD
         return _response({
-            "teams": [_team_to_dict(team, session) for team in teams],
+            "teams": teams,
             "source": source,
             # Refresh can create or remove populated subdomains; return the
             # filtered domain so the left navigation stays aligned immediately.
@@ -3312,12 +4104,23 @@ def update_team_status(team_id: str, payload: TeamStatusPayload) -> dict[str, An
         if not team:
             raise HTTPException(status_code=404, detail="候选团队不存在")
         from .team_research_store import append_history
-        append_history(session, team.id, "manual", {"fields": [key for key, value in payload.model_dump().items() if value is not None]})
+        fields = {key for key, value in payload.model_dump().items() if value is not None}
+        if payload.ai_level is not None or payload.science_level is not None:
+            fields.add("dual_judgement")
+        append_history(session, team.id, "manual", {"fields": sorted(fields),
+            "before": {key: getattr(team, key) for key in fields},
+            "changes": payload.model_dump(exclude_none=True)})
         team.attention = payload.attention.strip()
         team.contact = payload.contact.strip()
         if payload.core_direction is not None:
             team.core_direction = payload.core_direction.strip()
-        if payload.dual_judgement is not None:
+        if payload.ai_level is not None:
+            team.ai_level = payload.ai_level
+        if payload.science_level is not None:
+            team.science_level = payload.science_level
+        if payload.ai_level is not None or payload.science_level is not None:
+            team.dual_judgement = f"AI {team.ai_level}｜科学 {team.science_level}"
+        elif payload.dual_judgement is not None:
             team.dual_judgement = payload.dual_judgement.strip()
         if payload.contact_record is not None:
             team.contact_record = payload.contact_record.strip()

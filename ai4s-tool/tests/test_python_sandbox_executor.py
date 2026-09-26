@@ -1,6 +1,7 @@
-import tempfile
 import unittest
 from pathlib import Path
+
+from tests.sandbox_temp import sandbox_temporary_directory
 
 from ai4s_tool.tool.code_interpreter_policy import build_permission_policy
 from ai4s_tool.tool.python_sandbox_executor import (
@@ -11,7 +12,7 @@ from ai4s_tool.tool.python_sandbox_executor import (
 
 class PythonSandboxExecutorTest(unittest.TestCase):
     def test_should_keep_python_state_and_report_output_files(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -44,7 +45,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_keep_produced_file_when_code_fails_after_writing(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -74,7 +75,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_use_workspace_root_as_process_cwd_for_workspace_profile(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -104,7 +105,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_use_workspace_root_as_process_cwd_for_analysis_profile(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -134,7 +135,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_harvest_workspace_root_files_and_skip_input(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -169,7 +170,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_roundtrip_non_ascii_code_and_stdout(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -191,7 +192,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_sanitize_surrogate_stdout_without_crashing_protocol(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -213,7 +214,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_inject_file_and_main_name(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()
@@ -240,7 +241,7 @@ class PythonSandboxExecutorTest(unittest.TestCase):
                 executor.close()
 
     def test_should_rewrite_ndarray_ptp_for_numpy2(self):
-        with tempfile.TemporaryDirectory() as workspace:
+        with sandbox_temporary_directory() as workspace:
             workspace_root = Path(workspace)
             output_dir = workspace_root / "output"
             output_dir.mkdir()

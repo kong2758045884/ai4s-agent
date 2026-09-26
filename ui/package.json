@@ -7,6 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build --mode production",
     "test": "vitest run",
+    "test:strategic-map:browser": "node scripts/verify-strategic-map-no-auto-scan.mjs",
+    "test:impact-triage:browser": "node scripts/verify-impact-triage-browser.mjs",
+    "test:strategic-integration:browser": "node scripts/verify-strategic-integration-browser.mjs",
+    "test:strategic-map:data": "node scripts/verify-strategic-map-data.mjs",
     "lint": "eslint .",
     "fix": "eslint . --fix",
     "preview": "vite preview"

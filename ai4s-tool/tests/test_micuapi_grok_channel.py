@@ -83,8 +83,8 @@ class ModelNotFoundFallbackGuardTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("model_not_found", str(ctx.exception))
         self.assertFalse(_is_permission_or_policy_block_error(ctx.exception))
-        # 重试 2 次，模型名始终是 grok-4.5，不会被换成 gpt-4
-        self.assertEqual(call_models, ["grok-4.5", "grok-4.5"])
+        # 该模型/渠道不存在是确定性配置错误，不重试也不换成 gpt-4。
+        self.assertEqual(call_models, ["grok-4.5"])
 
     def test_prepare_params_uses_openai_api_key_for_grok(self):
         with patch.dict(
@@ -106,9 +106,8 @@ class ModelNotFoundFallbackGuardTest(unittest.IsolatedAsyncioTestCase):
 
 
 @unittest.skipUnless(
-    os.getenv("RUN_LIVE_MICUAPI_TEST", "").strip().lower() in {"1", "true", "yes"}
-    or bool((os.getenv("OPENAI_API_KEY") or "").strip()),
-    "需要 OPENAI_API_KEY；默认有 key 即跑 live 探测",
+    os.getenv("RUN_LIVE_MICUAPI_TEST", "").strip().lower() in {"1", "true", "yes"},
+    "只有显式设置 RUN_LIVE_MICUAPI_TEST 才直连外部网关",
 )
 class MicuapiGrokLiveProbeTest(unittest.TestCase):
     """
@@ -188,9 +187,8 @@ class MicuapiGrokLiveProbeTest(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.getenv("RUN_LIVE_MICUAPI_TEST", "").strip().lower() in {"1", "true", "yes"}
-    or bool((os.getenv("OPENAI_API_KEY") or "").strip()),
-    "需要 OPENAI_API_KEY",
+    os.getenv("RUN_LIVE_MICUAPI_TEST", "").strip().lower() in {"1", "true", "yes"},
+    "只有显式设置 RUN_LIVE_MICUAPI_TEST 才直连外部网关",
 )
 class MicuapiGrokAskLlmLiveTest(unittest.IsolatedAsyncioTestCase):
     """走完整 ask_llm 路径，观察是否仍是 grok-4.5 且无换模。"""

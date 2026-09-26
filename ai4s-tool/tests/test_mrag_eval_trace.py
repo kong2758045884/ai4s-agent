@@ -8,6 +8,12 @@ from ai4s_tool.tool.mrag.query.aigent import AgenticRAG
 
 class AgenticRagEvalTraceTest(unittest.TestCase):
 
+    def setUp(self):
+        # These tests exercise trace assembly, not FastEmbed's model download.
+        retriever = patch("ai4s_tool.tool.mrag.query.aigent.BaseRetriever")
+        retriever.start()
+        self.addCleanup(retriever.stop)
+
     def test_should_expose_citation_url_in_ref_context_for_model(self):
         context = AgenticRAG.build_ref_context(
             [
@@ -148,7 +154,8 @@ class AgenticRagEvalTraceTest(unittest.TestCase):
         ) as collect_trace:
             result = list(agent.run("今天天气怎么样"))
 
-        self.assertEqual(["直接回答"], result)
+        self.assertEqual(["直接回答"], [item for item in result if isinstance(item, str)])
+        self.assertEqual("simple_llm", result[-1]["meta"]["mode"])
         llm_answer.assert_called_once_with("今天天气怎么样")
         collect_trace.assert_not_called()
 
@@ -174,7 +181,8 @@ class AgenticRagEvalTraceTest(unittest.TestCase):
         ) as collect_trace:
             result = list(agent.run("这张图里是什么", image_urls=["http://img"]))
 
-        self.assertEqual(["图片直答"], result)
+        self.assertEqual(["图片直答"], [item for item in result if isinstance(item, str)])
+        self.assertEqual("simple_vlm", result[-1]["meta"]["mode"])
         vlm_answer.assert_called_once_with("这张图里是什么", ["http://img"])
         collect_trace.assert_not_called()
 

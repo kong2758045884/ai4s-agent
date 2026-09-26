@@ -79,6 +79,32 @@ public class WorkspaceEditToolTest {
     }
 
     @Test
+    public void shouldAllowExplicitUniqueChapterMarkerAfterReadStateWasCleared() throws Exception {
+        Files.writeString(targetFile, "<html><!--CH3--></html>", StandardCharsets.UTF_8);
+        ToolResultPayload payload = (ToolResultPayload) editTool.execute(Map.of(
+                "path", "demo.txt",
+                "old_string", "<!--CH3-->",
+                "new_string", "<section>主要创新</section>",
+                "allow_unread", true
+        ));
+        Assert.assertFalse(Boolean.TRUE.equals(payload.getFailed()));
+        Assert.assertEquals("<html><section>主要创新</section></html>",
+                Files.readString(targetFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void shouldRejectUnsafeUnreadReplacement() throws Exception {
+        ToolResultPayload payload = (ToolResultPayload) editTool.execute(Map.of(
+                "path", "demo.txt",
+                "old_string", "beta",
+                "new_string", "BETA",
+                "allow_unread", true
+        ));
+        Assert.assertTrue(Boolean.TRUE.equals(payload.getFailed()));
+        Assert.assertEquals("alpha\nbeta\ngamma\n", Files.readString(targetFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
     public void shouldFailWhenNotUniqueUnlessReplaceAll() throws Exception {
         Files.writeString(targetFile, "x y x\n", StandardCharsets.UTF_8);
         readTool.execute(Map.of("path", "demo.txt"));

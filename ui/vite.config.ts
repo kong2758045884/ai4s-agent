@@ -71,7 +71,8 @@ export default defineConfig(({ command, mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: false,
-      minify: 'terser' as const,
+      // The full workspace bundle exceeds Terser's worker heap on Windows.
+      minify: 'esbuild' as const,
     },
   }
 });

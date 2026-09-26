@@ -22,6 +22,9 @@ def valid():
 class DomainTest(unittest.TestCase):
     def setUp(self):
         fixtures.PipelineTest.setUp(self)
+        model_config = patch.object(sm, "_llm_config", return_value=("test", "test", "test"))
+        model_config.start()
+        self.addCleanup(model_config.stop)
         dr.META.create_all(sm._ENGINE)
         with sm._SESSION_FACTORY() as s:
             s.execute(dr.JOBS.delete());s.execute(dr.LEASES.delete());s.commit()
@@ -45,6 +48,20 @@ class DomainTest(unittest.TestCase):
         self.assertTrue(dr.qualified(valid()))
         value=valid();value['reviewed']['advantage']['status']='pending'
         self.assertFalse(dr.qualified(value))
+        value=valid();value['reviewed']['leader']=None
+        self.assertFalse(dr.qualified(value))
+
+    def test_candidate_schema_does_not_truncate_discovery_at_eight_or_twenty_four(self):
+        candidates=[
+            dr.Candidate(
+                institution_name=f'测试机构{i}',
+                team_name=f'测试团队{i}',
+                source_urls=[f'https://example.org/{i}'],
+                reason='检索命中',
+            )
+            for i in range(30)
+        ]
+        self.assertEqual(30,len(dr.Candidates(candidates=candidates).candidates))
 
     def test_review_cache_signature_rejects_changed_model_or_rules(self):
         value=valid();value['review_context']=tr.review_context()
@@ -66,6 +83,183 @@ class DomainTest(unittest.TestCase):
         rejected=valid();rejected['reviewed']['domain_relevance']['status']='rejected'
         self.assertFalse(dr.retryable_evidence_gap(rejected))
         self.assertFalse(dr.retryable_evidence_gap(valid()))
+
+    def test_explicit_official_leader_parser_rejects_role_like_false_positives(self):
+        self.assertEqual(
+            {"name": "姚远", "role": "PI"},
+            {
+                key: value
+                for key, value in dr._extract_explicit_leader(
+                    "多模态智能课题组 研究方向 多模态大模型 PI 姚远 Yuan YAO"
+                ).items()
+                if key in ("name", "role")
+            },
+        )
+        self.assertEqual(
+            "黄维然",
+            dr._extract_explicit_leader(
+                "Current Members Principal Investigator Weiran Huang ( 黄维然 )"
+            )["name"],
+        )
+        self.assertEqual(
+            "苏杭",
+            dr._extract_explicit_leader(
+                "实验室现任学术委员会主任为张远航院士，主任为苏杭研究员。"
+            )["name"],
+        )
+        self.assertEqual(
+            "张小曳",
+            dr._extract_explicit_leader(
+                "2025年实验室正式成立，中国工程院院士张小曳任实验室主任。"
+            )["name"],
+        )
+        self.assertEqual(
+            "陈国良",
+            dr._extract_explicit_leader(
+                "2025年依托学院建立，由陈国良院士担任实验室主任。"
+            )["name"],
+        )
+        self.assertEqual(
+            "杨必胜",
+            dr._extract_explicit_leader("现任领导 主任 杨必胜 主持行政工作。")["name"],
+        )
+        self.assertEqual(
+            "刘志飞",
+            dr._extract_explicit_leader("实验室主任刘志飞教授汇报建设方案。")["name"],
+        )
+        self.assertEqual(
+            "张小曳",
+            dr._leader_near_exact_team(
+                "导航" * 800
+                + "灾害天气科学与技术全国重点实验室于2024年成立。"
+                + "中国工程院院士张小曳任实验室主任。",
+                ("灾害天气科学与技术全国重点实验室",),
+                published_at="2025-11-26 15:22:40",
+            )["name"],
+        )
+        self.assertIsNone(
+            dr._extract_explicit_leader(
+                "国家工程实验室实行理事会领导下的主任负责制。"
+            )
+        )
+        self.assertIsNone(
+            dr._extract_explicit_leader("实验室学委会主任 戴永久院士主持学术交流。")
+        )
+        self.assertIsNone(
+            dr._extract_explicit_leader(
+                "（2012年4月－2016年4月）主任：陈和生 副主任：于渌"
+            )
+        )
+        self.assertIsNone(dr._extract_explicit_leader("副主任：李卫国"))
+        self.assertTrue(dr._official_research_url("https://lab.example.edu.cn/team"))
+        self.assertFalse(dr._official_research_url("https://example.com/team"))
+
+    def test_official_team_link_enrichment_persists_verified_leader(self):
+        source_url = "https://lab.example.edu.cn/groups"
+        detail_url = "https://lab.example.edu.cn/groups/multimodal"
+        with sm._SESSION_FACTORY() as session:
+            team = session.get(sm.StrategicTeamRow, "t")
+            team.team_name = "多模态智能课题组"
+            team.source_urls = [source_url]
+            session.commit()
+        page = {
+            "status": "ok",
+            "text": "课题组介绍",
+            "links": [
+                {
+                    "url": detail_url,
+                    "label": "多模态智能课题组 研究方向 多模态大模型 PI 姚远",
+                }
+            ],
+        }
+
+        with patch.object(tr, "fetch_page", return_value=page):
+            added = dr.enrich_official_team_leaders(sm._SESSION_FACTORY, "d", None)
+
+        with sm._SESSION_FACTORY() as session:
+            leaders, _ = sm._team_people(session, "t")
+        self.assertEqual(1, added)
+        self.assertEqual("姚远", leaders[0]["name"])
+        self.assertEqual("官方团队页面·规则核验", leaders[0]["sourceType"])
+        self.assertEqual([source_url], leaders[0]["sourceUrls"])
+
+    def test_official_enrichment_demotes_graph_only_leader_claim(self):
+        source_url = "https://lab.example.edu.cn/groups"
+        with sm._SESSION_FACTORY() as session:
+            team = session.get(sm.StrategicTeamRow, "t")
+            team.team_name = "测试课题组"
+            team.source_urls = [source_url]
+            session.add(
+                sm.StrategicPersonRow(
+                    id="graph-only-leader",
+                    team_id=team.id,
+                    name="图谱作者",
+                    role="负责人",
+                    is_leader=True,
+                    source_type="Hyper-Extract 图谱关系",
+                    verification_status="verified",
+                    source_urls=["hyper-node:图谱作者"],
+                    confidence=0.9,
+                )
+            )
+            session.commit()
+
+        with (
+            patch.object(tr, "fetch_page", return_value={"status": "error"}),
+            patch.object(sm, "_bing_html_search", return_value=[]),
+            patch.object(sm, "_duckduckgo_html_search", return_value=[]),
+        ):
+            added = dr.enrich_official_team_leaders(
+                sm._SESSION_FACTORY,
+                "d",
+                None,
+            )
+
+        with sm._SESSION_FACTORY() as session:
+            person = session.get(sm.StrategicPersonRow, "graph-only-leader")
+            team = session.get(sm.StrategicTeamRow, "t")
+        self.assertEqual(0, added)
+        self.assertFalse(person.is_leader)
+        self.assertEqual("关联作者", person.role)
+        self.assertEqual("collected", person.verification_status)
+        self.assertFalse(team.eligibility.get("leaderEvidence"))
+
+    def test_official_search_includes_teams_without_source_urls(self):
+        url = "https://lab.example.edu.cn/group"
+        with sm._SESSION_FACTORY() as s:
+            team = s.get(sm.StrategicTeamRow, "t")
+            team.team_name = "智能计算课题组"
+            team.source_urls = []
+            team.evidence_urls = []
+            s.commit()
+        with (
+            patch.object(sm, "_bing_html_search", return_value=[
+                {"link": url, "title": "智能计算课题组", "snippet": ""}
+            ]) as search,
+            patch.object(tr, "fetch_page", return_value={
+                "status": "ok", "url": url, "text": "智能计算课题组 团队负责人为张三教授。",
+                "links": [],
+            }),
+        ):
+            self.assertEqual(1, dr.enrich_official_team_leaders(sm._SESSION_FACTORY, "d", None))
+        self.assertEqual(2, search.call_count)
+        with sm._SESSION_FACTORY() as s:
+            self.assertEqual("张三", sm._team_people(s, "t")[0][0]["name"])
+
+    def test_empty_discovery_failure_cannot_be_complete(self):
+        with sm._SESSION_FACTORY() as s:
+            s.query(sm.StrategicTeamRow).delete()
+            s.commit()
+        with (
+            patch.object(dr, "discovery", side_effect=RuntimeError("provider unavailable")),
+            patch("ai4s_tool.api.strategic_graph.graph_institution_seeds", return_value=[]),
+        ):
+            with sm._SESSION_FACTORY() as s:
+                with self.assertRaises(sm._SyncQualityError):
+                    dr.sync_domain(s, s.get(sm.StrategicDomainRow, "d"), seconds=400, team_seconds=60)
+                job = s.execute(dr.select(dr.JOBS).where(dr.JOBS.c.id == "domain:d")).mappings().one()
+                self.assertEqual("incomplete", job["state"])
+                self.assertEqual(0, job["payload"]["teamCount"])
 
     def test_public_context_remains_idempotent_for_resume(self):
         original={'team_id':'t','institution_name':'测试所','team_name':'测试组','contact_record':'不能外发',
@@ -94,6 +288,62 @@ class DomainTest(unittest.TestCase):
             result=dr.discovery('测试领域',[],research)
         self.assertEqual(1,search.call_count)
         self.assertEqual(['https://example.org/real'],result[0]['source_urls'])
+
+    def test_discovery_accepts_exact_team_name_in_same_search_result(self):
+        def fake_call(stage,schema,payload):
+            if stage=='domain-plan':return tr.Plan(queries=['测试领域团队'],reason='test')
+            return dr.Candidates(candidates=[dr.Candidate(
+                institution_name='测试所',
+                team_name='先进计算研究组',
+                source_urls=['https://example.org/team'],
+                reason='标题明确命名',
+                concrete_team_named=True,
+                name_evidence=[tr.Citation(url='https://example.org/team',quote='被搜索摘要截断的原文')],
+            )])
+        research=tr.Research(lambda **kwargs:'')
+        hits=[{'url':'https://example.org/team','label':'测试所先进计算研究组主页','snippet':'研究方向'}]
+        with patch.object(research,'call',side_effect=fake_call),patch.object(tr,'search_links',return_value=hits):
+            result=dr.discovery('测试领域',[],research)
+        self.assertEqual(['先进计算研究组'],[item['team_name'] for item in result])
+
+    def test_sync_persists_every_discovered_candidate_before_deep_review(self):
+        candidates=[
+            {
+                'institution_name':f'测试机构{i}',
+                'team_name':f'测试团队{i}',
+                'source_urls':[f'https://example.org/team-{i}'],
+                'reason':'检索结果明确命名',
+                'concrete_team_named':True,
+                'name_evidence':[],
+            }
+            for i in range(30)
+        ]
+        incomplete={
+            'status':'fetch_failed',
+            'reviewed':None,
+            'extracted':None,
+            'pages':[],
+            'errors':[],
+            'trace':[],
+            'counts':{},
+        }
+        with (
+            patch.object(dr,'discovery',side_effect=[candidates,[],[]]),
+            patch.object(tr.Research,'run',return_value=incomplete),
+            patch('ai4s_tool.api.strategic_graph.graph_institution_seeds',return_value=[]),
+        ):
+            with sm._SESSION_FACTORY() as s:
+                with self.assertRaises(sm._SyncQualityError):
+                    dr.sync_domain(
+                        s,
+                        s.get(sm.StrategicDomainRow,'d'),
+                        seconds=400,
+                        team_seconds=60,
+                    )
+        with sm._SESSION_FACTORY() as s:
+            rows=s.query(sm.StrategicTeamRow).filter_by(domain_id='d',deleted=False).all()
+        self.assertEqual(31,len(rows))
+        self.assertEqual(30,sum(row.verification_status=='collected' for row in rows))
 
     def test_failed_team_keeps_latest_checkpoint(self):
         def fail(research,context,domain):
@@ -185,6 +435,26 @@ class DomainTest(unittest.TestCase):
         self.assertEqual(8.0,research.counts['retry_wait_seconds'])
         sleep.assert_called_once_with(8.0)
 
+    def test_repeated_server_errors_back_off_then_open_batch_circuit(self):
+        class ServerError(Exception):
+            status_code = 503
+        calls = []
+        def llm(**kwargs):
+            calls.append(kwargs)
+            raise ServerError('provider temporarily unavailable')
+        cache = dr.BatchCache()
+        research = tr.Research(llm, cached_pages=cache)
+        with patch.object(tr.time, 'sleep') as sleep:
+            with self.assertRaises(ServerError):
+                research.call('plan', tr.Plan, {})
+            with self.assertRaises(tr.ProviderUnavailable):
+                research.call('plan', tr.Plan, {})
+            with self.assertRaises(tr.ProviderUnavailable):
+                research.call('plan', tr.Plan, {})
+        self.assertEqual(3, len(calls))
+        self.assertEqual('transient_circuit_open', cache.unavailable['kind'])
+        sleep.assert_called_once_with(1.0)
+
     def test_provider_billing_error_trips_circuit_without_retry(self):
         class BillingError(Exception):
             status_code=400
@@ -257,6 +527,41 @@ class DomainTest(unittest.TestCase):
         with sm._SESSION_FACTORY() as s:
             job=s.execute(dr.select(dr.JOBS).where(dr.JOBS.c.team_id=='t')).mappings().one()
             self.assertEqual('budget_exhausted',job['state'])
+            self.assertEqual(1, sm._domain_research_summary(s,'d')['deferredCount'])
+
+    def test_deferred_recheck_does_not_overwrite_completed_evidence(self):
+        earlier_run=valid()
+        dr.save_job(sm._SESSION_FACTORY,'t','d','t','complete',{
+            'context':{'team_id':'t'},'run':earlier_run,
+        })
+        with sm._SESSION_FACTORY() as s:
+            s.execute(dr.JOBS.update().where(dr.JOBS.c.id=='t').values(
+                updated=time.time()-90000,
+            ))
+            s.commit()
+        with patch.object(tr.Research,'run') as research:
+            with sm._SESSION_FACTORY() as s:
+                with self.assertRaises(sm._SyncQualityError):
+                    dr.sync_domain(s,s.get(sm.StrategicDomainRow,'d'),seconds=1)
+            research.assert_not_called()
+        with sm._SESSION_FACTORY() as s:
+            job=s.execute(dr.select(dr.JOBS).where(dr.JOBS.c.id=='t')).mappings().one()
+            self.assertEqual('complete',job['state'])
+            self.assertEqual(earlier_run,job['payload']['run'])
+            self.assertEqual(1,sm._domain_research_summary(s,'d')['deferredCount'])
+
+    def test_deferred_backlog_precedes_stale_completed_rechecks(self):
+        previous={
+            'stale':{'state':'complete','updated':1,'payload':{'run':{'status':'reviewed'}}},
+            'deferred-new':{'state':'budget_exhausted','updated':8,'payload':{}},
+            'deferred-old':{'state':'budget_exhausted','updated':3,'payload':{}},
+            'reviewed':{'state':'needs_review','updated':9,'payload':{'run':{'status':'reviewed'}}},
+        }
+        work=[(key,{}) for key in ('stale','deferred-new','new','deferred-old','reviewed')]
+        self.assertEqual(
+            ['reviewed','new','deferred-old','deferred-new','stale'],
+            [key for key,_ in dr._prioritize_team_work(work,previous)],
+        )
 
     def test_team_failure_keeps_other_committed_result_and_manual_data(self):
         with sm._SESSION_FACTORY() as s:
@@ -265,7 +570,15 @@ class DomainTest(unittest.TestCase):
         def observe(self,context,domain):
             if context['team_id']=='bad': raise RuntimeError('network failure')
             return valid()
-        with patch.object(tr.Research,'run',observe):
+        with (
+            patch.object(tr.Research,'run',observe),
+            patch('ai4s_tool.api.official_team_directory.sync', return_value={}),
+            patch.object(dr, 'enrich_official_team_leaders', return_value=0),
+            patch(
+                'ai4s_tool.api.team_enrichment.enrich_teams',
+                return_value={'leaders_added': 0, 'members_added': 0},
+            ),
+        ):
             with sm._SESSION_FACTORY() as s:
                 with self.assertRaises(sm._SyncQualityError):dr.sync_domain(s,s.get(sm.StrategicDomainRow,'d'),seconds=120)
         with sm._SESSION_FACTORY() as s:
@@ -274,7 +587,15 @@ class DomainTest(unittest.TestCase):
             self.assertEqual(1,len(store.history(s,'t','verified')))
             self.assertEqual('failed',s.execute(dr.select(dr.JOBS.c.state).where(dr.JOBS.c.team_id=='bad')).scalar_one())
         # The successful job is reused on retry; only the failed team is retried.
-        with patch.object(tr.Research,'run',side_effect=RuntimeError('still offline')) as research:
+        with (
+            patch.object(tr.Research,'run',side_effect=RuntimeError('still offline')) as research,
+            patch('ai4s_tool.api.official_team_directory.sync', return_value={}),
+            patch.object(dr, 'enrich_official_team_leaders', return_value=0),
+            patch(
+                'ai4s_tool.api.team_enrichment.enrich_teams',
+                return_value={'leaders_added': 0, 'members_added': 0},
+            ),
+        ):
             with sm._SESSION_FACTORY() as s:
                 with self.assertRaises(sm._SyncQualityError):dr.sync_domain(s,s.get(sm.StrategicDomainRow,'d'),seconds=120)
             self.assertEqual(1,research.call_count)

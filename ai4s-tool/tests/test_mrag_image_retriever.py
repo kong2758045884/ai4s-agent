@@ -151,8 +151,15 @@ class BaseRetrieverModeTest(unittest.TestCase):
     def test_should_not_submit_image_retrieval_tasks_when_mode_is_text_proxy(self):
         with patch.dict(
             "os.environ",
-            {"MRAG_IMAGE_INDEX_MODE": "text_proxy"},
+            {
+                "MRAG_IMAGE_INDEX_MODE": "text_proxy",
+                "RETRIEVAL_TEXT_THRESHOLD": "0",
+            },
             clear=False,
+        ), patch(
+            "ai4s_tool.tool.mrag.retrieval.retriever.TextRetriever"
+        ), patch(
+            "ai4s_tool.tool.mrag.retrieval.retriever.ImageRetriever"
         ):
             retriever = BaseRetriever()
 
@@ -161,7 +168,8 @@ class BaseRetrieverModeTest(unittest.TestCase):
         retriever._text_retriever.vector_search.return_value = [[{"id": "dense"}]]
         retriever._text_retriever.sparse_search.return_value = [[{"id": "sparse"}]]
 
-        result = retriever.retrieval_by_texts("kb-test", ["问题一"])
+        with patch.dict("os.environ", {"RETRIEVAL_TEXT_THRESHOLD": "0"}, clear=False):
+            result = retriever.retrieval_by_texts("kb-test", ["问题一"])
 
         self.assertEqual(1, len(result))
         self.assertCountEqual(["dense", "sparse"], [item["id"] for item in result[0]])

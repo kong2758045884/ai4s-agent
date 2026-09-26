@@ -1,5 +1,6 @@
 package org.wwz.ai.domain.agent.runtime.agent;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -348,6 +349,12 @@ final class ToolExecutionPipeline {
             throw yield;
         } catch (PlanApprovalRequiredException yield) {
             throw yield;
+        } catch (JsonProcessingException e) {
+            log.warn("{} execute tool {} rejected malformed arguments", context.getRequestId(), toolName, e);
+            String message = "工具入参不是完整 JSON；请重新生成完整参数"
+                    + ("workspace_write".equalsIgnoreCase(toolName)
+                    ? "，长文档请拆成较短片段写入并逐段核对" : "");
+            return ToolExecutionOutcome.failure(message, message, null, "INVALID_TOOL_ARGUMENT_JSON");
         } catch (Exception e) {
             log.error("{} execute tool {} failed ", context.getRequestId(), toolName, e);
             return ToolExecutionOutcome.failure(
@@ -582,9 +589,12 @@ final class ToolExecutionPipeline {
     }
 
     private Object parseToolArguments(String toolName, String arguments) throws Exception {
-        String normalizedPayload = normalizeToolPayload(arguments);
+        // Execution must parse the original payload. normalizeToolPayload deliberately
+        // substitutes '{}' for invalid JSON so the ledger's JSON column remains valid;
+        // reusing it here silently executed malformed long writes with empty arguments.
+        String normalizedPayload = StringUtils.isBlank(arguments) ? "{}" : arguments;
         try {
-            return JSON.readValue(normalizedPayload, Object.class);
+            return ToolArgumentsJson.parseOriginal(normalizedPayload);
         } catch (Exception parseError) {
             Map<String, Object> salvaged = trySalvageToolArguments(toolName, normalizedPayload, parseError);
             if (salvaged != null) {

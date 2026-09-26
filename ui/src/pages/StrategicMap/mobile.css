@@ -25,6 +25,16 @@
   }
 
   @container (max-width: 1100px) {
+    .strategic-map .strategic-map-view-tabs {
+      width: 100% !important;
+      overflow-x: hidden !important;
+    }
+    .strategic-map .strategic-map-view-tabs > button {
+      flex: 1 1 auto !important;
+      min-width: 0 !important;
+      padding-inline: 7px !important;
+      white-space: nowrap;
+    }
     .strategic-map .strategic-map-header {
       padding: 10px 16px !important;
     }
@@ -85,12 +95,70 @@
       opacity: 0.45;
     }
     .strategic-map .strategic-map-teams,
-    .strategic-map .strategic-map-profile {
+    .strategic-map .strategic-map-profile,
+    .strategic-map .strategic-graph-workspace {
       width: 100% !important;
       flex: none !important;
       min-height: 0 !important;
+    }
+    .strategic-map .strategic-map-teams,
+    .strategic-map .strategic-map-profile {
       overflow: visible !important;
       padding: 14px !important;
+    }
+    .strategic-map .strategic-graph-workspace {
+      min-height: 720px !important;
+    }
+    .strategic-map .strategic-graph-stats {
+      display: none !important;
+    }
+    .strategic-map .strategic-graph-mode {
+      left: 12px !important;
+      top: 12px !important;
+      transform: none !important;
+      translate: none !important;
+    }
+    .strategic-map .strategic-graph-mode button {
+      min-height: 40px !important;
+      padding-inline: 12px !important;
+    }
+    .strategic-map .strategic-graph-switches {
+      right: 12px !important;
+      top: 68px !important;
+    }
+    .strategic-map .strategic-graph-switches button {
+      min-height: 36px !important;
+    }
+    .strategic-map .strategic-graph-rail {
+      right: auto !important;
+      bottom: 12px !important;
+      left: 50% !important;
+      top: auto !important;
+      flex-direction: row !important;
+      transform: translateX(-50%) !important;
+    }
+    .strategic-map .strategic-graph-rail > span {
+      margin: 0 4px !important;
+      width: 1px !important;
+      height: 28px !important;
+    }
+    .strategic-map .strategic-graph-panel {
+      bottom: 72px !important;
+      left: 12px !important;
+      right: 12px !important;
+      top: 120px !important;
+      width: auto !important;
+    }
+    .strategic-map .strategic-graph-detail {
+      bottom: 72px !important;
+      left: 12px !important;
+      right: 12px !important;
+      width: auto !important;
+    }
+    .strategic-map .strategic-graph-aggregate-hint {
+      bottom: 72px !important;
+      left: 12px !important;
+      right: 12px !important;
     }
     .strategic-map .strategic-map-teams[data-mobile-visible="false"],
     .strategic-map .strategic-map-profile[data-mobile-visible="false"] {
@@ -102,9 +170,12 @@
       overflow: visible !important;
       padding-right: 0 !important;
     }
-    .strategic-map .strategic-map-table-head,
-    .strategic-map .strategic-map-team-evaluation {
+    .strategic-map .strategic-map-table-head {
       display: none !important;
+    }
+    .strategic-map .strategic-map-team-evaluation {
+      display: grid !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .strategic-map .strategic-map-team-row {
       grid-template-columns: minmax(0, 1fr) !important;
