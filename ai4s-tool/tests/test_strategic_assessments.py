@@ -225,3 +225,22 @@ def test_explicit_unknown_capability_not_dropped_and_or_preserved(app_client):
     run = confirm(client, current, alternative, requestId="confirm-alternative").json()["data"]["run"]
     assert [item["teamId"] for item in run["items"]] == ["t1"]
     assert run["items"][0]["criteriaMatrix"][0]["status"] == "supported"
+
+
+def test_domain_draft_window_and_observation_restore_confirmed_options(app_client):
+    client, _, _, _ = app_client
+    record = create(client, mode="domain")
+    path = f"/strategic-map/assessments/{record['taskId']}"
+    patched = client.patch(path, json={"requestId": "save-window", "expectedRevision": record["revision"],
+        "windowDays": 30, "requestedLimit": 2, "domainDraft": "观察近期变化"})
+    assert patched.status_code == 200
+    saved = client.get(path).json()["data"]
+    assert saved["state"]["windowDays"] == 30
+    result = client.post(path + "/observe", json={"requestId": "observe-window", "expectedRevision": saved["revision"],
+        "scope": {"mode": "selected", "domainIds": ["life"]}, "windowDays": 180, "limit": 3})
+    assert result.status_code == 200
+    restored = client.get(path).json()["data"]
+    assert restored["state"]["windowDays"] == restored["run"]["observation"]["windowDays"] == 180
+    assert restored["state"]["requestedLimit"] == 3
+    assert restored["state"]["domainScope"]["domainIds"] == ["life"]
+    assert client.patch(path, json={"requestId": "invalid-window", "expectedRevision": restored["revision"], "windowDays": 17}).status_code == 422

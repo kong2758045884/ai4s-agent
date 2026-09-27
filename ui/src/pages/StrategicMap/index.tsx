@@ -79,6 +79,7 @@ import RecommendationWorkspace from "./RecommendationWorkspace";
 import AssessmentWorkbench from "./AssessmentWorkbench";
 import { readInternalTeam, useStrategicAccess, type InternalTeam } from "@/services/strategicAccess";
 import EvidenceSearch from "./EvidenceSearch";
+import SourceCoverage from "./SourceCoverage";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
 import AssessmentUpdates from "./AssessmentUpdates";
@@ -440,6 +441,8 @@ export default function StrategicMap() {
   const [taskDraft, setTaskDraft] = useState("");
   const [recommendationRun, setRecommendationRun] = useState<RecommendationRun | null>(null);
   const [assessmentContext, setAssessmentContext] = useState({ taskId: initialContext.assessmentId || "", runId: initialContext.assessmentRunId || "" });
+  // Historical graph focus survives removal from the live catalogue and browser refresh.
+  const [assessmentGraphTeamId, setAssessmentGraphTeamId] = useState(initialContext.teamId);
   const updateAssessmentContext = useCallback((taskId: string, runId: string) => setAssessmentContext({ taskId, runId }), []);
   const [recommendAcrossDomains, setRecommendAcrossDomains] = useState(
     initialContext.recommendAcrossDomains || !initialContext.domainId,
@@ -451,6 +454,7 @@ export default function StrategicMap() {
     const requested = readStrategicMapNavigationContext(location.pathname, location.search)?.mode;
     if (requested && (FUSION_ENABLED || requested === "teams" || requested === "graph")) setWorkspaceMode(requested);
     const context = readStrategicMapNavigationContext(location.pathname, location.search);
+    if (context?.mode === "graph" && context.assessmentId) setAssessmentGraphTeamId(context.teamId);
     setAssessmentContext(current => current.taskId === (context?.assessmentId || "") && current.runId === (context?.assessmentRunId || "") ? current : { taskId: context?.assessmentId || "", runId: context?.assessmentRunId || "" });
   }, [location.pathname, location.search, navigationType]);
   const [taxonomyRevision, setTaxonomyRevision] = useState(0);
@@ -569,7 +573,7 @@ export default function StrategicMap() {
   );
 
   const currentNavigationContext = useCallback(
-    (teamId = selectionRef.current.teamId) => ({
+    (teamId = workspaceMode === "graph" && assessmentContext.taskId ? assessmentGraphTeamId : selectionRef.current.teamId) => ({
       route: initialContext.route,
       mode: workspaceMode,
       assessmentId: assessmentContext.taskId,
@@ -583,7 +587,7 @@ export default function StrategicMap() {
         ? { mobileListScroll: mobileListScrollRef.current }
         : {}),
     }),
-    [captureScrollState, initialContext.route, mobilePanel, workspaceMode, recommendAcrossDomains, assessmentContext],
+    [captureScrollState, initialContext.route, mobilePanel, workspaceMode, recommendAcrossDomains, assessmentContext, assessmentGraphTeamId],
   );
 
   const switchMobilePanel = (panel: "teams" | "profile", reset = false) => {
@@ -1474,6 +1478,7 @@ export default function StrategicMap() {
           ASSESSMENT_ENABLED ? <AssessmentWorkbench domains={domains} catalogueReady={!loading && domains.length > 0} taskId={assessmentContext.taskId} runId={assessmentContext.runId}
             onContextChange={updateAssessmentContext} onOpenTeam={openTeamDetail}
             onOpenRelations={teamId => {
+              setAssessmentGraphTeamId(teamId);
               const domain = domains.find(d => d.teams.some(t => t.id === teamId));
               const team = domain?.teams.find(t => t.id === teamId);
               if (domain && team) applySelection({ domainId: domain.id, subdomainId: team.subdomainId || "", teamId });
@@ -1494,7 +1499,7 @@ export default function StrategicMap() {
             <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
           </AssessmentUpdates> : <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
         ) : workspaceMode === "graph" ? (
-          loading ? (
+          loading && !(ASSESSMENT_ENABLED && assessmentContext.taskId && assessmentContext.runId) ? (
             <div className="flex min-h-[420px] min-w-0 flex-1 items-center justify-center rounded-xl border border-[#e2e8f0] bg-white">
               <LoaderCircle className="size-7 animate-spin text-[#197b7a]" />
             </div>
@@ -1502,7 +1507,11 @@ export default function StrategicMap() {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
             {ASSESSMENT_ENABLED && <button className="min-h-11 self-start rounded-lg border border-slate-200 bg-white px-4 text-sm text-blue-700" onClick={() => setWorkspaceMode(assessmentContext.taskId ? "recommend" : "teams")}>返回{assessmentContext.taskId ? "当前研判" : "团队资料"}</button>}
             <FusionGraphWorkspace
-              focusNodeId={ASSESSMENT_ENABLED && assessmentContext.taskId ? `team:${selectedTeamId}` : undefined}
+              taskId={ASSESSMENT_ENABLED ? assessmentContext.taskId : undefined}
+              runId={ASSESSMENT_ENABLED ? assessmentContext.runId : undefined}
+              onFocusTeam={setAssessmentGraphTeamId}
+              onOpenTeam={openTeamDetail}
+              focusNodeId={ASSESSMENT_ENABLED && assessmentContext.taskId && assessmentGraphTeamId ? `team:${assessmentGraphTeamId}` : undefined}
               domainId={activeDomain.id}
               domainName={activeDomain.name}
               subdomainId={activeSubdomainId}
@@ -1599,6 +1608,10 @@ export default function StrategicMap() {
                 {ASSESSMENT_ENABLED && <details className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <summary className="min-h-11 cursor-pointer text-sm font-medium text-blue-700">检索团队资料与成果原文</summary>
                   <EvidenceSearch domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
+                </details>}
+                {!loading && ASSESSMENT_ENABLED && <details className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <summary className="min-h-11 cursor-pointer text-sm font-medium text-blue-700">当前范围的来源与资料缺口</summary>
+                  <SourceCoverage domainId={activeDomain.id} subdomainId={activeSubdomainId} />
                 </details>}
                 <div className="strategic-map-table-head hidden grid-cols-[1fr_112px_178px] items-center gap-3 border-b border-[#dfe8ef] px-3 py-2 text-[11px] font-semibold tracking-[0.06em] text-[#75899a] sm:grid">
                   <span>团队</span>

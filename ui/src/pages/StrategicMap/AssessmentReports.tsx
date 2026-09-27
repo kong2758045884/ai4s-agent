@@ -3,7 +3,7 @@ import { Download } from "lucide-react";
 import { assessmentApi, requestId, type AssessmentReport, type AssessmentReportSummary } from "@/services/strategicAssessments";
 import type { StrategicDomain } from "@/services/strategicMap";
 
-const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50";
+import { primaryButton, secondaryButton as button } from "./controls";
 const input = "mt-1 min-h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm";
 const kinds = { daily: "日报", weekly: "近七日报告", monthly: "本月至所选日报告" };
 
@@ -59,7 +59,7 @@ export default function AssessmentReports({ domains, initialDomainId, onOpenRun 
         <div className="grid gap-3 sm:grid-cols-3"><label className="text-sm">报告领域<select aria-label="报告领域" className={input} value={domainId} disabled={busy} required onChange={e => { setDomainId(e.target.value); setPage(1); setReport(null); }}>{!domains.length && <option value="">领域加载中</option>}{domains.map(d => <option value={d.id} key={d.id}>{d.name}</option>)}</select></label>
           <label className="text-sm">时间范围<select aria-label="报告时间范围" className={input} value={kind} disabled={busy} onChange={e => setKind(e.target.value as AssessmentReport["kind"])}>{Object.entries(kinds).map(([k, label]) => <option value={k} key={k}>{label}</option>)}</select></label>
           <label className="text-sm">截止日期（北京时间）<input aria-label="报告截止日期" type="date" required max={today} className={input} value={day} disabled={busy} onChange={e => setDay(e.target.value)} /></label></div>
-        <button className={`${button} bg-blue-600! text-white!`} disabled={busy || !domains.some(d => d.id === domainId) || !day}>{busy ? "正在保存…" : "生成并保存报告"}</button>
+        <button className={primaryButton} disabled={busy || !domains.some(d => d.id === domainId) || !day}>{busy ? "正在保存…" : "生成并保存报告"}</button>
       </form>
       {error && <div role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}<button className={`${button} ml-2`} onClick={() => setReload(n => n + 1)}>重新加载记录</button></div>}
     </section>

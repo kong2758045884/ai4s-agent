@@ -210,6 +210,8 @@ export type StrategicGraphData = {
   searchResults: StrategicGraphSearchResult[];
   meta: {
     type?: string;
+    snapshot?: { version: string; taskId: string; runId: string; inputVersion?: number; evidenceVersion?: string; scopeLabel?: string;
+      frozenAt?: string; legacyReconstruction: boolean; notice: string; limitations: string; hash: string };
     features?: Record<string, boolean>;
     stats?: Record<string, number>;
     filter?: {

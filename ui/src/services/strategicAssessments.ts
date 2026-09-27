@@ -1,5 +1,6 @@
 import { normalizeToolBaseUrlForBrowser } from "@/utils/fileUrl";
 import type { RecommendationRun, RecommendationItem, RecommendationCitation } from "./strategicRecommendations";
+import type { StrategicGraphData } from "./strategicMap";
 
 export type AssessmentScope = { mode: "auto" | "selected"; domainIds: string[]; subdomainId?: string | null; domesticOnly: true; domainNames?: string[]; subdomainName?: string };
 export type Criterion = { id: string; kind: "goal" | "capability" | "outcome" | "constraint" | "preference" | "exclusion" | "organization" | "unresolved";
@@ -9,6 +10,7 @@ export type Interpretation = { interpretationId: string; parserVersion: string; 
 export type MatrixRow = { criterionId: string; text: string; necessity: string; status: "supported" | "insufficient" | "conditional" | "not_met" | "not_observed"; claimIds: string[]; notice: string };
 export type AssessmentItem = RecommendationItem & { criteriaMatrix: MatrixRow[] };
 export type AssessmentRun = Omit<RecommendationRun, "items"> & { taskId: string; inputVersionId: string; inputVersion: number;
+  relationshipGraph?: StrategicGraphData;
   scope: AssessmentScope; mode?: "task" | "domain"; criteria?: Criterion[]; items: AssessmentItem[];
   selection?: { comparedTeamIds: string[]; combination: { teamId: string; role: string; rationale: string }[] };
   unresolvedConditions?: { criterionId: string; text: string; reason: string }[];
@@ -20,7 +22,7 @@ export type Assessment = { taskId: string; title: string; mode: "task" | "domain
   runs: { runId: string; inputVersion: number; inputVersionId: string; createdAt: string }[]; run?: AssessmentRun;
   state: { taskDraft: string; domainDraft: string; activeRunId: string | null; comparedTeamIds: string[];
     combination: { teamId: string; role: string; rationale: string }[]; followUps: FollowUp[]; internalNotes: string;
-    taskScope?: AssessmentScope; domainScope?: AssessmentScope; requestedLimit?: number } };
+    taskScope?: AssessmentScope; domainScope?: AssessmentScope; requestedLimit?: number; windowDays?: number } };
 export type AssessmentSummary = Pick<Assessment, "taskId" | "title" | "mode" | "revision" | "updatedAt">;
 export type InvestigationOptions = { teamIds: string[]; criterionIds: string[]; publishedAfter: string | null };
 export type AssessmentInvestigation = { jobId: string; state: "queued" | "running" | "completed" | "partial" | "failed" | "interrupted" | "cancelled";
@@ -76,6 +78,7 @@ export const assessmentApi = {
   observe: (id: string, body: { expectedRevision: number; scope: AssessmentScope; limit: number; windowDays: number; requestId: string }) =>
     post<Assessment>(`/assessments/${encodeURIComponent(id)}/observe`, body),
   run: (id: string, runId: string) => request<AssessmentRun>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`),
+  graph: (id: string, runId: string, signal?: AbortSignal) => request<StrategicGraphData>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/graph`, { signal }),
   export: (id: string, runId: string) => request<Record<string, unknown>>(`/assessments/${encodeURIComponent(id)}/export?run_id=${encodeURIComponent(runId)}`),
   investigations: (id: string, runId: string, signal?: AbortSignal) => request<InvestigationOverview>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/investigations`, { signal }),
   investigate: (id: string, runId: string, options: InvestigationOptions, idempotencyKey: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/investigations`, { options, requestId: idempotencyKey }),

@@ -96,6 +96,8 @@ def refresh(task_id, parent_run_id, *, change_ids=None, reason="核验后的团�
             raise RuntimeError("研判重算期间证据发生变化，稍后重试")
         run_id = result["runId"] if changed else None
         if changed:
+            from .assessment_graph import freeze
+            freeze(result)
             conn.execute("INSERT INTO strategic_assessment_run VALUES(?,?,?,?,?,?)", (run_id, task_id,
                 parent_row["input_id"], parent_run_id, store._json(result), result["createdAt"]))
             retained = {i["teamId"] for i in result["items"]}

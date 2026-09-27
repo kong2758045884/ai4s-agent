@@ -179,6 +179,7 @@ class PatchAssessment(Mutation):
     taskScope: Scope | None = None
     domainScope: Scope | None = None
     requestedLimit: int | None = Field(default=None, ge=1, le=20)
+    windowDays: Literal[30, 90, 180, 365] | None = None
 
 
 class ConfirmAssessment(Mutation):
@@ -229,6 +230,7 @@ def observe_assessment(task_id: str, body: ObserveAssessment, owner: str = Depen
         for direction in team.get("researchDirections") or [team.get("subdomainName") or "方向尚未细分"]:
             direction_ids.setdefault(direction, set()).add(team_id)
         units.append({"teamId": team_id, "teamName": team.get("teamName") or team["name"],
+            "identityEvidence": team.get("institutionEvidence", []),
             "institutionName": team.get("institutionName") or team["name"], "outcomeCount": len(outcomes),
             "recentOutcomeCount": len(recent), "undatedOutcomeCount": sum(not c[7] for c in outcomes),
             "reason": "已有具体团队成果，可按任务继续查证" if outcomes else "有身份与方向来源，具体成果尚缺",
@@ -259,10 +261,13 @@ def observe_assessment(task_id: str, body: ObserveAssessment, owner: str = Depen
         version_number = conn.execute("SELECT COALESCE(MAX(version),0)+1 FROM strategic_assessment_input WHERE assessment_id=?", (task_id,)).fetchone()[0]
         input_id = "input-" + uuid.uuid4().hex
         run.update(inputVersion=version_number, inputVersionId=input_id, previousRunId=previous)
+        from .assessment_graph import freeze
+        freeze(run)
         conn.execute("INSERT INTO strategic_assessment_input VALUES(?,?,?,?,?,?)", (input_id, task_id, version_number, _json(payload), version, _now()))
         conn.execute("INSERT INTO strategic_assessment_run VALUES(?,?,?,?,?,?)", (run_id, task_id, input_id, previous, _json(run), run["createdAt"]))
         conn.execute("INSERT INTO strategic_assessment_run_selection VALUES(?,?)", (run_id, _json({"comparedTeamIds": [], "combination": []})))
-        state.update(activeRunId=run_id, comparedTeamIds=[], combination=[])
+        state.update(activeRunId=run_id, comparedTeamIds=[], combination=[], domainScope=run["scope"],
+                     requestedLimit=body.limit, windowDays=body.windowDays)
         conn.execute("UPDATE strategic_assessment SET mode='domain',revision=revision+1,state_json=?,updated_at=? WHERE id=?", (_json(state), _now(), task_id))
         updated = _owned(conn, task_id, owner)
         _audit(conn, updated, owner, "observed", {"runId": run_id, "inputVersionId": input_id})
@@ -350,7 +355,7 @@ def patch_assessment(task_id: str, body: PatchAssessment, owner: str = Depends(c
         for scope in (body.taskScope, body.domainScope):
             if scope:
                 _validate_scope(scope)
-        for key in ("taskDraft", "domainDraft", "comparedTeamIds", "combination", "followUps", "internalNotes", "taskScope", "domainScope", "requestedLimit"):
+        for key in ("taskDraft", "domainDraft", "comparedTeamIds", "combination", "followUps", "internalNotes", "taskScope", "domainScope", "requestedLimit", "windowDays"):
             if key in payload:
                 state[key] = payload[key]
         if state.get("activeRunId") and any(k in payload for k in ("comparedTeamIds", "combination")):
@@ -432,6 +437,8 @@ def confirm_assessment(task_id: str, body: ConfirmAssessment, owner: str = Depen
         version = conn.execute("SELECT COALESCE(MAX(version),0)+1 FROM strategic_assessment_input WHERE assessment_id=?", (task_id,)).fetchone()[0]
         input_id = "input-" + uuid.uuid4().hex
         run.update(inputVersionId=input_id, inputVersion=version, previousRunId=previous)
+        from .assessment_graph import freeze
+        freeze(run)
         if previous:
             before = json.loads(conn.execute("SELECT result_json FROM strategic_assessment_run WHERE id=?", (previous,)).fetchone()[0])
             run["changes"] = _diff(before, run)
@@ -477,6 +484,17 @@ def _diff(before, after):
             "updated": sorted(k for k in old.keys() & new.keys() if old[k] != new[k]),
             "sameConditions": same, "reason": "证据版本更新" if same else "用户修改研判条件；不作为科研变化",
             "beforeRunId": before["runId"], "afterRunId": after["runId"]}
+
+
+@router.get("/assessments/{task_id}/runs/{run_id}/graph")
+def get_run_graph(task_id: str, run_id: str, owner: str = Depends(current_visitor)):
+    from .assessment_graph import read
+    with closing(_connect()) as conn:
+        _owned(conn, task_id, owner)
+        row = conn.execute("SELECT result_json FROM strategic_assessment_run WHERE id=? AND assessment_id=?", (run_id, task_id)).fetchone()
+        if not row:
+            problem(404, "RUN_NOT_FOUND", "找不到此研判版本")
+        return _reply(read(json.loads(row[0])))
 
 
 @router.get("/assessments/{task_id}/runs/{run_id}")

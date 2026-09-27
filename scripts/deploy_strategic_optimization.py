@@ -156,8 +156,16 @@ def private_assessment_gate(port):
     result = current['run']
     assert len(result['items']) >= 3 and result['inputVersion'] == 1
     assert all(c.get('provenance', {}).get('fetchedAt') for item in result['items'] for c in item['citations'])
+    graph = request(f"/assessments/{record['taskId']}/runs/{result['runId']}/graph")
+    assert graph == result['relationshipGraph']
+    assert graph['meta']['snapshot']['runId'] == result['runId']
+    assert any(e['data']['raw']['citations'] for e in graph['edges'])
     public = api(port, '/intelligence/verified-teams')
     assert not any({'contactRecord', 'internalReview', 'nextAction'} & set(team) for team in public['teams'])
+    coverage = api(port, '/intelligence/source-coverage')
+    assert coverage['totalUnits'] == len(public['teamIds'])
+    assert coverage['outcomeBackedUnits'] + coverage['identityOnlyUnits'] == coverage['totalUnits']
+    assert coverage['claimCount'] == public['claimCount'] and coverage['sources']
     access = request('/access')
     assert access['permissions'] == []
     from urllib.error import HTTPError
@@ -177,6 +185,8 @@ def private_assessment_gate(port):
     assert report['revision'] == 1 and report['counts']['taskUpdates'] == 0
     assert request('/assessment-updates')['total'] == 0
     return {'privateRecommendationCount': len(result['items']), 'privateReportId': report['reportId'],
+            'frozenGraphHash': graph['meta']['snapshot']['hash'],
+            'sourceCoverage': {k: coverage[k] for k in ('totalUnits', 'outcomeBackedUnits', 'identityOnlyUnits', 'claimCount', 'humanReviewedClaims')},
             'visitorIdentityVerified': True, 'paidCalls': 0}
 
 

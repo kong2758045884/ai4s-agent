@@ -6,13 +6,14 @@ import type { RecommendationCitation } from "@/services/strategicRecommendations
 import AssessmentInvestigation from "./AssessmentInvestigation";
 import ClaimSourceDetails from "./ClaimSourceDetails";
 import ClaimReviewEditor from "./ClaimReviewEditor";
+import { primaryButton as primary, secondaryButton as button } from "./controls";
+import SourceCoverage from "./SourceCoverage";
+import CombinationCoverage from "./CombinationCoverage";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
   onOpenRelations: (teamId: string) => void };
 const AUTO: AssessmentScope = { mode: "auto", domainIds: [], domesticOnly: true };
-const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-blue-500";
-const primary = `${button} border-blue-600! bg-blue-600! text-white! hover:bg-blue-700!`;
 const input = "min-h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 const panel = "rounded-2xl border border-slate-200 bg-white p-4 sm:p-6";
 const labels = { goal: "研究目标", capability: "必要能力", outcome: "成果要求", constraint: "明确限制", preference: "偏好", exclusion: "排除条件", organization: "组织方式", unresolved: "含义待确认" };
@@ -57,7 +58,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     ? scope.domainIds.map((id, index) => scope.domainNames?.[index] || domains.find(d => d.id === id)?.name || "领域名称加载中").join("、") + (scope.subdomainId ? ` / ${scope.subdomainName || domains.flatMap(d => d.subdomains).find(s => s.id === scope.subdomainId)?.name || "子领域名称加载中"}` : "")
     : "全部领域（未限制）";
   const historical = !!run && !!record && record.state.activeRunId !== run.runId;
-  const draftFields = () => ({ taskDraft, domainDraft, taskScope, ...(domainScope.domainIds.length ? { domainScope } : {}), requestedLimit: limit, mode });
+  const draftFields = () => ({ taskDraft, domainDraft, taskScope, ...(domainScope.domainIds.length ? { domainScope } : {}), requestedLimit: limit, windowDays, mode });
 
   function adopt(next: Assessment, hydrate = false) {
     recordRef.current = next; setRecord(next); setNotes(next.state.internalNotes); setRoles(next.state.combination);
@@ -66,9 +67,11 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
       const nextDomainScope = next.state.domainScope || (next.run?.mode === "domain" ? next.run.scope : undefined) || { ...AUTO, mode: "selected" as const };
       setTaskDraft(next.state.taskDraft); setDomainDraft(next.state.domainDraft); setMode(next.mode);
       setTaskScope(nextTaskScope); setDomainScope(nextDomainScope); setLimit(next.state.requestedLimit || next.run?.requestedLimit || 5);
+      setWindowDays(next.state.windowDays || next.run?.observation?.windowDays || 90);
       lastSavedDraft.current = JSON.stringify({ taskDraft: next.state.taskDraft, domainDraft: next.state.domainDraft,
         taskScope: nextTaskScope, ...(nextDomainScope.domainIds.length ? { domainScope: nextDomainScope } : {}),
-        requestedLimit: next.state.requestedLimit || next.run?.requestedLimit || 5, mode: next.mode });
+        requestedLimit: next.state.requestedLimit || next.run?.requestedLimit || 5,
+        windowDays: next.state.windowDays || next.run?.observation?.windowDays || 90, mode: next.mode });
     }
     setSaveStatus("已保存");
   }
@@ -167,7 +170,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     if (busy) return;
     sequence.current++; recordRef.current = null; setRecord(null); setRun(null); setTaskDraft(""); setDomainDraft("");
     setMode("task"); setTaskScope(AUTO); setDomainScope({ ...AUTO, mode: "selected" }); setStep("input"); setTab("new");
-    setInterpretation(null); setLimit(5); setError(""); setSaveStatus("尚未保存"); loadedContext.current = ":";
+    setInterpretation(null); setLimit(5); setWindowDays(90); setError(""); setSaveStatus("尚未保存"); loadedContext.current = ":";
     lastSavedDraft.current = ""; failedDraft.current = "";
     newRequest.current = requestId(); confirmRequest.current = requestId(); onContextChange("", "");
   }
@@ -209,7 +212,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
       <div className="mt-4 flex items-center gap-3"><button className={button} disabled={listPage === 1} onClick={() => setListPage(p => p - 1)}>上一页</button><span className="text-xs">共 {listTotal} 条 · 第 {listPage} 页</span><button className={button} disabled={listPage * 20 >= listTotal} onClick={() => setListPage(p => p + 1)}>下一页</button></div>
     </section> : <>
       {record && <section className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3 text-xs leading-6 text-slate-600" aria-label="研判上下文">
-        <p className="font-medium text-slate-800">{run?.mode === "domain" ? "领域观察" : "任务选队"} · 中国内地 · {run ? scopeName(run.scope) : taskScope.mode === "auto" ? "领域待条件确认" : scopeName(taskScope)}</p>
+        <p className="font-medium text-slate-800">{(run?.mode || mode) === "domain" ? "领域观察" : "任务选队"} · 中国内地 · {run ? scopeName(run.scope) : mode === "domain" ? (domainScope.domainIds.length ? scopeName(domainScope) : "请选择观察领域") : taskScope.mode === "auto" ? "领域待条件确认" : scopeName(taskScope)}</p>
         <details><summary className="min-h-11 cursor-pointer leading-[44px]">研判 {record.taskId.slice(-8)} {run ? ` · 条件 v${run.inputVersion} · 结果 ${run.runId.slice(-8)}` : " · 草稿"}</summary>
           <p className="break-all">完整编号：{record.taskId}{run ? ` · ${run.runId}` : ""}</p></details>
         {historical && <p className="font-medium text-amber-700">正在查看历史快照，修改条件将生成新的版本。</p>}
@@ -230,9 +233,12 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
               {busy || !catalogueReady ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}{mode === "task" ? "解析任务并确认条件" : "查看领域力量分布"}</button>
             <button className={button} disabled={busy} onClick={() => void operation(async () => { await saveDraft(); })}><Save className="size-4" />保存草稿</button>
           </div>
+          {!catalogueReady && <p role="status" className="text-sm text-slate-600">正在加载领域资料，加载完成后即可继续。</p>}
+          {catalogueReady && (mode === "task" ? taskDraft.trim().length < 2 : !domainScope.domainIds.length) && <p className="text-sm text-slate-600">{mode === "task" ? "填写至少两个字的研究任务后，即可解析条件。" : "请选择一个观察领域后继续。"}</p>}
           {run && <button className={button} onClick={() => setStep("results")}>返回已保存的结果</button>}
         </div>
       </section>}
+      {step === "input" && <SourceCoverage />}
       {step === "confirm" && interpretation && <section className={panel} aria-label="任务条件确认">
         <h2 className="text-xl font-semibold">先确认系统理解的任务</h2><p className="mt-2 text-sm leading-6 text-slate-500">{interpretation.notice}</p>
         <blockquote className="mt-4 rounded-lg bg-slate-50 p-4 text-sm leading-6">{interpretation.taskText}</blockquote>
@@ -295,6 +301,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
               <div className="grid gap-3 md:grid-cols-3">{compared.map(item => { const row = item.criteriaMatrix.find(c => c.criterionId === criterion.id); return <div className="rounded-lg bg-slate-50 p-3" key={item.teamId}><h4 className="text-sm font-semibold">{item.teamName}</h4><p className="mt-2 text-xs">{row ? statuses[row.status] : "依据不足"}</p>
                 {row?.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, criterion.text, statuses[row.status])}>{c.text} ↗</button> : null; })}</div>; })}</div></details>)}</div>
             <h4 className="mt-5 font-semibold">讨论候选分工</h4><p className="mt-1 text-xs text-slate-500">这是待沟通方案；尚未确认资源、协作接口和协调成本，不代表已经分派任务。</p>
+            <CombinationCoverage criteria={run.criteria || []} teams={compared} />
             <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 建议角色<input disabled={historical} className={`${input} mt-1`} value={role?.role || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: e.target.value, rationale: role?.rationale || "" }])} /></label>
               <label className="text-xs">分工依据和协作缺口<input disabled={historical} className={`${input} mt-1`} value={role?.rationale || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: role?.role || "", rationale: e.target.value }])} /></label></div>; })}</div>
             <button className={`${primary} mt-3`} disabled={busy || historical || compared.some(i => !roles.find(r => r.teamId === i.teamId)?.role.trim())} onClick={() => void patchState({ combination: roles.filter(r => compared.some(i => i.teamId === r.teamId)) })}><Save className="size-4" />保存候选组合</button>

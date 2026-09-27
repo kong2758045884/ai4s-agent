@@ -390,6 +390,7 @@ def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_id
             "teamId": team["id"], "teamName": team.get("teamName") or team["name"],
             "institutionId": link["id"] if link else None,
             "institutionName": team.get("institutionName") or team["name"],
+            "identityEvidence": team.get("institutionEvidence", []),
             "institutionImpact": "未关联机构影响力档案" if not link else "来源评分待校准",
             "domainId": team["domainId"], "subdomainId": team.get("subdomainId"),
             "taskMatchScore": score, "teamScore": team.get("scoreTotal"),
@@ -581,6 +582,16 @@ def verified_teams() -> dict[str, Any]:
     teams, claims, version = _catalogue_evidence()
     return {"teamIds": [team["id"] for team in teams], "teams": teams, "dataVersion": version,
             "claimCount": len(claims), "projectionVersion": VERSION}
+
+
+@router.get("/intelligence/source-coverage")
+def source_coverage(domain_id: str | None = None, subdomain_id: str | None = None):
+    from .source_coverage import summarize
+    _validate_scope(domain_id, subdomain_id)
+    teams, claims, version = _catalogue_evidence()
+    selected = [t for t in teams if (not domain_id or t["domainId"] == domain_id)
+                and (not subdomain_id or t.get("subdomainId") == subdomain_id)]
+    return summarize(selected, claims, version)
 
 
 @router.get("/intelligence/verified-daily/{day}")

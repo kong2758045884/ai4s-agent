@@ -50,8 +50,11 @@ import { aggregateGraphData } from "./graphAggregation";
 import { fusionApi } from "@/services/researchFusion";
 import { searchGraph } from "./graphSearch";
 import { graphNeighborhood } from "./graphNeighborhood";
+import GraphEvidenceDetails from "./GraphEvidenceDetails";
 
 type Props = {
+  frozenData?: StrategicGraphData;
+  onOpenTeam?: (id: string) => void;
   integrated?: boolean;
   focusNodeId?: string;
   verifiedOnly?: boolean;
@@ -92,6 +95,11 @@ const EMPTY_GRAPH: StrategicGraphData = {
 };
 
 const NODE_COLORS: Record<string, string> = {
+  任务: "#1d4ed8",
+  领域观察: "#1d4ed8",
+  能力要求: "#0f766e",
+  任务条件: "#b45309",
+  成果: "#047857",
   领域大类: "#5b35d5",
   领域方向: "#7147eb",
   子领域: "#8a63f2",
@@ -168,6 +176,8 @@ function scanTime(value: string): string {
 }
 
 export default function GraphWorkspace({
+  frozenData,
+  onOpenTeam,
   integrated = false,
   verifiedOnly = false,
   focusNodeId,
@@ -214,6 +224,7 @@ export default function GraphWorkspace({
   const [localPollFailures, setLocalPollFailures] = useState(0);
 
   useEffect(() => {
+    if (frozenData) return;
     const controller = new AbortController();
     void loadStrategicGraphStatus({ signal: controller.signal })
       .then(setGraphStatus)
@@ -221,10 +232,10 @@ export default function GraphWorkspace({
         if (!controller.signal.aborted) setGraphStatus(null);
       });
     return () => controller.abort();
-  }, []);
+  }, [frozenData]);
 
   useEffect(() => {
-    if (!domainId || scope !== "domestic") {
+    if (frozenData || !domainId || scope !== "domestic") {
       setLocalRefreshTask(null);
       return;
     }
@@ -240,7 +251,7 @@ export default function GraphWorkspace({
         if (!controller.signal.aborted) setLocalRefreshTask(null);
       });
     return () => controller.abort();
-  }, [domainId, scope, subdomainId]);
+  }, [domainId, scope, subdomainId, frozenData]);
 
   const context = useMemo(
     () => ({
@@ -258,9 +269,9 @@ export default function GraphWorkspace({
       setLoading(true);
       setError("");
       try {
-        const next = await (integrated ? fusionApi.graph : verifiedOnly ? loadVerifiedStrategicGraph : loadStrategicGraph)(context, { signal });
+        const next = frozenData ?? await (integrated ? fusionApi.graph : verifiedOnly ? loadVerifiedStrategicGraph : loadStrategicGraph)(context, { signal });
         if (signal?.aborted || requestId !== graphLoadIdRef.current) return;
-        setData(graphNeighborhood(next, focusNodeId));
+        setData(graphNeighborhood(next, focusNodeId, !!frozenData));
         setSelected(null);
         setExpandedGroups(new Set());
       } catch (reason) {
@@ -274,7 +285,7 @@ export default function GraphWorkspace({
         }
       }
     },
-    [context, verifiedOnly, integrated, focusNodeId],
+    [context, verifiedOnly, integrated, focusNodeId, frozenData],
   );
 
   useLayoutEffect(() => {
@@ -332,11 +343,12 @@ export default function GraphWorkspace({
         ? "高原"
         : "高峰";
     setCluster(nextCluster);
-    setQuery(subdomainName || domainName);
+    setQuery(frozenData ? "" : subdomainName || domainName);
     setScanKeyword(subdomainName || domainName);
-  }, [domainName, subdomainName]);
+  }, [domainName, subdomainName, frozenData]);
 
   useEffect(() => {
+    if (frozenData) return;
     const controller = new AbortController();
     void loadStrategicGraphScans(
       {
@@ -361,11 +373,11 @@ export default function GraphWorkspace({
         }
       });
     return () => controller.abort();
-  }, [domainId, scope, subdomainId]);
+  }, [domainId, scope, subdomainId, frozenData]);
 
   const aggregated = useMemo(
-    () => aggregateGraphData(data, expandedGroups, 50),
-    [data, expandedGroups],
+    () => aggregateGraphData(data, expandedGroups, frozenData ? Number.MAX_SAFE_INTEGER : 50),
+    [data, expandedGroups, frozenData],
   );
   const displayData = aggregated.data;
   const sortedSearchResults = useMemo(
@@ -478,9 +490,12 @@ export default function GraphWorkspace({
           }),
           links: edges.map((item) => ({
             id: item.id,
+            name: labelOf(item),
+            description: String(rawOf(item).basis || ""),
             source: item.source,
             target: item.target,
             lineStyle: {
+              type: ["unconfirmed", "insufficient", "conditional", "not_met", "not_observed"].includes(String(rawOf(item).status)) ? "dashed" : "solid",
               color: item.highlighted ? "#2563eb" : item.type === "aggregate" ? "#8b75cc" : "#cbd0dd",
               width: item.highlighted ? 3 : viewMode === "edges" ? 1.6 : 1,
               opacity: viewMode === "edges" ? 0.88 : 0.64,
@@ -517,6 +532,7 @@ export default function GraphWorkspace({
         data.edges.find((item) => item.id === id) ||
         null;
       setSelected(element);
+      setSidePanel(null);
       if (element?.source && element.target) {
         setViewMode("edges");
         setData(current => ({ ...current, edges: current.edges.map(e => ({ ...e, highlighted: e.id === id })),
@@ -560,6 +576,7 @@ export default function GraphWorkspace({
         return;
       }
       setSelected(element ?? null);
+      setSidePanel(null);
     };
     chart.off("click");
     chart.on("click", onClick);
@@ -772,7 +789,7 @@ export default function GraphWorkspace({
   const selectedRaw = rawOf(selected);
 
   return (
-    <section data-node-count={sourceNodeCount} data-edge-count={sourceEdgeCount} aria-busy={loading} className="strategic-graph-workspace relative min-h-[640px] min-w-0 flex-1 overflow-hidden bg-[#ffffff] lg:min-h-0">
+    <section data-node-count={sourceNodeCount} data-edge-count={sourceEdgeCount} data-run-id={frozenData?.meta.snapshot?.runId} aria-busy={loading} className="strategic-graph-workspace relative min-h-[640px] min-w-0 flex-1 overflow-hidden bg-[#ffffff] lg:min-h-0">
       <div
         ref={chartNodeRef}
         className="absolute inset-0"
@@ -978,7 +995,7 @@ export default function GraphWorkspace({
 
           {sidePanel === "search" ? (
             <>
-              <p className="px-4 pt-3 text-xs leading-5 text-slate-500">当前图谱内搜索 · {subdomainName || domainName} · 切换左侧领域可调整范围</p>
+              <p className="px-4 pt-3 text-xs leading-5 text-slate-500">{frozenData ? "当前研判图谱内搜索 · 使用当时保存的任务与依据；全领域探索需明确切换" : `当前图谱内搜索 · ${subdomainName || domainName} · 切换左侧领域可调整范围`}</p>
               <form
                 onSubmit={submitSearch}
                 className="flex shrink-0 gap-2 border-b border-[#efedf4] p-4"
@@ -1045,7 +1062,7 @@ export default function GraphWorkspace({
                   ))
                 ) : (
                   <div className="px-4 py-12 text-center text-xs text-[#959cad]">
-                    {searchSubmitted ? "当前图谱范围内没有匹配结果。可调整关键词、切换领域或重置图谱。" : "输入关键词开始搜索"}
+                    {searchSubmitted ? "当前图谱范围内没有匹配结果。可调整关键词、切换图谱范围或重置图谱。" : "输入关键词开始搜索"}
                   </div>
                 )}
               </div>
@@ -1426,7 +1443,7 @@ export default function GraphWorkspace({
       ) : null}
 
       {selected && !sidePanel ? (
-        <aside className="strategic-graph-detail absolute bottom-6 right-[86px] z-[3] w-[360px] rounded-[24px] border border-[#ebe8f2] bg-white/96 p-5 shadow-[0_18px_48px_rgba(52,40,89,.14)] backdrop-blur">
+        <aside aria-label="图谱关系与依据详情" className="strategic-graph-detail absolute bottom-6 right-[86px] z-[5] max-h-[70%] w-[360px] overflow-y-auto rounded-[24px] border border-[#ebe8f2] bg-white/96 p-5 shadow-[0_18px_48px_rgba(52,40,89,.14)] backdrop-blur">
           <button
             type="button"
             onClick={() => setSelected(null)}
@@ -1456,6 +1473,7 @@ export default function GraphWorkspace({
               </strong>
             </div>
           ) : null}
+          {frozenData && <GraphEvidenceDetails element={selected} onOpenTeam={onOpenTeam} />}
         </aside>
       ) : null}
 

@@ -82,6 +82,18 @@ try {
     await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.focus();e.select?.();})()`);
     await send('Input.insertText', { text }); await delay(100);
   };
+  const checkButtonContrast = async text => {
+    const result = await evaluate(`(()=>{
+      const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)});
+      const s=getComputedStyle(e);const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+      const ctx=canvas.getContext('2d');const rgb=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return Array.from(ctx.getImageData(0,0,1,1).data).slice(0,3);};
+      const lum=color=>rgb(color).map(v=>v/255).map(v=>v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4)).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);
+      const a=lum(s.color),b=lum(s.backgroundColor);return {contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),opacity:s.opacity,height:e.getBoundingClientRect().height};
+    })()`);
+    assert.ok(result.contrast >= 4.5, `${text} contrast ${JSON.stringify(result)}`);
+    assert.equal(result.opacity, '1', `${text} must remain legible when disabled`);
+    assert.ok(result.height >= 44, `${text} touch target`);
+  };
   await send('Page.navigate', { url });
   await until(() => evaluate(`document.body?.innerText.includes('战略图谱')||!!document.querySelector('input[placeholder="输入你的名字，即可体验"]')`), 'home');
   if (await evaluate(`!!document.querySelector('input[placeholder="输入你的名字，即可体验"]')`)) {
@@ -92,14 +104,24 @@ try {
   await click('战略图谱');
   await until(() => evaluate(`document.body.innerText.includes('从一个任务，或一个领域开始')`), 'workbench');
   assert.equal(await evaluate('location.pathname'), '/workspace/strategic-map'); passed.push('home-canonical-workbench');
+  await until(() => evaluate(`document.querySelector('section[aria-label="资料来源与覆盖"]')?.innerText.includes('公开引文')`), 'real source coverage');
+  assert.ok(await evaluate(`document.querySelectorAll('section[aria-label="资料来源与覆盖"] a[href^="https"]').length>0`));
+  await checkButtonContrast('解析任务并确认条件');
+  if (output) {
+    const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    await writeFile(output + '-input.png', Buffer.from(shot.data, 'base64'));
+  }
   await fill('textarea[aria-label="研判任务输入"]', '蛋白质');
   await click('领域观察'); await fill('textarea[aria-label="领域观察草稿"]', '观察蛋白质方向');
   await click('任务选队'); assert.equal(await evaluate(`document.querySelector('textarea[aria-label="研判任务输入"]').value`), '蛋白质');
   passed.push('separate-drafts');
+  await until(() => evaluate(`[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='解析任务并确认条件'&&!e.disabled)`), 'enabled parse button');
+  await checkButtonContrast('解析任务并确认条件');
   await click('解析任务并确认条件');
   await until(() => evaluate(`!!document.querySelector('section[aria-label="任务条件确认"]')`), 'criteria confirmation');
   assert.ok(await evaluate(`document.body.innerText.includes('生命科学与医学')`));
   assert.equal(await evaluate(`document.querySelectorAll('.assessment-workbench article').length`), 0);
+  await checkButtonContrast('确认条件，生成结果');
   await click('确认条件，生成结果');
   await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]').length>=3`), 'real candidates');
   passed.push('confirmed-local-recommendation');
@@ -111,6 +133,9 @@ try {
     await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===${i + 1} && !document.body.innerText.includes('处理中…')`), 'saved comparison');
   }
   assert.ok(await evaluate(`document.body.innerText.includes('按同一任务条件比较')`));
+  assert.ok(await evaluate(`document.querySelector('section[aria-label="候选组合能力覆盖"]')?.innerText.includes('联合交付能力仍需确认')`));
+  await checkButtonContrast('保存候选组合');
+  passed.push('primary-button-enabled-disabled-contrast', 'source-coverage-and-combination-gaps');
   assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive comparison');
   await evaluate(`document.querySelector('.assessment-workbench article .text-blue-700 button')?.click()`);
   await evaluate(`document.querySelector('.assessment-workbench article div.rounded-lg button')?.click()`);
@@ -145,8 +170,32 @@ try {
   }
   assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive saved result');
   await click('相关关系');
-  await until(() => evaluate(`document.body.innerText.includes('当前团队的直接关联') && Number(document.querySelector('.strategic-graph-workspace')?.dataset.nodeCount)>0`), 'one-hop related graph');
-  assert.ok(await evaluate(`Number(document.querySelector('.strategic-graph-workspace').dataset.nodeCount)<40`), 'context graph is bounded');
+  await until(() => evaluate(`document.body.innerText.includes('当前研判的关系快照') && Number(document.querySelector('.strategic-graph-workspace')?.dataset.nodeCount)>0`), 'frozen related graph');
+  await until(() => evaluate(`new URLSearchParams(location.search).get('smMode')==='graph'`), 'graph address synchronized');
+  const graphUrl = await evaluate('location.href');
+  assert.equal(await evaluate(`document.querySelector('.strategic-graph-workspace').dataset.runId`), new URL(savedUrl).searchParams.get('runId'));
+  await evaluate(`document.querySelector('.strategic-graph-workspace button[aria-label="搜索"]').click()`);
+  await until(() => evaluate(`!!document.querySelector('select[aria-label="图谱检索对象"]')`), 'graph search controls');
+  await evaluate(`(()=>{const e=document.querySelector('select[aria-label="图谱检索对象"]');e.value='edges';e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await fill('input[aria-label="搜索图谱"]', '引文匹配');
+  await evaluate(`document.querySelector('button[aria-label="执行搜索"]').click()`);
+  await until(() => evaluate(`[...document.querySelectorAll('.strategic-graph-panel button')].some(e=>e.textContent.includes('连接数'))`), 'saved evidence edge search');
+  await evaluate(`[...document.querySelectorAll('.strategic-graph-panel button')].find(e=>e.textContent.includes('连接数')).click()`);
+  await until(() => evaluate(`document.querySelector('[data-testid="graph-evidence-details"]')?.innerText.includes('本研判保存的依据')`), 'edge original evidence');
+  assert.ok(await evaluate(`!!document.querySelector('[data-testid="graph-evidence-details"] a[href^="http"]')`));
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive frozen graph');
+  if (output) {
+    const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    await writeFile(output + '-graph.png', Buffer.from(shot.data, 'base64'));
+  }
+  await send('Page.reload', { ignoreCache: false });
+  await until(() => evaluate(`!!document.querySelector('.strategic-graph-workspace[data-run-id]')`), 'graph deep link refresh');
+  const restoredGraphUrl = new URL(await evaluate('location.href'));
+  for (const key of ['taskId', 'runId', 'smMode', 'smTeam']) assert.equal(restoredGraphUrl.searchParams.get(key), new URL(graphUrl).searchParams.get(key));
+  await click('切换至领域当前资料');
+  await until(() => evaluate(`document.body.innerText.includes('当前探索范围')`), 'explicit live scope');
+  await click('返回研判关系快照');
+  await until(() => evaluate(`!!document.querySelector('.strategic-graph-workspace[data-run-id]')`), 'restore frozen graph');
   await click('返回当前研判');
   await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'graph return retains selection');
   await click('团队档案');
@@ -154,12 +203,13 @@ try {
   assert.ok(await evaluate(`new URLSearchParams(location.search).has('taskId') && new URLSearchParams(location.search).has('runId')`));
   await click('返回战略图谱');
   await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'profile return retains run');
-  passed.push('one-hop-context-graph', 'team-profile-return-context');
+  passed.push('frozen-graph-edge-evidence-refresh-and-scope', 'team-profile-return-context');
   await click('情报观察');
   await until(() => evaluate(`document.body.innerText.includes('与已保存研判相关的变化') && document.body.innerText.includes('暂未发现影响已保存研判的新证据')`), 'private update empty state');
   await click('我的领域报告');
   await until(() => evaluate(`document.querySelector('select[aria-label="报告领域"]')?.options.length>1`), 'report domain catalogue');
   assert.ok(await evaluate(`document.querySelector('select[aria-label="报告领域"]').value.startsWith('domain_')`), 'report initialized to a real domain ID');
+  await checkButtonContrast('生成并保存报告');
   await click('生成并保存报告');
   await until(() => evaluate(`!!document.querySelector('section[aria-label="已保存领域报告"]') && !document.body.innerText.includes('正在保存…')`), 'frozen daily');
   assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive daily report');
@@ -177,6 +227,25 @@ try {
   await click('研判工作台');
   await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'intelligence return retains run');
   passed.push('private-changes-and-domain-intelligence');
+  await click('新建研判');
+  await click('领域观察');
+  await fill('textarea[aria-label="领域观察草稿"]', '检查近期观察窗口的保存恢复');
+  await until(() => evaluate(`document.querySelectorAll('input[name="observe-domain"]').length>0`), 'observation domains');
+  await evaluate(`document.querySelector('input[name="observe-domain"]').click()`);
+  await evaluate(`(()=>{const e=[...document.querySelectorAll('label')].find(e=>e.textContent.startsWith('近期窗口')).querySelector('select');e.value='30';e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click('保存草稿');
+  await until(() => evaluate(`document.querySelector('.assessment-workbench [role="status"]')?.textContent==='已保存'&&new URLSearchParams(location.search).has('taskId')`), 'observation draft saved');
+  await send('Page.reload', { ignoreCache: false });
+  await until(() => evaluate(`!!document.querySelector('textarea[aria-label="领域观察草稿"]')`), 'restore observation draft');
+  assert.equal(await evaluate(`[...document.querySelectorAll('label')].find(e=>e.textContent.startsWith('近期窗口')).querySelector('select').value`), '30');
+  await click('查看领域力量分布');
+  await until(() => evaluate(`document.body.innerText.includes('领域力量分布') && new URLSearchParams(location.search).get('runId')?.startsWith('observation-')`), 'saved observation');
+  await send('Page.reload', { ignoreCache: false });
+  await click('修改条件');
+  assert.equal(await evaluate(`[...document.querySelectorAll('label')].find(e=>e.textContent.startsWith('近期窗口')).querySelector('select').value`), '30');
+  passed.push('observation-window-draft-and-run-restoration');
+  await send('Page.navigate', { url: savedUrl });
+  await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'return to original saved assessment');
   if (replayRole) {
     const access = await evaluate(`fetch('/tool/v1/strategic-map/access').then(r=>r.json()).then(r=>r.data)`);
     assert.deepEqual(access.permissions, []);

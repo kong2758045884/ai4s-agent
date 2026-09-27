@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Globe, LoaderCircle, X } from "lucide-react";
 import { assessmentApi, requestId, type AssessmentRun, type AssessmentInvestigation as Job, type InvestigationOverview, type InvestigationOptions } from "@/services/strategicAssessments";
 
-const button = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50";
+import { primaryButton, secondaryButton as button } from "./controls";
 const stateNames: Record<Job["state"], string> = { queued: "等待开始", running: "执行中", completed: "已完成", partial: "部分完成", failed: "失败", interrupted: "服务重启后中断", cancelled: "已取消" };
 const active = (job: Job | null) => job?.state === "queued" || job?.state === "running";
 
@@ -76,7 +76,7 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun }: 
         <fieldset><legend className="font-medium">科研单元（已选 {options.teamIds.length} / 最多 12）</legend><div className="max-h-60 overflow-y-auto">{overview?.teams.map(t => <label key={t.teamId} className="flex min-h-11 items-start gap-2 py-2 text-sm"><input className="mt-1" type="checkbox" checked={options.teamIds.includes(t.teamId)} disabled={!options.teamIds.includes(t.teamId) && options.teamIds.length >= 12} onChange={() => editOptions({ ...options, teamIds: options.teamIds.includes(t.teamId) ? options.teamIds.filter(id => id !== t.teamId) : [...options.teamIds, t.teamId] })} /><span>{t.teamName}<span className="block text-xs text-slate-500">{t.institutionName}</span></span></label>)}</div></fieldset>
         <label className="block text-sm">优先检索此日期之后的成果（可空）<input type="date" className="mt-1 min-h-11 w-full rounded-lg border border-slate-200 px-3" value={options.publishedAfter || ""} onChange={e => editOptions({ ...options, publishedAfter: e.target.value || null })} /></label>
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        <button className={`${button} bg-blue-600! text-white!`} disabled={busy || !options.teamIds.length || !options.criterionIds.length}>明确启动联网补证</button>
+        <button className={primaryButton} disabled={busy || !options.teamIds.length || !options.criterionIds.length}>明确启动联网补证</button>
       </form>
     </dialog>
   </section>;
