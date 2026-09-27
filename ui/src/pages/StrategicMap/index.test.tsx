@@ -15,7 +15,10 @@ describe("StrategicMap", () => {
     expect(html).toContain("AI4S战略力量图谱");
     expect(html).toContain("国内科研团队库");
     expect(html).toContain("科学通用底座");
-    expect(html).toContain("关系图谱");
+    expect(html).toContain("研判工作台");
+    expect(html).toContain("团队资料");
+    expect(html).toContain("情报观察");
+    expect(html).toContain("探索相关关系");
     expect(html).toContain("全国扫描");
     expect(html).toContain("增量更新");
     expect(html).toContain("正在读取已保存的研判结果");

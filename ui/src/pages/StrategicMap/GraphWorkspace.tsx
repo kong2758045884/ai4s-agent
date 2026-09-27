@@ -49,9 +49,11 @@ import {
 import { aggregateGraphData } from "./graphAggregation";
 import { fusionApi } from "@/services/researchFusion";
 import { searchGraph } from "./graphSearch";
+import { graphNeighborhood } from "./graphNeighborhood";
 
 type Props = {
   integrated?: boolean;
+  focusNodeId?: string;
   verifiedOnly?: boolean;
   domainId: string;
   domainName: string;
@@ -168,6 +170,7 @@ function scanTime(value: string): string {
 export default function GraphWorkspace({
   integrated = false,
   verifiedOnly = false,
+  focusNodeId,
   domainId,
   domainName,
   subdomainId,
@@ -257,7 +260,7 @@ export default function GraphWorkspace({
       try {
         const next = await (integrated ? fusionApi.graph : verifiedOnly ? loadVerifiedStrategicGraph : loadStrategicGraph)(context, { signal });
         if (signal?.aborted || requestId !== graphLoadIdRef.current) return;
-        setData(next);
+        setData(graphNeighborhood(next, focusNodeId));
         setSelected(null);
         setExpandedGroups(new Set());
       } catch (reason) {
@@ -271,7 +274,7 @@ export default function GraphWorkspace({
         }
       }
     },
-    [context, verifiedOnly, integrated],
+    [context, verifiedOnly, integrated, focusNodeId],
   );
 
   useLayoutEffect(() => {

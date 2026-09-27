@@ -346,7 +346,9 @@ def recommend(body: TaskRequest) -> dict[str, Any]:
     return _recommend(body)
 
 
-def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_ids: list[str] | None = None) -> dict[str, Any]:
+def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_ids: list[str] | None = None,
+               persist: bool = True, confirmed_criteria: dict | None = None,
+               domain_ids: list[str] | None = None) -> dict[str, Any]:
     _validate_scope(body.domainId, body.subdomainId)
     task = body.taskText.strip()
     if len(task) < 2:
@@ -357,10 +359,12 @@ def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_id
         by_team.setdefault(claim[1], []).append(claim)
     links = _institution_links()
     data_version = _recommendation_version(data_version, links)
-    parsed = strategic_text.parse_task(task)
+    parsed = confirmed_criteria or strategic_text.parse_task(task)
     items = []
     eligible_count = 0
     for team in teams:
+        if domain_ids and team["domainId"] not in domain_ids:
+            continue
         if body.domainId and team["domainId"] != body.domainId:
             continue
         if body.subdomainId and team["subdomainId"] != body.subdomainId:
@@ -398,6 +402,10 @@ def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_id
               "eligibilityVersion": ELIGIBILITY_VERSION,
               "createdAt": datetime.now(timezone.utc).isoformat(),
               "notice": "任务匹配分、团队总分和机构影响力分别计算；只推荐有团队级原文成果证据的国内团队"}
+    # Private assessments freeze their own runs. They must not leak task text,
+    # follow-ups or result selection into the legacy public recommendation feed.
+    if not persist:
+        return result
     with closing(_db(write=True)) as conn:
         _schema(conn)
         from . import strategic_changes

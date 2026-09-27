@@ -77,11 +77,14 @@ import {
 } from "./selection";
 import FusionGraphWorkspace from "./FusionGraphWorkspace";
 import RecommendationWorkspace from "./RecommendationWorkspace";
+import AssessmentWorkbench from "./AssessmentWorkbench";
+import EvidenceSearch from "./EvidenceSearch";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
 import { recommendationApi, type RecommendationRun } from "@/services/strategicRecommendations";
 
 type AttentionLevel = string;
+const ASSESSMENT_ENABLED = import.meta.env.VITE_STRATEGIC_ASSESSMENT_ENABLED !== "false";
 type ContactStatus = string;
 
 type Team = StrategicTeam;
@@ -432,6 +435,8 @@ export default function StrategicMap() {
   const navigationType = useNavigationType();
   const [taskDraft, setTaskDraft] = useState("");
   const [recommendationRun, setRecommendationRun] = useState<RecommendationRun | null>(null);
+  const [assessmentContext, setAssessmentContext] = useState({ taskId: initialContext.assessmentId || "", runId: initialContext.assessmentRunId || "" });
+  const updateAssessmentContext = useCallback((taskId: string, runId: string) => setAssessmentContext({ taskId, runId }), []);
   const [recommendAcrossDomains, setRecommendAcrossDomains] = useState(
     initialContext.recommendAcrossDomains || !initialContext.domainId,
   );
@@ -441,6 +446,8 @@ export default function StrategicMap() {
     if (navigationType !== "POP") return;
     const requested = readStrategicMapNavigationContext(location.pathname, location.search)?.mode;
     if (requested && (FUSION_ENABLED || requested === "teams" || requested === "graph")) setWorkspaceMode(requested);
+    const context = readStrategicMapNavigationContext(location.pathname, location.search);
+    setAssessmentContext(current => current.taskId === (context?.assessmentId || "") && current.runId === (context?.assessmentRunId || "") ? current : { taskId: context?.assessmentId || "", runId: context?.assessmentRunId || "" });
   }, [location.pathname, location.search, navigationType]);
   const [taxonomyRevision, setTaxonomyRevision] = useState(0);
   const [mobilePanel, setMobilePanel] = useState<"teams" | "profile">(
@@ -555,6 +562,8 @@ export default function StrategicMap() {
     (teamId = selectionRef.current.teamId) => ({
       route: initialContext.route,
       mode: workspaceMode,
+      assessmentId: assessmentContext.taskId,
+      assessmentRunId: assessmentContext.runId,
       recommendAcrossDomains: (workspaceMode === "recommend" || workspaceMode === "intelligence") && recommendAcrossDomains,
       ...selectionRef.current,
       teamId,
@@ -564,7 +573,7 @@ export default function StrategicMap() {
         ? { mobileListScroll: mobileListScrollRef.current }
         : {}),
     }),
-    [captureScrollState, initialContext.route, mobilePanel, workspaceMode, recommendAcrossDomains],
+    [captureScrollState, initialContext.route, mobilePanel, workspaceMode, recommendAcrossDomains, assessmentContext],
   );
 
   const switchMobilePanel = (panel: "teams" | "profile", reset = false) => {
@@ -1119,12 +1128,12 @@ export default function StrategicMap() {
             AI4S战略力量图谱
           </h1>
           <p className="order-3 w-full text-[13px] font-medium tracking-[0.02em] text-slate-400 sm:order-none sm:w-auto sm:min-w-[250px] sm:flex-1 sm:text-[15px] md:text-[17px]">
-            {loading ? "以成果为依据，发现国内科研力量" : `${domains.reduce((total, domain) => total + domain.teams.length, 0)} 支已核实团队 · ${domains.length} 个研究领域`}
+            {loading ? "以成果为依据，发现国内科研力量" : `${domains.reduce((total, domain) => total + domain.teams.length, 0)} 个有来源的科研单元 · ${domains.length} 个研究领域`}
           </p>
           <div className="strategic-map-view-tabs flex max-w-full shrink-0 items-center overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1">
             {FUSION_ENABLED && <button type="button" aria-pressed={workspaceMode === "recommend"} onClick={() => setWorkspaceMode("recommend")}
               className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${workspaceMode === "recommend" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
-              <ScanSearch className="size-4" />任务推荐
+              <ScanSearch className="size-4" />{ASSESSMENT_ENABLED ? "研判工作台" : "任务推荐"}
             </button>}
             <button
               type="button"
@@ -1137,9 +1146,9 @@ export default function StrategicMap() {
               }`}
             >
               <UsersRound className="size-4" />
-              团队
+              {ASSESSMENT_ENABLED ? "团队资料" : "团队"}
             </button>
-            <button
+            {!ASSESSMENT_ENABLED && <button
               type="button"
               aria-pressed={workspaceMode === "graph"}
               onClick={() => setWorkspaceMode("graph")}
@@ -1151,10 +1160,10 @@ export default function StrategicMap() {
             >
               <Network className="size-4" />
               关系图谱
-            </button>
+            </button>}
             {FUSION_ENABLED && <button type="button" aria-pressed={workspaceMode === "intelligence"} onClick={() => setWorkspaceMode("intelligence")}
               className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${workspaceMode === "intelligence" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
-              <CalendarDays className="size-4" />动态情报
+              <CalendarDays className="size-4" />{ASSESSMENT_ENABLED ? "情报观察" : "动态情报"}
             </button>}
           </div>
         </div>
@@ -1165,7 +1174,7 @@ export default function StrategicMap() {
         onScroll={(event) => recordScroll("page", event)}
         className="strategic-map-page mx-auto flex min-h-0 w-full max-w-[1600px] min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 sm:gap-4 sm:p-4 md:p-5 lg:overflow-hidden lg:flex-row"
       >
-        <section
+        {!(ASSESSMENT_ENABLED && workspaceMode === "recommend") && <section
           className="strategic-map-mobile-navigation"
           aria-label="领域筛选"
         >
@@ -1260,7 +1269,7 @@ export default function StrategicMap() {
               </div>
             </div>
           ) : null}
-        </section>
+        </section>}
         {workspaceMode === "teams" ? (
           <nav className="strategic-map-mobile-tabs" aria-label="团队视图切换">
             <button
@@ -1282,7 +1291,7 @@ export default function StrategicMap() {
             </button>
           </nav>
         ) : null}
-        <aside
+        {!(ASSESSMENT_ENABLED && workspaceMode === "recommend") && <aside
           data-collapsed={leftNavCollapsed}
           className={`strategic-map-domain-nav flex min-h-0 w-full shrink-0 flex-col rounded-xl border border-[#e2e8f0] bg-white shadow-[0_4px_14px_rgba(27,64,96,0.05)] transition-[width,height,padding] duration-200 lg:h-full ${
             leftNavCollapsed
@@ -1445,10 +1454,17 @@ export default function StrategicMap() {
               </div>
             </div>
           </div>
-        </aside>
+        </aside>}
 
         {workspaceMode === "recommend" ? (
-          <RecommendationWorkspace
+          ASSESSMENT_ENABLED ? <AssessmentWorkbench domains={domains} catalogueReady={!loading && domains.length > 0} taskId={assessmentContext.taskId} runId={assessmentContext.runId}
+            onContextChange={updateAssessmentContext} onOpenTeam={openTeamDetail}
+            onOpenRelations={teamId => {
+              const domain = domains.find(d => d.teams.some(t => t.id === teamId));
+              const team = domain?.teams.find(t => t.id === teamId);
+              if (domain && team) applySelection({ domainId: domain.id, subdomainId: team.subdomainId || "", teamId });
+              setRecommendAcrossDomains(false); setWorkspaceMode("graph");
+            }} /> : <RecommendationWorkspace
             domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id}
             subdomainId={recommendAcrossDomains ? "" : activeSubdomainId}
             domainName={recommendAcrossDomains ? "全部六大领域" : activeDomain.name}
@@ -1467,7 +1483,10 @@ export default function StrategicMap() {
               <LoaderCircle className="size-7 animate-spin text-[#197b7a]" />
             </div>
           ) : (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+            {ASSESSMENT_ENABLED && <button className="min-h-11 self-start rounded-lg border border-slate-200 bg-white px-4 text-sm text-blue-700" onClick={() => setWorkspaceMode(assessmentContext.taskId ? "recommend" : "teams")}>返回{assessmentContext.taskId ? "当前研判" : "团队资料"}</button>}
             <FusionGraphWorkspace
+              focusNodeId={ASSESSMENT_ENABLED && assessmentContext.taskId ? `team:${selectedTeamId}` : undefined}
               domainId={activeDomain.id}
               domainName={activeDomain.name}
               subdomainId={activeSubdomainId}
@@ -1476,6 +1495,7 @@ export default function StrategicMap() {
               onDataUpdated={refreshMapAfterGraph}
               onShowTeams={() => setWorkspaceMode("teams")}
             />
+            </div>
           )
         ) : (
           <>
@@ -1497,13 +1517,14 @@ export default function StrategicMap() {
                   <p className="mt-1 text-[12px] text-[var(--chat-text-muted)]">
                     当前研判范围：{activeDomain.label}
                     {activeSubdomain ? ` / ${activeSubdomain.name}` : ""} ·{" "}
-                    展示已核实的团队归属与公开资料 ·{" "}
+                    展示有来源的科研归属与公开资料 ·{" "}
                     {source.refreshed
                       ? "刚刚完成多源公开证据研判"
                       : "展示已保存研判结果，点击右侧按钮更新"}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {ASSESSMENT_ENABLED && <button type="button" className="min-h-11 rounded-lg border border-slate-200 px-3 text-xs text-blue-700" onClick={() => setWorkspaceMode("graph")}>探索相关关系</button>}
                   <button
                     type="button"
                     onClick={() => void refreshNationwideTeams()}
@@ -1559,6 +1580,10 @@ export default function StrategicMap() {
                     后台正在核验公开证据，已保存候选保持可浏览
                   </div>
                 ) : null}
+                {ASSESSMENT_ENABLED && <details className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <summary className="min-h-11 cursor-pointer text-sm font-medium text-blue-700">检索团队资料与成果原文</summary>
+                  <EvidenceSearch domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
+                </details>}
                 <div className="strategic-map-table-head hidden grid-cols-[1fr_112px_178px] items-center gap-3 border-b border-[#dfe8ef] px-3 py-2 text-[11px] font-semibold tracking-[0.06em] text-[#75899a] sm:grid">
                   <span>团队</span>
                   <span>AI / 科学</span>

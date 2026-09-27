@@ -24,6 +24,8 @@ export type StrategicMapNavigationContext = {
   scroll: StrategicMapScrollState;
   mobilePanel?: "profile";
   mobileListScroll?: number;
+  assessmentId?: string;
+  assessmentRunId?: string;
 };
 
 const PARAMS = {
@@ -41,6 +43,8 @@ const PARAMS = {
   profileScroll: "smProfileScroll",
   mobilePanel: "smPanel",
   mobileListScroll: "smListScroll",
+  assessmentId: "taskId",
+  assessmentRunId: "runId",
 } as const;
 
 const ALL_SUBDOMAINS = "all";
@@ -69,6 +73,8 @@ function appendSelectionParams(
   if (context.domainId) params.set(PARAMS.domainId, context.domainId);
   params.set(PARAMS.subdomainId, context.subdomainId || ALL_SUBDOMAINS);
   if (context.teamId) params.set(PARAMS.teamId, context.teamId);
+  if (context.assessmentId) params.set(PARAMS.assessmentId, context.assessmentId);
+  if (context.assessmentRunId) params.set(PARAMS.assessmentRunId, context.assessmentRunId);
   if (context.mobilePanel === "profile") params.set(PARAMS.mobilePanel, "profile");
   if (context.mobileListScroll && Number.isFinite(context.mobileListScroll)) {
     params.set(PARAMS.mobileListScroll, String(parseScroll(String(context.mobileListScroll))));
@@ -103,6 +109,8 @@ function readSelectionParams(
     domainId: params.get(PARAMS.domainId)?.trim() ?? "",
     subdomainId: subdomain && subdomain !== ALL_SUBDOMAINS ? subdomain : "",
     teamId: params.get(PARAMS.teamId)?.trim() || fallbackTeamId,
+    ...(params.get(PARAMS.assessmentId) ? { assessmentId: params.get(PARAMS.assessmentId)!.trim() } : {}),
+    ...(params.get(PARAMS.assessmentRunId) ? { assessmentRunId: params.get(PARAMS.assessmentRunId)!.trim() } : {}),
     ...(params.get(PARAMS.mobilePanel) === "profile" ? { mobilePanel: "profile" as const } : {}),
     ...(parseScroll(params.get(PARAMS.mobileListScroll))
       ? { mobileListScroll: parseScroll(params.get(PARAMS.mobileListScroll)) } : {}),

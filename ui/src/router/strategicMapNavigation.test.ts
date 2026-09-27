@@ -26,6 +26,13 @@ const context: StrategicMapNavigationContext = {
 };
 
 describe("strategic map navigation context", () => {
+  it("retains assessment and frozen run when opening a team and returning through a legacy link", () => {
+    const source = { ...context, mode: "recommend" as const, assessmentId: "assessment-a", assessmentRunId: "recommend-v2" };
+    const detail = new URL(buildStrategicTeamDetailNavigationPath(context.teamId, source), "http://localhost");
+    expect(readStrategicTeamDetailSource(detail.search, context.teamId)).toEqual(source);
+    const redirected = new URL(canonicalStrategicMapPath("?view=strategic-map&taskId=assessment-a&runId=recommend-v2&smMode=recommend"), "http://localhost");
+    expect(readStrategicMapNavigationContext(redirected.pathname, redirected.search)).toMatchObject({ assessmentId: "assessment-a", assessmentRunId: "recommend-v2" });
+  });
   it("restores the mobile profile and list position after team detail navigation", () => {
     const mobileContext: StrategicMapNavigationContext = {
       ...context, mobilePanel: "profile", mobileListScroll: 1362,

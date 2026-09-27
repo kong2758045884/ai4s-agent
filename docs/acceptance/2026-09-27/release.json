@@ -1,0 +1,16 @@
+{
+  "release": "ai4s-opt-20260927T0115",
+  "scope": "四阶段优化中间发布；不代表老师原型说明全部完成",
+  "site": "http://81.71.163.184/",
+  "applicationCommit": "f6b41843",
+  "deploymentFixCommit": "688c1e6b",
+  "databaseReplaced": false,
+  "incrementalMigration": {"newTables": 6, "existingTableHashesPreserved": true, "foreignKeyErrors": []},
+  "incrementalData": {"publicUnitsBefore": 116, "publicUnitsAfter": 118, "claimsBefore": 470, "claimsAfter": 500, "newOutcomeQuotes": 24},
+  "browser": {"viewportWidths": [1440, 1366, 390], "homeNavigation": true, "legacyUrlRedirect": true, "ordinaryRefresh": true, "searchPagination": true, "comparison": true, "graphEdgeSearch": true, "institutionQuery": true, "paidCalls": 0, "connection": "direct; workstation proxy excluded"},
+  "incident": {"cause": "Stopping Python also stopped Java through its existing systemd Requires dependency", "resolved": true, "action": "Java restored; activation and rollback now restore Java and check visitor bootstrap", "supersedes": "activated.json javaRestarted=false only described the initial activation and is not the final acceptance status"},
+  "automaticPaidRefresh": false,
+  "actualPaidInvestigationVerified": false,
+  "backups": "/www/wwwroot/lab/releases/ai4s-opt-20260927T0115/live-journal",
+  "rollback": "Restore previous code/UI; reverse data batches with guarded journals, never overwrite post-release manual edits"
+}

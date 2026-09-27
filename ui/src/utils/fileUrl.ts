@@ -53,6 +53,7 @@ function shouldRewriteToCurrentTool(url: URL): boolean {
     url.hostname === "www.owwzo.cloud";
   const isToolPort = url.port === "1601";
 
+
   if (isToolPort || (isLoopback && !url.port)) {
     return true;
   }
@@ -76,7 +77,12 @@ export function normalizeToolBaseUrlForBrowser(rawUrl?: string | null): string {
   try {
     // 正常分支保留查询参数和 hash；只有命中旧地址规则时才替换 origin/path。
     const parsed = new URL(normalized, currentOrigin || "https://workspace.local");
-    if (!shouldRewriteToCurrentTool(parsed)) {
+    // Only tool API bases use the Vite proxy on arbitrary preview ports. File
+    // URLs still use the established migration rules below.
+    const localPreview = import.meta.env.DEV && typeof window !== "undefined"
+      && ["127.0.0.1", "localhost"].includes(window.location.hostname)
+      && ["127.0.0.1", "localhost"].includes(parsed.hostname);
+    if (!localPreview && !shouldRewriteToCurrentTool(parsed)) {
       return parsed.toString().replace(/\/$/, "");
     }
 

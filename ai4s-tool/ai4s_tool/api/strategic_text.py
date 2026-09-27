@@ -126,15 +126,23 @@ def evaluate_task(parsed: dict, team: dict, claims: list[tuple]) -> tuple[int, l
     if any(term in normalize(context) for term in parsed["excluded"]):
         return 0, [], []
     matched = {term: [c for c in claims if term in normalize(str(c[4]) + " " + str(c[5]))] for term in wanted}
-    if any(not matched[t] for t in required):
-        return 0, [], []
-    if goals and not (any(matched[t] for t in goals) if parsed["mode"] == "any" else all(matched[t] for t in goals)):
-        return 0, [], []
+    groups = parsed.get("groups")
+    if groups:
+        if any(not (any(matched[t] for t in g["terms"]) if g["operator"] == "any" else all(matched[t] for t in g["terms"])) for g in groups):
+            return 0, [], []
+    else:
+        if any(not matched[t] for t in required):
+            return 0, [], []
+        if goals and not (any(matched[t] for t in goals) if parsed["mode"] == "any" else all(matched[t] for t in goals)):
+            return 0, [], []
     ranks = sorted([(sum(c in matched[t] for t in wanted) / len(wanted), c) for c in claims],
                    key=lambda pair: (-pair[0], pair[1][0]))
     outcomes = [(fit, c) for fit, c in ranks if c[3] == "outcome" and fit > 0
                 and (not goals or any(c in matched[t] for t in goals))]
     effective = ([t for t in goals if matched[t]][:1] + required) if parsed["mode"] == "any" else wanted
+    if groups:
+        effective = list(dict.fromkeys(t for group in groups for t in
+            ([t for t in group["terms"] if matched[t]][:1] if group["operator"] == "any" else group["terms"])))
     evidence_fit = sum(bool(matched[t]) for t in effective) / max(1, len(effective))
     if evidence_fit < .5 or not outcomes:
         return 0, [], []
