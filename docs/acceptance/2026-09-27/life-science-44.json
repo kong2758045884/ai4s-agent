@@ -1,0 +1,405 @@
+{
+  "summary": {
+    "units": 44,
+    "completed": 11,
+    "outcomes": 24
+  },
+  "items": [
+    {
+      "teamId": "team_b124c84fbb7e58111f797699",
+      "teamName": "生物大分子国家重点实验室",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "需逐条核对成果归属；当前适配器不将目录或机构新闻作为本团队成果"
+    },
+    {
+      "teamId": "team_2acb089d14d876d6536fcc65",
+      "teamName": "蔡华清研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/caihq/202411/t20241107_7435516.html",
+      "fetchStatus": "ok",
+      "resultCount": 2,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_cad2bc1587c920f55e0e6208",
+      "teamName": "常文瑞研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/cwr/202411/t20241107_7435348.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_2a8f91c0d78fd648bdf23cbd",
+      "teamName": "陈畅研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/cc/202411/t20241108_7436527.html",
+      "fetchStatus": "ok",
+      "resultCount": 4,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_d97a686b51d9e1b68b83b19b",
+      "teamName": "邓红雨研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/dhy/202411/t20241108_7436434.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_e5f986de5e0f3cd4401cd19f",
+      "teamName": "丁璟珒研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/djj/202411/t20241108_7436428.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_cf851ef8ddbe0c5823073068",
+      "teamName": "范克龙研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/fkl/202411/t20241108_7436415.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_b13611ffa1e995a6ab29a288",
+      "teamName": "冯巍研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/fw/202411/t20241108_7436390.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_2c45463cb96cc6e124abe202",
+      "teamName": "高光侠研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/ggx/202411/t20241108_7436385.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_3205de852c9c3fb791558e99",
+      "teamName": "高利增研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/glz/202411/t20241108_7436374.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_c03af5f407f7f2ef78cb64bf",
+      "teamName": "高璞研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/gp/202411/t20241108_7436369.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_d231681d5dddd5d956b6d748",
+      "teamName": "胡俊杰研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/hjj/202411/t20241108_7436283.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_3e70862b268248faa5a5ff40",
+      "teamName": "黄亿华研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/hyh/202411/t20241108_7436302.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_e9eb2fdf5bb3d23a1ce41dfe",
+      "teamName": "纪伟研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/jw/202411/t20241108_7436264.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_f83df6f9a7872833e9eb237d",
+      "teamName": "江涛研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/jt/202411/t20241108_7436273.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_41706ec34ff71b592d378742",
+      "teamName": "李梅研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/lm/202411/t20241108_7436129.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_05695a71defcf5e776c731ca",
+      "teamName": "梁伟研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/lwe/202411/t20241108_7436064.html",
+      "fetchStatus": "ok",
+      "resultCount": 2,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_23f299e7217263a66bdd67d7",
+      "teamName": "柳振峰研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/lzf/202411/t20241108_7436018.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_6923d2ee28492e6286a6025c",
+      "teamName": "饶子和研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/rzh/202411/t20241107_7435312.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_551667fa4f56da0e1622b189",
+      "teamName": "石会刚研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/shihg/202608/t20260820_8262708.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_6d70e499068196beb6993aef",
+      "teamName": "孙飞研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/sf/202411/t20241107_7435732.html",
+      "fetchStatus": "ok",
+      "resultCount": 1,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_37e919d15052a47d459048e5",
+      "teamName": "王峰研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/waf/202411/t20241107_7435650.html",
+      "fetchStatus": "ok",
+      "resultCount": 2,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_d85f476fa52c8dc23058aef8",
+      "teamName": "王江云研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wjy/202411/t20241107_7435623.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_becc20baf8cb30c647a76106",
+      "teamName": "王杰研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wj/202601/t20260127_8119244.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_d11f355da44f75c374d564d6",
+      "teamName": "王磊研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wl/202411/t20241107_7435607.html",
+      "fetchStatus": "ok",
+      "resultCount": 3,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_991ed2299c1c7dc8be98c8d7",
+      "teamName": "王立堃研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wlk/202411/t20241107_7435599.html",
+      "fetchStatus": "ok",
+      "resultCount": 1,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_0d04101ad0b9ef9d4f96c13d",
+      "teamName": "王盛典研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wsd/202411/t20241107_7435561.html",
+      "fetchStatus": "ok",
+      "resultCount": 1,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_b49ef63f3cda8e2d6ee7a2f4",
+      "teamName": "王祥喜研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wxx/202411/t20241107_7435556.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_42518377eb7ede81ff7014a8",
+      "teamName": "王志珍研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wzz/202411/t20241107_7435308.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_01fc9943b010fcd0b45697e1",
+      "teamName": "卫涛涛研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/wtt/202411/t20241107_7435451.html",
+      "fetchStatus": "ok",
+      "resultCount": 1,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_61a6a568af753ef31907fdf6",
+      "teamName": "徐平勇研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/xpy/202411/t20241107_7435395.html",
+      "fetchStatus": "ok",
+      "resultCount": 4,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_b71d539f27b499c140903d8d",
+      "teamName": "徐涛研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/xt/202411/t20241107_7435403.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_b0f93bbe49009c19c93f51af",
+      "teamName": "薛亮研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/xl/202411/t20241107_7435362.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_0aee5a86e7fa4a2dc606d4f3",
+      "teamName": "阎锡蕴研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/yxy/202411/t20241107_7435367.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_cbd8ad6118c22d47c380e54c",
+      "teamName": "张宏研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/zh/202411/t20241107_7435424.html",
+      "fetchStatus": "ok",
+      "resultCount": 3,
+      "result": "官网当前研究组页面的组内成果陈述；原文校验，非人工专家评议"
+    },
+    {
+      "teamId": "team_e1f215850b12dfd2e1817ab6",
+      "teamName": "张凯研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/zk/202411/t20241107_7435310.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_47e50edea1c15dffecde3e77",
+      "teamName": "张立国研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/zlg/202411/t20241107_7435302.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_64cec48476a7fa03fc59ab87",
+      "teamName": "张先恩研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/zxe/202411/t20241107_7435290.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_0bd6a5a348c66005e5e077f6",
+      "teamName": "章新政研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/zxz/202411/t20241107_7435201.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_2a3ced2d7cd2ad6e68e7a636",
+      "teamName": "赵岩研究组",
+      "institutionName": "中国科学院生物物理研究所",
+      "sourceUrl": "https://www.ibp.cas.cn/rc/zy/202411/t20241107_7435194.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "只有个人论文或研究方向，未发现明确归属的已完成团队成果"
+    },
+    {
+      "teamId": "team_84a2658f32f4c11234188948",
+      "teamName": "育种前沿技术实验室",
+      "institutionName": "中国科学院遗传与发育生物学研究所",
+      "sourceUrl": "https://www.genetics.ac.cn/jgsh/yjzx/202108/t20210830_6177673.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "需逐条核对成果归属；当前适配器不将目录或机构新闻作为本团队成果"
+    },
+    {
+      "teamId": "team_6a41613410df6f0d5d398a79",
+      "teamName": "整合生理调控实验室",
+      "institutionName": "中国科学院遗传与发育生物学研究所",
+      "sourceUrl": "https://www.genetics.ac.cn/jgsh/yjzx/202108/t20210830_6177678.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "需逐条核对成果归属；当前适配器不将目录或机构新闻作为本团队成果"
+    },
+    {
+      "teamId": "team_6673285b28119982e64bacc8",
+      "teamName": "零一创新中心",
+      "institutionName": "中国科学院遗传与发育生物学研究所",
+      "sourceUrl": "https://www.genetics.ac.cn/jgsh/yjzx/202108/t20210830_6177677.html",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "需逐条核对成果归属；当前适配器不将目录或机构新闻作为本团队成果"
+    },
+    {
+      "teamId": "team_db5dc5c145b30476e182156d",
+      "teamName": "胡文浩课题组",
+      "institutionName": "中山大学药学院",
+      "sourceUrl": "https://sps.sysu.edu.cn/teacher/HuWenhao",
+      "fetchStatus": "ok",
+      "resultCount": 0,
+      "result": "需逐条核对成果归属；当前适配器不将目录或机构新闻作为本团队成果"
+    }
+  ]
+}

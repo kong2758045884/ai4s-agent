@@ -1,0 +1,802 @@
+{
+  "version": "d5911bcdd1b170da",
+  "cases": [
+    {
+      "domain": "科学通用底座",
+      "task": "科学计算",
+      "runId": "recommend-22e591830606457b9aec1837788ef591",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "科学计算"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 984.22
+    },
+    {
+      "domain": "科学通用底座",
+      "task": "请帮我推荐能够开展科学计算的国内团队",
+      "runId": "recommend-ef69a461328b436ab0ccbfd505025e0f",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "科学计算"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 145.23
+    },
+    {
+      "domain": "科学通用底座",
+      "task": "知识图谱",
+      "runId": "recommend-eb75a5609e75479b92ce4a8e8051297e",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "知识图谱"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 1,
+      "gap": 9,
+      "citations": 4,
+      "consistentCitations": 4,
+      "milliseconds": 147.64
+    },
+    {
+      "domain": "科学通用底座",
+      "task": "科学计算与仿真",
+      "runId": "recommend-839cabb290fa4a91845bf5364da6a934",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "科学计算",
+          "仿真"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 152.97
+    },
+    {
+      "domain": "科学通用底座",
+      "task": "科学计算，必须临床试验",
+      "runId": "recommend-89d96fef28d24a109acbd5edb841828c",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "科学计算"
+        ],
+        "required": [
+          "临床试验"
+        ],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 147.6
+    },
+    {
+      "domain": "科学通用底座",
+      "task": "科学计算，排除科学计算",
+      "runId": "recommend-e9974a8cf5774a3a9d044d26f256cc29",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "科学计算"
+        ],
+        "required": [],
+        "excluded": [
+          "科学计算"
+        ],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 148.32
+    },
+    {
+      "domain": "通用 AI",
+      "task": "具身智能",
+      "runId": "recommend-45712ac3864e45a1994b9ccc538b004b",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "具身智能"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 147.09
+    },
+    {
+      "domain": "通用 AI",
+      "task": "请帮我推荐能够开展具身智能的国内团队",
+      "runId": "recommend-4c86b4b3957a4794aaa29d600af83a82",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "具身智能"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 154.13
+    },
+    {
+      "domain": "通用 AI",
+      "task": "大模型",
+      "runId": "recommend-596cd0dbba1947f28d55f8b117ea3602",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "大模型"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 3,
+      "gap": 7,
+      "citations": 11,
+      "consistentCitations": 11,
+      "milliseconds": 149.99
+    },
+    {
+      "domain": "通用 AI",
+      "task": "机器人与具身智能",
+      "runId": "recommend-14c4518c52e247ceab6146f123d3b4e9",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "具身智能",
+          "机器人"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 144.66
+    },
+    {
+      "domain": "通用 AI",
+      "task": "具身智能，必须临床试验",
+      "runId": "recommend-0a0f69a9f20044edbdef150939dd44f8",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "具身智能"
+        ],
+        "required": [
+          "临床试验"
+        ],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 147.34
+    },
+    {
+      "domain": "通用 AI",
+      "task": "具身智能，排除具身智能",
+      "runId": "recommend-2037ab72f88147b88b926810f9ef67ee",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "具身智能"
+        ],
+        "required": [],
+        "excluded": [
+          "具身智能"
+        ],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 152.73
+    },
+    {
+      "domain": "高能物理与量子科技",
+      "task": "量子模拟",
+      "runId": "recommend-aaeab12fe5f541bc9148a195e9d68004",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "量子模拟"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 3,
+      "gap": 7,
+      "citations": 5,
+      "consistentCitations": 5,
+      "milliseconds": 156.18
+    },
+    {
+      "domain": "高能物理与量子科技",
+      "task": "请帮我推荐能够开展量子模拟的国内团队",
+      "runId": "recommend-0a12970a808043748111330b8c3f7e4b",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "量子模拟"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 3,
+      "gap": 7,
+      "citations": 5,
+      "consistentCitations": 5,
+      "milliseconds": 146.11
+    },
+    {
+      "domain": "高能物理与量子科技",
+      "task": "量子计算",
+      "runId": "recommend-06a7eaf0d0944459a5970d6b1b0366e8",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "量子计算"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 2,
+      "gap": 8,
+      "citations": 5,
+      "consistentCitations": 5,
+      "milliseconds": 138.89
+    },
+    {
+      "domain": "高能物理与量子科技",
+      "task": "量子计算与模拟",
+      "runId": "recommend-52b8823ff4c541148fc250625ceb3bbd",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "量子模拟",
+          "量子计算"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 1,
+      "gap": 9,
+      "citations": 2,
+      "consistentCitations": 2,
+      "milliseconds": 149.19
+    },
+    {
+      "domain": "高能物理与量子科技",
+      "task": "量子计算，必须临床试验",
+      "runId": "recommend-a812d5758f1c44b6b1d0812edb9f64c1",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "量子计算"
+        ],
+        "required": [
+          "临床试验"
+        ],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 148.43
+    },
+    {
+      "domain": "高能物理与量子科技",
+      "task": "量子计算，排除量子计算",
+      "runId": "recommend-2c06b8a78e004c43afa4bd7c2d86ead3",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "量子计算"
+        ],
+        "required": [],
+        "excluded": [
+          "量子计算"
+        ],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 159.14
+    },
+    {
+      "domain": "化学与材料",
+      "task": "催化",
+      "runId": "recommend-71c06787c1874ee386e56c5bd378f35f",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "催化"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 2,
+      "gap": 8,
+      "citations": 6,
+      "consistentCitations": 6,
+      "milliseconds": 152.95
+    },
+    {
+      "domain": "化学与材料",
+      "task": "请帮我推荐能够开展催化的国内团队",
+      "runId": "recommend-eab310a6b908400d9b005742e8c1b999",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "催化"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 2,
+      "gap": 8,
+      "citations": 6,
+      "consistentCitations": 6,
+      "milliseconds": 144.0
+    },
+    {
+      "domain": "化学与材料",
+      "task": "能源材料",
+      "runId": "recommend-f949844d4ec74fb4b2b30be3d5f71f52",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "能源材料"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 140.27
+    },
+    {
+      "domain": "化学与材料",
+      "task": "催化与能源材料",
+      "runId": "recommend-7aedc227c57a4a2c880d1d1d34c9fa10",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "能源材料",
+          "催化"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 138.42
+    },
+    {
+      "domain": "化学与材料",
+      "task": "催化，必须临床试验",
+      "runId": "recommend-a886f6655bea4602bd4424287fc17777",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "催化"
+        ],
+        "required": [
+          "临床试验"
+        ],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 153.16
+    },
+    {
+      "domain": "化学与材料",
+      "task": "催化，排除催化",
+      "runId": "recommend-eae287283f0e49a0a67603ba1856e74b",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "催化"
+        ],
+        "required": [],
+        "excluded": [
+          "催化"
+        ],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 148.82
+    },
+    {
+      "domain": "生命科学与医学",
+      "task": "肿瘤",
+      "runId": "recommend-2ba17028a01249a98fb5d13399df664d",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "肿瘤"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 3,
+      "gap": 7,
+      "citations": 8,
+      "consistentCitations": 8,
+      "milliseconds": 152.3
+    },
+    {
+      "domain": "生命科学与医学",
+      "task": "请帮我推荐能够开展肿瘤的国内团队",
+      "runId": "recommend-296350a05fb6419baa0262cfd701eae8",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "肿瘤"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 3,
+      "gap": 7,
+      "citations": 8,
+      "consistentCitations": 8,
+      "milliseconds": 146.11
+    },
+    {
+      "domain": "生命科学与医学",
+      "task": "蛋白质",
+      "runId": "recommend-8e7161eae1e64475906030169c799db7",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "蛋白质"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 4,
+      "gap": 6,
+      "citations": 10,
+      "consistentCitations": 10,
+      "milliseconds": 148.3
+    },
+    {
+      "domain": "生命科学与医学",
+      "task": "蛋白质与肿瘤",
+      "runId": "recommend-4e8e4d5c28a640b599d6a0c446ee34b2",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "蛋白质",
+          "肿瘤"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 2,
+      "gap": 8,
+      "citations": 4,
+      "consistentCitations": 4,
+      "milliseconds": 142.8
+    },
+    {
+      "domain": "生命科学与医学",
+      "task": "蛋白质，必须临床试验",
+      "runId": "recommend-c461fd4143034e29b32fa48287e2b513",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "蛋白质"
+        ],
+        "required": [
+          "临床试验"
+        ],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 149.46
+    },
+    {
+      "domain": "生命科学与医学",
+      "task": "肿瘤，排除肿瘤",
+      "runId": "recommend-3b610b587e4c499f9dd0273ad3c01bbb",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "肿瘤"
+        ],
+        "required": [],
+        "excluded": [
+          "肿瘤"
+        ],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 160.23
+    },
+    {
+      "domain": "地球科学",
+      "task": "天气预报",
+      "runId": "recommend-2c971f20f76b4bd3bb6df6f29f337d72",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "天气预测"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 153.03
+    },
+    {
+      "domain": "地球科学",
+      "task": "请帮我推荐能够开展天气预测的国内团队",
+      "runId": "recommend-ebbd9372421a43d4a708980da1e1d3d2",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "天气预测"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 145.08
+    },
+    {
+      "domain": "地球科学",
+      "task": "天气预测",
+      "runId": "recommend-9937364a70784dbcb04f58d97a5cb791",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "天气预测"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 147.57
+    },
+    {
+      "domain": "地球科学",
+      "task": "气候预测与海洋",
+      "runId": "recommend-7d1a151155654e94ad15bd0bb93f6f41",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "气候预测",
+          "海洋"
+        ],
+        "required": [],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 145.05
+    },
+    {
+      "domain": "地球科学",
+      "task": "地震，必须临床试验",
+      "runId": "recommend-9d2ef898f652440cb5a1c8d334281dd5",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "地震"
+        ],
+        "required": [
+          "临床试验"
+        ],
+        "excluded": [],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 137.5
+    },
+    {
+      "domain": "地球科学",
+      "task": "海洋，排除海洋",
+      "runId": "recommend-470d3dc0dd0a4c4e946c724acdf396dc",
+      "understood": {
+        "version": "task-elements-v3",
+        "goals": [
+          "海洋"
+        ],
+        "required": [],
+        "excluded": [
+          "海洋"
+        ],
+        "mode": "all",
+        "unresolved": [],
+        "notice": "本地任务解析；未列出的交付周期、预算等条件需进一步确认"
+      },
+      "count": 0,
+      "gap": 10,
+      "citations": 0,
+      "consistentCitations": 0,
+      "milliseconds": 149.66
+    }
+  ],
+  "metrics": {
+    "cases": 36,
+    "citationConsistency": 1.0,
+    "citationCount": 74,
+    "shortLongPairsIdentical": 6,
+    "emptyTasks": 24,
+    "searchP95Ms": 146.02,
+    "searchMedianMs": 139.65,
+    "relevance": "未做专家盲审；程序检查不代替语义相关性评审",
+    "paidCalls": 0
+  }
+}

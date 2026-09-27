@@ -1,0 +1,11 @@
+{
+  "unchangedOriginalTables": [
+    "strategic_map_team",
+    "strategic_map_person",
+    "strategic_map_research_run"
+  ],
+  "repeatDirectoryJournalUnchanged": true,
+  "outcomesRevoked": 24,
+  "foreignKeyErrors": [],
+  "integrity": "ok"
+}
