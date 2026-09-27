@@ -1,6 +1,7 @@
 """Offline contracts for scoped fusion; no source services or live DB writes."""
 import hashlib
 import json
+import sqlite3
 from datetime import date
 
 import pytest
@@ -45,6 +46,26 @@ def impact(tmp_path, monkeypatch):
         'frozen': False, 'revision': 0,
         'teamChanges': [{'teamId': 't'}, {'teamId': 'e'}],
         'recommendationChanges': [{'domainId': None, 'before': ['e'], 'after': ['t', 'e'], 'taskText': '跨领域任务'}]})
+    # Complete snapshots now consume the transactional outbox, not today's live projection.
+    from ai4s_tool.api import strategic_changes as changes
+    team_db = tmp_path / 'teams.db'
+    teams = [{'id': 't', 'teamName': '团队甲', 'institutionName': '研究院', 'domainId': 'ai', 'subdomainId': 'safety'},
+             {'id': 'e', 'teamName': '团队乙', 'institutionName': '研究院', 'domainId': 'earth', 'subdomainId': 'climate'}]
+    def local_db(*, write=False):
+        c = sqlite3.connect(team_db); c.row_factory = sqlite3.Row
+        return c
+    monkeypatch.setattr(fusion.tasks, '_db', local_db)
+    monkeypatch.setattr(fusion.tasks, '_catalogue_evidence', lambda: (teams, [], 'v1'))
+    with local_db() as conn:
+        changes.init(conn); fusion.tasks._schema(conn)
+        for t in teams:
+            changes.record(conn, subject_type='team', subject_id=t['id'], domain_id=t['domainId'], kind='manual', source_id=t['id'], created_at='2026-09-08T00:01:00+00:00')
+        for index, members in enumerate([['e'], ['t', 'e']]):
+            run = {'runId': f'r{index}', 'taskText': '跨领域任务', 'domainId': None, 'subdomainId': None,
+                   'requestedLimit': 10, 'matchVersion': 'v3', 'items': [{'teamId': t} for t in members]}
+            conn.execute('INSERT INTO strategic_task_recommendation_run(id,task_text,requested_limit,data_version,result_json,created_at) VALUES(?,?,?,?,?,?)',
+                         (f'r{index}', run['taskText'], 10, f'v{index}', json.dumps(run), '2026-09-08T00:00:00+00:00'))
+        conn.execute('INSERT INTO strategic_recommendation_revision VALUES(?,?,?,?,?,?)', ('r0','r1','v1','key','[]','2026-09-08T00:00:00+00:00'))
     return path
 
 
@@ -59,6 +80,21 @@ def test_daily_replays_readonly_with_precise_l3_mapping(impact):
     assert result == fusion.integrated_daily(date(2026, 9, 8), 'ai', 'safety')
     assert before == hashlib.sha256(impact.read_bytes()).hexdigest()
     assert not fusion.integrated_daily(date(2026, 9, 26), 'ai', None)['sourceEvents']
+
+
+def test_complete_daily_freeze_replay_late_revision(impact):
+    from ai4s_tool.api import strategic_daily as daily
+    first = daily.freeze('2026-09-08', 'ai')
+    assert first['frozen'] and first['revision'] == 1
+    assert daily.freeze('2026-09-08', 'ai')['revision'] == 1
+    with store.connect(impact, write=True) as conn:
+        conn.execute("UPDATE impact_event_source SET excerpt='补充原文内容' WHERE event_id='a'")
+    assert daily.report('2026-09-08', 'ai') == first
+    revised = daily.freeze('2026-09-08', 'ai')
+    assert revised['revision'] == 2 and revised['inputHash'] != first['inputHash']
+    assert daily.report('2026-09-08', 'ai', revision=1) == first
+    assert daily.local_day('2026-09-07T16:01:00Z') == '2026-09-08'
+    assert daily.local_day('2026-09-07 15:59:59') == '2026-09-07'
 
 
 def test_daily_hash_tracks_scores_and_original_content(impact):

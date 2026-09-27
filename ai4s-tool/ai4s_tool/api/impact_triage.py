@@ -34,8 +34,16 @@ def _write():
     assert conn is not None
     try:
         store.init_schema(conn)
+        from . import strategic_changes
+        strategic_changes.init(conn)
         with conn:
+            before = conn.total_changes
             yield conn
+            if conn.total_changes != before:
+                import uuid
+                strategic_changes.record(conn, subject_type="impact", subject_id="registry",
+                    kind="impact_mutation", source_id=uuid.uuid4().hex,
+                    payload={"reason": "机构身份、事件、类目或评分审核变更；机构事件不自动归入团队成果"})
     finally:
         conn.close()
 

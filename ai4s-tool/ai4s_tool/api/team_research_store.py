@@ -29,9 +29,12 @@ def history(session, team_id, status=None):
 
 def append_history(session, team_id, status, payload):
     from .strategic_map import _now
+    from .strategic_changes import record_history
     HISTORY.create(session.connection(), checkfirst=True)
-    session.execute(HISTORY.insert().values(id=uuid.uuid4().hex, team_id=team_id,
-                    status=status, payload=payload, created_at=_now()))
+    run_id, created = uuid.uuid4().hex, _now()
+    session.execute(HISTORY.insert().values(id=run_id, team_id=team_id,
+                    status=status, payload=payload, created_at=created))
+    record_history(session, run_id, team_id, status, payload, created)
 
 
 def manual_fields(session, team_id):

@@ -417,11 +417,11 @@ class DomainTest(unittest.TestCase):
         self.assertEqual('new body',observed['text'])
         self.assertEqual(changed['content_sha256'],cache[stale['url']]['content_sha256'])
 
-    def test_rate_limit_has_one_finite_outer_backoff(self):
+    def test_rate_limit_recovers_after_first_bounded_backoff(self):
         class RateLimit(Exception):
             status_code=429
         # Use an explicit callable rather than SDK retry machinery: the team
-        # layer owns exactly one retry and records its finite wait.
+        # layer retries transient errors at most three times, stopping on success.
         answers=iter([RateLimit('too many requests'),tr.Plan(reason='retry succeeded').model_dump_json()])
         def llm(**kwargs):
             value=next(answers)
@@ -432,8 +432,8 @@ class DomainTest(unittest.TestCase):
             result=research.call('plan',tr.Plan,{})
         self.assertEqual('retry succeeded',result.reason)
         self.assertEqual(1,research.counts['llm_retries'])
-        self.assertEqual(8.0,research.counts['retry_wait_seconds'])
-        sleep.assert_called_once_with(8.0)
+        self.assertEqual(2.0,research.counts['retry_wait_seconds'])
+        sleep.assert_called_once_with(2.0)
 
     def test_repeated_server_errors_back_off_then_open_batch_circuit(self):
         class ServerError(Exception):
@@ -445,7 +445,7 @@ class DomainTest(unittest.TestCase):
         cache = dr.BatchCache()
         research = tr.Research(llm, cached_pages=cache)
         with patch.object(tr.time, 'sleep') as sleep:
-            with self.assertRaises(ServerError):
+            with self.assertRaises(tr.ProviderUnavailable):
                 research.call('plan', tr.Plan, {})
             with self.assertRaises(tr.ProviderUnavailable):
                 research.call('plan', tr.Plan, {})
@@ -453,7 +453,7 @@ class DomainTest(unittest.TestCase):
                 research.call('plan', tr.Plan, {})
         self.assertEqual(3, len(calls))
         self.assertEqual('transient_circuit_open', cache.unavailable['kind'])
-        sleep.assert_called_once_with(1.0)
+        self.assertEqual([1.0, 2.0], [call.args[0] for call in sleep.call_args_list])
 
     def test_provider_billing_error_trips_circuit_without_retry(self):
         class BillingError(Exception):

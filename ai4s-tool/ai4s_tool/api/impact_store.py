@@ -245,16 +245,18 @@ def list_ranking(conn: sqlite3.Connection, direction_id: str | None = None,
     else:
         sql += " AND e.eligibility!='excluded'"
     if search:
-        sql += """ AND (e.name LIKE ? OR EXISTS (SELECT 1 FROM impact_entity_alias a WHERE
+        from .strategic_text import search_match
+        conn.create_function("ai4s_contains", 2, lambda value, query: int(search_match(query, value or "")))
+        sql += """ AND (ai4s_contains(e.name, ?) OR EXISTS (SELECT 1 FROM impact_entity_alias a WHERE
                 (a.entity_id=e.id OR a.entity_id IN (SELECT source_entity_id FROM impact_identity_link WHERE canonical_entity_id=e.id))
-                AND a.alias LIKE ?)
+                AND ai4s_contains(a.alias, ?))
             OR EXISTS (SELECT 1 FROM impact_identity_link il JOIN impact_entity alias ON alias.id=il.source_entity_id
-                       WHERE il.canonical_entity_id=e.id AND alias.name LIKE ?)
+                       WHERE il.canonical_entity_id=e.id AND ai4s_contains(alias.name, ?))
             OR EXISTS (SELECT 1 FROM impact_event v WHERE
                 (v.entity_id=e.id OR v.entity_id IN
                   (SELECT il.source_entity_id FROM impact_identity_link il WHERE il.canonical_entity_id=e.id))
-                AND (v.title LIKE ? OR v.summary LIKE ?)))"""
-        args.extend([f"%{search}%"] * 5)
+                AND (ai4s_contains(v.title, ?) OR ai4s_contains(v.summary, ?))))"""
+        args.extend([search] * 5)
     if direction_id:
         selected = conn.execute("SELECT level,parent_id,name FROM impact_direction WHERE id=?", (direction_id,)).fetchone()
         if selected and selected["level"] == 3:
@@ -308,19 +310,19 @@ def list_ranking(conn: sqlite3.Connection, direction_id: str | None = None,
         if search:
             term = search.casefold()
             names = [row["name"], *[item["name"] for item in row["identity_aliases"]]]
-            if any(term in name.casefold() for name in names):
+            if any(search_match(search, name) for name in names):
                 row["match_reason"] = "机构或品牌名称"
-                row["match_snippet"] = next(name for name in names if term in name.casefold())
+                row["match_snippet"] = next(name for name in names if search_match(search, name))
                 row["match_rank"] = 0
             else:
-                alias = conn.execute(f"SELECT alias FROM impact_entity_alias WHERE entity_id IN ({marks}) AND alias LIKE ? LIMIT 1",
-                                     [*members, f"%{search}%"]).fetchone()
+                alias = conn.execute(f"SELECT alias FROM impact_entity_alias WHERE entity_id IN ({marks}) AND ai4s_contains(alias, ?) LIMIT 1",
+                                     [*members, search]).fetchone()
                 if alias:
                     row["match_reason"], row["match_snippet"], row["match_rank"] = "登记别名", alias["alias"], 1
                 else:
                     event = conn.execute(f"""SELECT title FROM impact_event WHERE entity_id IN ({marks})
-                        AND (title LIKE ? OR summary LIKE ?) ORDER BY event_date DESC LIMIT 1""",
-                        [*members, f"%{search}%", f"%{search}%"]).fetchone()
+                        AND (ai4s_contains(title, ?) OR ai4s_contains(summary, ?)) ORDER BY event_date DESC LIMIT 1""",
+                        [*members, search, search]).fetchone()
                     row["match_reason"], row["match_snippet"], row["match_rank"] = "事件证据", event["title"] if event else "", 2
         row["review_cases"] = _rows(conn, """SELECT id,kind,reason FROM impact_review_case
             WHERE status IN ('pending','confirmed_unresolved') AND subject_ids LIKE ?""", (f'%"{row["id"]}"%',))

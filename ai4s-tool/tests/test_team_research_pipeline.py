@@ -392,7 +392,7 @@ class PipelineTest(unittest.TestCase):
 
     def test_model_failure_is_distinct(self):
         result=tr.investigate({'source_urls':[URL]},'测试领域',lambda **kw: (_ for _ in ()).throw(ConnectionError()))
-        self.assertEqual('model_failed',result['status']);self.assertEqual(2,result['counts']['llm'])
+        self.assertEqual('model_failed',result['status']);self.assertEqual(1,result['counts']['llm'])
 
     def test_failed_fetch_and_cache_are_observable(self):
         answers=iter([tr.Plan(urls=[URL],reason='官网').model_dump_json(),tr.Plan(reason='无可用证据').model_dump_json()])

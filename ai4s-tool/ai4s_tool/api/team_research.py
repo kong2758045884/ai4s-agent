@@ -12,6 +12,7 @@ import ipaddress
 import json
 import os
 import socket
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ Status = Literal['verified', 'pending', 'not_stated', 'rejected', 'conflict']
 Basis = Literal['roster', 'affiliation', 'appointment', 'event', 'publication', 'project', 'institution', 'unclear']
 RoleKind = Literal['head', 'deputy', 'academic_committee', 'management_committee', 'parent_head', 'subgroup_pi', 'member', 'historical', 'unclear']
 EVIDENCE_FORMAT_VERSION = 1
+_FETCH_SLOTS = threading.BoundedSemaphore(max(1, min(4, int(os.getenv('AI4S_WEB_FETCH_CONCURRENCY', '4')))))
 
 
 class ProviderUnavailable(RuntimeError):
@@ -224,11 +226,30 @@ def page_content_id(page: dict[str, Any]) -> str:
 
 def fetch_page(url: str, cached_page: dict[str, Any] | None = None, *,
                max_text_chars: int | None = 24000, max_links: int | None = 240) -> dict[str, Any]:
+    """Bound fetching across simultaneous investigations, with three transient retries."""
+    requests_made = 0
+    started = time.monotonic()
+    for attempt in range(4):
+        with _FETCH_SLOTS:
+            page = _fetch_page_once(url, cached_page, max_text_chars=max_text_chars, max_links=max_links)
+        requests_made += page.get('request_count', 0)
+        status = page.get('http_status', 0)
+        transient = status == 429 or 500 <= status < 600 or page.get('error') in {
+            'ConnectTimeout', 'ReadTimeout', 'Timeout', 'ConnectionError'}
+        if page.get('status') == 'ok' or not transient or attempt == 3:
+            break
+        time.sleep(min(2 ** attempt, 8))
+    return {**page, 'request_count': requests_made, 'retries': attempt,
+            'seconds': round(time.monotonic() - started, 3)}
+
+
+def _fetch_page_once(url: str, cached_page: dict[str, Any] | None = None, *,
+                     max_text_chars: int | None = 24000, max_links: int | None = 240) -> dict[str, Any]:
     """Read a bounded HTML body and links, retaining HTTP/empty/error provenance."""
     started = time.monotonic()
     captured_at = datetime.now(timezone.utc).isoformat()
     page = {'url': url, 'fetched_at': captured_at, 'validated_at': captured_at,
-            'published_at': '', 'text': '', 'links': [], 'status': 'fetch_failed'}
+            'published_at': '', 'text': '', 'links': [], 'status': 'fetch_failed', 'request_count': 0}
     try:
         current = _public_url(url)
         with requests.Session() as client:
@@ -246,6 +267,7 @@ def fetch_page(url: str, cached_page: dict[str, Any] | None = None, *,
                 key in request_headers for key in ('If-None-Match', 'If-Modified-Since')
             )
             for _ in range(4):
+                page['request_count'] += 1
                 with client.get(current, timeout=(5, 15), allow_redirects=False, stream=True,
                                 headers=request_headers) as response:
                     page['http_status'] = response.status_code
@@ -254,6 +276,7 @@ def fetch_page(url: str, cached_page: dict[str, Any] | None = None, *,
                         continue
                     if response.status_code == 304 and cached_page_usable(cached_page or {}):
                         page = {**cached_page, 'url': url, 'http_status': 304,
+                                'request_count': page['request_count'],
                                 'validated_at': captured_at, 'not_modified': True,
                                 'conditional_request': True,
                                 'evidence_format_version': EVIDENCE_FORMAT_VERSION}
@@ -460,7 +483,7 @@ class Research:
             self._save_checkpoint()
 
     def call(self, stage: str, schema: type[Schema], payload: dict) -> Schema:
-        for attempt in range(2):
+        for attempt in range(4):
             if getattr(self.cached_pages,'unavailable',None):
                 raise ProviderUnavailable('shared provider circuit is open')
             remaining = self.deadline - time.monotonic()
@@ -491,11 +514,11 @@ class Research:
                         'provider_code': 'rate_limit' if limited else 'server_error'})
                     if getattr(self.cached_pages, 'unavailable', None):
                         raise ProviderUnavailable('shared provider circuit is open') from exc
-                if attempt:
+                if attempt >= 3 or not (limited or server_error or kind == "model_timeout"):
                     raise
                 self.counts['llm_retries'] += 1
                 if limited or server_error:
-                    wait_seconds = min(8.0 if limited else 1.0, max(0.0, self.deadline-time.monotonic()-5))
+                    wait_seconds = min((2.0 if limited else 1.0) * 2 ** attempt, max(0.0, self.deadline-time.monotonic()-5))
                     if wait_seconds:
                         self.counts['retry_wait_seconds'] = round(self.counts['retry_wait_seconds']+wait_seconds, 3)
                         self.event('retry_wait', stage=stage, reason='rate_limit' if limited else 'server_error', seconds=wait_seconds)
@@ -602,7 +625,7 @@ class Research:
             return fetch_page(url), False
         with ThreadPoolExecutor(max_workers=4) as pool:
             for page, reused in pool.map(read, todo):
-                self.counts['fetch'] += int(not reused)
+                self.counts['fetch'] += page.get('request_count', 1) if not reused else 0
                 self.counts['cache_hits'] += int(reused)
                 page = self._remember_page(page)
                 self.counts['fetch_success'] += int(page['status'] == 'ok' and not reused)

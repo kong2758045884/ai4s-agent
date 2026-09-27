@@ -23,9 +23,10 @@ from pydantic import BaseModel, Field
 
 from . import impact_store, strategic_map
 from .team_research_store import history
+from . import strategic_text
 
 router = APIRouter(prefix="/strategic-map", tags=["strategic_recommendations"])
-MATCH_VERSION = "task-evidence-v2"
+MATCH_VERSION = strategic_text.VERSION
 ELIGIBILITY_VERSION = os.environ.get("AI4S_TASK_ELIGIBILITY_VERSION", "verified-outcomes-v2")
 _OUTCOME = re.compile(r"论文|成果|发表|项目|专利|模型|开源|系统|装置|平台|实验|Nature|Science|CVPR|ICLR", re.I)
 _CJK = re.compile(r"[\u4e00-\u9fff]+")
@@ -129,7 +130,7 @@ def _candidate_signature() -> str:
     """Cheap invalidation key for team, research and person edits, including other processes."""
     with closing(_db()) as conn:
         values = [str(strategic_map._DB_PATH)]
-        for table in ("strategic_map_team", "strategic_map_person", "strategic_map_research_run"):
+        for table in ("strategic_map_team", "strategic_map_person", "strategic_map_research_run", "strategic_team_outcome"):
             if not _has_table(conn, table):
                 values.extend(("0", "None"))
                 continue
@@ -176,6 +177,15 @@ def _catalogue_evidence() -> tuple[list[dict[str, Any]], list[tuple[str, ...]], 
             claims.extend(run_claims)
             versions.append(f"{team.id}:{team.updated_at}:{team.score_version}:{payload['catalogueSourceRunId']}")
     version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
+    from .strategic_outcomes import valid_source
+    ids = {team["id"] for team in candidates}
+    with closing(_db()) as conn:
+        if _has_table(conn, "strategic_team_outcome"):
+            for row in conn.execute("SELECT * FROM strategic_team_outcome WHERE status='approved' ORDER BY id"):
+                if row["team_id"] in ids and valid_source(row):
+                    claims.append((row["id"], row["team_id"], row["batch_id"], "outcome", row["title"], row["quote"], row["url"], row["published_at"]))
+                    versions.append(f"outcome:{row['id']}:{row['content_hash']}")
+            version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
     result = (candidates, list({row[0]: row for row in claims}.values()), version)
     with _CACHE_LOCK:
         _EVIDENCE_CACHE = (signature, result)
@@ -253,6 +263,13 @@ def _institution_links() -> dict[str, dict[str, str]]:
         return {r["team_id"]: {"id": r["id"], "name": r["name"], "eligibility": r["eligibility"]} for r in rows}
 
 
+def _recommendation_version(evidence_version, links):
+    """Identity decisions are part of the frozen recommendation inputs."""
+    if not links:
+        return evidence_version
+    return hashlib.sha256((evidence_version + json.dumps(links, sort_keys=True, ensure_ascii=False)).encode()).hexdigest()[:16]
+
+
 def _pending_leads(task_terms: set[str], domain_id: str | None,
                    subdomain_id: str | None, formal_ids: set[str]) -> list[dict[str, Any]]:
     """Useful search leads remain visibly separate until claim-level review."""
@@ -309,7 +326,10 @@ def _load_run(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
     result["pendingLeads"] = []
     if row["expanded_job_id"]:
         try:
-            if "expanded_job_type" in row.keys() and row["expanded_job_type"] == "domain_refresh":
+            if "expanded_job_type" in row.keys() and row["expanded_job_type"] == "web_investigation":
+                from .strategic_investigations import get
+                result["expansion"] = get(row["expanded_job_id"])
+            elif "expanded_job_type" in row.keys() and row["expanded_job_type"] == "domain_refresh":
                 task = strategic_map.get_domain_refresh(row["expanded_job_id"])["data"]
                 result["expansion"] = {"jobId": row["expanded_job_id"], "state": task["state"],
                                        "stage": task["message"], "progress": task.get("result", {}).get("progress")}
@@ -323,6 +343,10 @@ def _load_run(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
 
 @router.post("/task-recommendations")
 def recommend(body: TaskRequest) -> dict[str, Any]:
+    return _recommend(body)
+
+
+def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_ids: list[str] | None = None) -> dict[str, Any]:
     _validate_scope(body.domainId, body.subdomainId)
     task = body.taskText.strip()
     if len(task) < 2:
@@ -332,7 +356,8 @@ def recommend(body: TaskRequest) -> dict[str, Any]:
     for claim in claims:
         by_team.setdefault(claim[1], []).append(claim)
     links = _institution_links()
-    terms = _terms(task)
+    data_version = _recommendation_version(data_version, links)
+    parsed = strategic_text.parse_task(task)
     items = []
     eligible_count = 0
     for team in teams:
@@ -341,7 +366,7 @@ def recommend(body: TaskRequest) -> dict[str, Any]:
         if body.subdomainId and team["subdomainId"] != body.subdomainId:
             continue
         eligible_count += 1
-        score, citations = _score(terms, team, by_team.get(team["id"], []))
+        score, citations, criteria = strategic_text.evaluate_task(parsed, team, by_team.get(team["id"], []))
         if score <= 0 or not citations:
             continue
         link = links.get(team["id"])
@@ -349,14 +374,16 @@ def recommend(body: TaskRequest) -> dict[str, Any]:
             "teamId": team["id"], "teamName": team.get("teamName") or team["name"],
             "institutionId": link["id"] if link else None,
             "institutionName": team.get("institutionName") or team["name"],
-            "institutionImpact": "待核验关联" if not link else "来源评分待校准",
+            "institutionImpact": "未关联机构影响力档案" if not link else "来源评分待校准",
             "domainId": team["domainId"], "subdomainId": team.get("subdomainId"),
             "taskMatchScore": score, "teamScore": team.get("scoreTotal"),
             "teamScoreVersion": team.get("scoreVersion"), "matchVersion": MATCH_VERSION,
             "capability": team.get("description") or team.get("focus") or "",
+            "taskCriteria": criteria,
+            "supportedTasks": [c["requirement"] for c in criteria if c["matched"]],
             "citations": citations,
-            "unknowns": ["机构影响力尚未建立审核关联"] if not link else [],
-            "nextStep": "核对所引成果与任务条件，并联系团队确认当前能力",
+            "unknowns": ["交付周期、可投入人员与合作条件未由这些成果证明", *[f"需确认条件含义：{v}" for v in parsed["unresolved"]]],
+            "nextStep": "围绕" + "、".join(parsed["goals"][:3]) + "联系团队，确认所引成果的适用条件与可提供的合作接口",
             "updatedAt": team.get("updatedAt") or "",
         })
     items.sort(key=lambda item: (-item["taskMatchScore"], -float(item["teamScore"] or 0), item["teamId"]))
@@ -366,13 +393,29 @@ def recommend(body: TaskRequest) -> dict[str, Any]:
               "eligibleTeamCount": eligible_count, "matchedTeamCount": len(items),
               "shortfall": max(0, body.limit - len(items)), "items": items[:body.limit],
               "pendingLeads": [],
+              "parsedTask": parsed,
               "dataVersion": data_version, "matchVersion": MATCH_VERSION,
               "eligibilityVersion": ELIGIBILITY_VERSION,
               "createdAt": datetime.now(timezone.utc).isoformat(),
               "notice": "任务匹配分、团队总分和机构影响力分别计算；只推荐有团队级原文成果证据的国内团队"}
     with closing(_db(write=True)) as conn:
         _schema(conn)
+        from . import strategic_changes
+        strategic_changes.init(conn)
         with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if parent_run_id:
+                existing = conn.execute("SELECT run_id FROM strategic_recommendation_revision WHERE parent_run_id=? AND data_version=?", (parent_run_id, data_version)).fetchone()
+                if existing:
+                    return _load_run(conn, existing[0])
+                result["previousRunId"] = parent_run_id
+                previous = _load_run(conn, parent_run_id)
+                before = {i["teamId"]: i for i in previous["items"]}
+                after = {i["teamId"]: i for i in result["items"]}
+                result["changes"] = {"added": sorted(after.keys() - before.keys()),
+                    "removed": sorted(before.keys() - after.keys()),
+                    "updated": sorted(k for k in before.keys() & after.keys() if before[k] != after[k]),
+                    "reason": "原文证据、团队资料或匹配版本更新；推荐条件保持一致"}
             indexed = conn.execute("SELECT value FROM strategic_claim_index_meta WHERE key='data_version'").fetchone()
             if not indexed or indexed[0] != data_version:
                 _sync_claims(conn, claims)
@@ -381,6 +424,10 @@ def recommend(body: TaskRequest) -> dict[str, Any]:
               (id,task_text,domain_id,subdomain_id,requested_limit,data_version,result_json,created_at)
               VALUES(?,?,?,?,?,?,?,?)""", (run_id, task, body.domainId, body.subdomainId,
               body.limit, data_version, json.dumps(result, ensure_ascii=False), result["createdAt"]))
+            if parent_run_id:
+                conn.execute("INSERT INTO strategic_recommendation_revision VALUES(?,?,?,?,?,?)",
+                    (parent_run_id, run_id, data_version, strategic_changes.task_key(result),
+                     json.dumps(change_ids or []), result["createdAt"]))
     return result
 
 
@@ -389,42 +436,34 @@ def recommendation(run_id: str) -> dict[str, Any]:
     with closing(_db()) as conn:
         if not _has_table(conn, "strategic_task_recommendation_run"):
             raise HTTPException(404, "推荐任务不存在")
-        return _load_run(conn, run_id)
+        result = _load_run(conn, run_id)
+        if _has_table(conn, "strategic_recommendation_revision"):
+            latest = conn.execute("SELECT run_id FROM strategic_recommendation_revision WHERE parent_run_id=? ORDER BY created_at DESC LIMIT 1", (run_id,)).fetchone()
+            if latest:
+                result["updatedRunId"] = latest[0]
+        return result
 
 
 @router.post("/task-recommendations/{run_id}/expand", status_code=202)
 def expand_recommendation(run_id: str) -> dict[str, Any]:
-    with closing(_db()) as conn:
-        if not _has_table(conn, "strategic_task_recommendation_run"):
-            raise HTTPException(404, "推荐任务不存在")
-        row = conn.execute("SELECT * FROM strategic_task_recommendation_run WHERE id=?", (run_id,)).fetchone()
-        if row is None:
-            raise HTTPException(404, "推荐任务不存在")
-        if row["expanded_job_id"]:
-            return _load_run(conn, run_id)
-        task, domain_id, subdomain_id = row["task_text"], row["domain_id"], row["subdomain_id"]
-    from .strategic_graph import GraphScanRequest, _remote_scan_available, start_graph_scan
-    if _remote_scan_available():
-        scan = start_graph_scan(GraphScanRequest(keyword=task[:120], scope="domestic",
-                                      max_candidates=100, domain_id=domain_id,
-                                      subdomain_id=subdomain_id))["data"]
-        job_id, job_type = scan["jobId"], "graph_scan"
-    elif domain_id:
-        refresh = strategic_map.start_domain_refresh(domain_id, subdomain_id=subdomain_id)["data"]
-        job_id, job_type = refresh["taskId"], "domain_refresh"
-    else:
-        raise HTTPException(503, "全网扫描服务尚未连接；请先选择一个领域再扩展调查")
-    with closing(_db(write=True)) as conn, conn:
-        conn.execute("UPDATE strategic_task_recommendation_run SET expanded_job_id=?,expanded_job_type=? WHERE id=? AND expanded_job_id=''",
-                     (job_id, job_type, run_id))
+    from .strategic_investigations import start
+    start(run_id)
+    return recommendation(run_id)
+
+
+@router.post("/task-recommendations/{run_id}/expand/retry", status_code=202)
+def retry_expansion(run_id: str) -> dict[str, Any]:
+    from .strategic_investigations import start
+    start(run_id, retry=True)
     return recommendation(run_id)
 
 
 @router.get("/intelligence/search")
 def intelligence_search(q: str = Query(min_length=2, max_length=100),
                         domain_id: str | None = None, page: int = Query(1, ge=1),
-                        size: int = Query(20, ge=1, le=50), verified_only: bool = True) -> dict[str, Any]:
-    _validate_scope(domain_id, None)
+                        size: int = Query(20, ge=1, le=50), verified_only: bool = True,
+                        subdomain_id: str | None = None) -> dict[str, Any]:
+    _validate_scope(domain_id, subdomain_id)
     query = q.strip()
     if len(query) < 2:
         raise HTTPException(422, "请输入至少两个字的检索词")
@@ -434,19 +473,21 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
         # and after withdrawal; a stale persisted index must not republish facts.
         teams, claims, version = _catalogue_evidence()
         scoped = {team["id"]: team for team in teams
-                  if not domain_id or team["domainId"] == domain_id}
+                  if (not domain_id or team["domainId"] == domain_id)
+                  and (not subdomain_id or team.get("subdomainId") == subdomain_id)}
         results = []
         for claim in claims:
             team = scoped.get(claim[1])
             if not team:
                 continue
             title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
-            haystack = f"{title} {claim[4]} {claim[5]}".casefold()
-            if query.casefold() not in haystack and not all(term in haystack for term in terms):
+            haystack = f"{title} {claim[4]} {claim[5]}"
+            if not strategic_text.search_match(query, haystack):
                 continue
             results.append({"type": "team_claim", "id": claim[0], "teamId": claim[1],
-                "title": title, "snippet": claim[5][:260], "url": claim[6],
-                "domainId": team["domainId"], "verificationStatus": "verified"})
+                "title": title, "snippet": strategic_text.snippet(query, claim[5]), "url": claim[6],
+                "domainId": team["domainId"], "verificationStatus": "verified",
+                "verificationMethod": "官网来源校验" if team.get("catalogueBasis") == "official_directory" else "AI 复核与引文校验"})
         results.sort(key=lambda row: (row["title"], row["id"]))
         return {"items": results[(page - 1) * size:page * size], "total": len(results),
                 "page": page, "size": size, "query": query, "dataVersion": version}

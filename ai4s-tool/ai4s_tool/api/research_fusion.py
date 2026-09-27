@@ -58,8 +58,22 @@ def integration_status():
                 dates=[r[0] for r in conn.execute('''SELECT day FROM (
                     SELECT scan_date day FROM impact_score_period UNION SELECT event_date day FROM impact_event)
                     WHERE day IS NOT NULL ORDER BY day DESC''')])
-    return {'knowledgeGraph': snapshots, 'triage': triage,
+    updates = {'pending': 0, 'failed': 0, 'processed': 0}
+    with closing(tasks._db()) as team_db:
+        if tasks._has_table(team_db, 'strategic_change_event'):
+            for row in team_db.execute("SELECT state,attempts,COUNT(*) n FROM strategic_change_event GROUP BY state,attempts"):
+                updates['failed' if row['state'] == 'pending' and row['attempts'] >= 3 else row['state']] += row['n']
+    return {'knowledgeGraph': snapshots, 'triage': triage, 'localUpdates': updates,
             'teamSource': 'AI4S verified catalogue', 'automaticPaidRefresh': False}
+
+
+@router.post('/changes/retry')
+def retry_local_updates():
+    from . import strategic_changes
+    with closing(tasks._db(write=True)) as conn, conn:
+        strategic_changes.init(conn)
+        count = conn.execute("UPDATE strategic_change_event SET attempts=0,error='' WHERE state='pending' AND attempts>=3").rowcount
+    return {'retried': count, **strategic_changes.process_pending()}
 
 
 @router.get('/graph')
@@ -109,48 +123,14 @@ def integrated_graph(scope: graph.GraphScope = 'domestic', cluster: graph.GraphC
 
 
 @router.get('/daily/{day}')
-def integrated_daily(day: date, domain_id: str | None = None, subdomain_id: str | None = None):
-    conn = impact_store.connect()
-    if conn is None:
-        raise HTTPException(503, '影响力数据尚未接入')
-    with closing(conn):
-        allowed_directions = _directions(conn, domain_id, subdomain_id)
-        # Hyper stores L3 as (parent L2 ID, label), not as event.direction_id.
-        mapped_labels = {(r['parent_id'], r['name']) for r in impact_store.list_directions(conn)
-                         if r['id'] in allowed_directions and r['level'] == 3}
-        eligible = {r['id'] for r in impact_store.list_ranking(conn, view='official')}
-        historic = []
-        for row in conn.execute('''SELECT id,entity_id,direction_id,l3_label,title,summary,event_date,origin
-                FROM impact_event v WHERE event_date=? AND NOT EXISTS
-                (SELECT 1 FROM impact_event n WHERE n.supersedes_event_id=v.id) ORDER BY id''', (day.isoformat(),)):
-            if row['entity_id'] not in eligible or not (row['direction_id'] in allowed_directions
-                    or (row['direction_id'], row['l3_label']) in mapped_labels):
-                continue
-            item = dict(row)
-            item['sources'] = [dict(s) for s in conn.execute(
-                'SELECT title,url,content_sha256,excerpt FROM impact_event_source WHERE event_id=? ORDER BY id', (row['id'],))]
-            historic.append(item)
-        scored = [dict(r) for r in conn.execute('''SELECT p.*,e.name
-            FROM impact_score_period p JOIN impact_entity e ON e.id=p.entity_id WHERE p.scan_date=? ORDER BY p.id''', (day.isoformat(),))
-            if r['entity_id'] in eligible and conn.execute('''SELECT 1 FROM impact_entity_direction
-            WHERE entity_id=? AND direction_id IN (%s)''' % (','.join('?' for _ in allowed_directions) or 'NULL'),
-            [r['entity_id'], *sorted(allowed_directions)]).fetchone()]
-        base = impact_store.daily_report(conn, day.isoformat())
-        changes = [r for r in base['tree_changes'] if (r.get('direction_id') or r.get('target_direction_id')) in allowed_directions]
-    teams = tasks.verified_daily(day)
-    team_ids = {t['id'] for t in tasks.verified_teams()['teams']
-                if (not domain_id or t['domainId'] == domain_id)
-                and (not subdomain_id or t.get('subdomainId') == subdomain_id)}
-    team_changes = [r for r in teams['teamChanges'] if r['teamId'] in team_ids]
-    recommendations = []
-    for change in teams['recommendationChanges']:
-        before = [team for team in change['before'] if team in team_ids]
-        after = [team for team in change['after'] if team in team_ids]
-        if before != after:
-            recommendations.append({**change, 'before': before, 'after': after})
-    result = {'date': day.isoformat(), 'sourceEvents': historic, 'scoreChanges': scored,
-        'treeChanges': changes, 'teamChanges': team_changes, 'recommendationChanges': recommendations,
-        'frozen': teams['frozen'], 'revision': teams['revision'],
-        'scope': {'domainId': domain_id, 'subdomainId': subdomain_id}}
-    result['inputHash'] = hashlib.sha256(json.dumps(result, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    return result
+def integrated_daily(day: date, domain_id: str | None = None, subdomain_id: str | None = None, revision: int | None = None):
+    from .strategic_daily import report
+    tasks._validate_scope(domain_id, subdomain_id)
+    return report(day, domain_id, subdomain_id, revision)
+
+
+@router.post('/daily/{day}/freeze')
+def freeze_daily(day: date, domain_id: str | None = None, subdomain_id: str | None = None):
+    from .strategic_daily import freeze
+    tasks._validate_scope(domain_id, subdomain_id)
+    return freeze(day, domain_id, subdomain_id)
