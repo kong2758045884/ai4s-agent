@@ -1,0 +1,38 @@
+{
+  "release": "ai4s-opt-20260927T1015",
+  "previousRelease": "ai4s-opt-20260927T0755",
+  "site": "http://81.71.163.184/",
+  "scope": "来源元数据与维护权限阶段；老师原型仍有剩余事项",
+  "applicationCommit": "c8cc7f31",
+  "archiveSha256": "7367559c315d88908f0404c22735638eb8c3d20e0d4b6e38e608795d6bf26c36",
+  "frontendEntry": "/assets/index-CSGZk2Zr.js",
+  "databaseReplaced": false,
+  "migration": {
+    "mainNewTables": ["strategic_maintenance_audit", "strategic_maintenance_role"],
+    "impactNewTables": ["strategic_maintenance_audit"],
+    "existingTableHashesPreserved": true,
+    "foreignKeyErrors": [],
+    "integrity": "ok",
+    "copyRepeatNewTables": 0
+  },
+  "data": {"publicUnits": 118, "claimsWithProvenance": 500, "claimsWithFetchedAt": 500, "claimsWithBodyLocation": 214, "internalFieldsExposedByPublicCatalogue": 0},
+  "roles": {
+    "policy": "Owner maintains; designated reviewers edit and review; other visitors public read and own private assessments",
+    "realIdentitiesGranted": false,
+    "pending": "Owner and designated reviewers must provide their permission request IDs",
+    "trustedServerCliOnly": true,
+    "localReviewerEditAuditRevokeReplay": true,
+    "productionAnonymousInternalRead": 401,
+    "productionAnonymousTeamWrite": 401,
+    "productionGetRefresh": 405
+  },
+  "tests": {"backendUnique": 157, "backendAdditionalSubtests": 4, "frontend": 20, "buildPassed": true, "serverCopyFullServiceGate": true},
+  "browser": {"publicWidths": [1440, 390], "passedPathsPerPublicWidth": 11, "localWidths": [1440, 1366, 320], "sourceReviewLayers": true, "homeNavigation": true, "threeTeamComparison": true, "refreshRestoration": true, "dailyWeeklyExportSnapshot": true, "paidCalls": 0},
+  "automaticPaidRefresh": false,
+  "realPaidInvestigationVerified": false,
+  "backups": "/www/wwwroot/lab/releases/ai4s-opt-20260927T1015/live-journal",
+  "backupFormat": "Four .db.gz archives verified against decompressed SHA-256 before removing duplicate original copies; live database untouched",
+  "remainingDiskMiB": 1203,
+  "rollback": "Restore previous code and UI through deployment helper; retain additive DB tables and subsequent manual changes",
+  "remaining": ["实际维护人和审核人员绑定", "主张级人工审核、冲突与链接失效状态", "资源及人员有效期", "历史研判对应图快照", "更多资料类型与时间筛选", "20团队试点及专家反馈", "真实联网与跨日回流验收"]
+}
