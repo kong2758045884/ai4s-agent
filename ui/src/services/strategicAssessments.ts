@@ -31,6 +31,12 @@ export type InvestigationOverview = { jobs: AssessmentInvestigation[]; configure
   teams: { teamId: string; teamName: string; institutionName: string }[] };
 export type AssessmentUpdate = { id: string; taskId: string; title: string; beforeRunId: string; afterRunId: string; reason: string; createdAt: string;
   changes: { added: unknown[]; removed: unknown[]; updated: unknown[] } };
+export type AssessmentReportSummary = { reportId: string; kind: "daily" | "weekly" | "monthly"; domainId: string; startDay: string; endDay: string; revision: number; frozenAt: string };
+export type AssessmentReport = Omit<AssessmentReportSummary, "domainId"> & { inputHash: string; scope: { domainId: string; domainName: string }; timezone: string;
+  counts: { taskUpdates: number; affectedTeams: number; added: number; removed: number; updated: number; publicEvents: number }; summary: string; notice: string;
+  dailyInputs: { reportId: string; day: string; revision: number; inputHash: string }[]; missingDays: string[];
+  publicDaily?: { date: string; revision: number; inputHash: string; summary: string; sourceEvents: { id: string; title: string; event_date: string; imported_on: string; lateArrival: boolean; sources: { title: string; url: string; excerpt: string }[] }[] } | null;
+  changes: { updateId: string; taskId: string; title: string; ingestedAt: string; reason: string; changes: { added: string[]; removed: string[]; updated: string[] }; before: AssessmentRun; after: AssessmentRun; nextStep: string }[] };
 
 export function requestId() {
   // randomUUID requires HTTPS; getRandomValues also works on the existing HTTP host.
@@ -77,4 +83,7 @@ export const assessmentApi = {
   cancelInvestigation: (id: string, jobId: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/investigations/${encodeURIComponent(jobId)}/cancel`, {}),
   retryInvestigation: (id: string, jobId: string, idempotencyKey: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/investigations/${encodeURIComponent(jobId)}/retry`, { requestId: idempotencyKey }),
   updates: (page = 1, taskId = "", signal?: AbortSignal) => request<{ items: AssessmentUpdate[]; total: number; page: number }>(`/assessment-updates?page=${page}${taskId ? `&task_id=${encodeURIComponent(taskId)}` : ""}`, { signal }),
+  reports: (domainId: string, page = 1, signal?: AbortSignal) => request<{ items: AssessmentReportSummary[]; total: number; page: number }>(`/assessment-reports?domain_id=${encodeURIComponent(domainId)}&page=${page}`, { signal }),
+  report: (id: string) => request<AssessmentReport>(`/assessment-reports/${encodeURIComponent(id)}`),
+  freezeReport: (body: { day: string; domainId: string; kind: "daily" | "weekly" | "monthly"; requestId: string }) => post<AssessmentReport>("/assessment-reports", body),
 };

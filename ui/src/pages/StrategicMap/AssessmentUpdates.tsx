@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { assessmentApi, type AssessmentUpdate } from "@/services/strategicAssessments";
+import type { StrategicDomain } from "@/services/strategicMap";
+import AssessmentReports from "./AssessmentReports";
 
 const button = "min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50";
 
-export default function AssessmentUpdates({ children, onOpenRun }: { children: ReactNode; onOpenRun: (taskId: string, runId: string) => void }) {
-  const [view, setView] = useState<"mine" | "domain">("mine");
+export default function AssessmentUpdates({ children, onOpenRun, domains, domainId }: { children: ReactNode; onOpenRun: (taskId: string, runId: string) => void; domains: StrategicDomain[]; domainId: string }) {
+  const [view, setView] = useState<"mine" | "domain" | "reports">("mine");
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<AssessmentUpdate[]>([]);
   const [total, setTotal] = useState(0);
@@ -23,10 +25,11 @@ export default function AssessmentUpdates({ children, onOpenRun }: { children: R
   return <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto" aria-label="情报观察">
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap gap-2"><button className={`${button} ${view === "mine" ? "border-blue-300 text-blue-700!" : ""}`} aria-pressed={view === "mine"} onClick={() => setView("mine")}>我的研判变化</button>
+        <button className={`${button} ${view === "reports" ? "border-blue-300 text-blue-700!" : ""}`} aria-pressed={view === "reports"} onClick={() => setView("reports")}>我的领域报告</button>
         <button className={`${button} ${view === "domain" ? "border-blue-300 text-blue-700!" : ""}`} aria-pressed={view === "domain"} onClick={() => setView("domain")}>领域情报、机构榜与日报</button></div>
-      <p className="mt-2 text-xs leading-5 text-slate-500">{view === "mine" ? "显示当前访客所有已保存任务的证据变化，不受左侧领域筛选影响。新资料通过发布规则后，相关任务产生新版本；原版本仍可查看。" : "按左侧领域浏览公开情报；机构影响力与任务匹配采用不同评分，机构事件不自动计为下属团队成果。"}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">{view === "mine" ? "显示当前访客所有已保存任务的证据变化，不受左侧领域筛选影响。新资料通过发布规则后，相关任务产生新版本；原版本仍可查看。" : view === "reports" ? "选择一个领域保存日报，再按固定日报版本汇总；仅当前访客可见，导出不包含内部备注和跟进反馈。" : "按左侧领域浏览公开情报；机构影响力与任务匹配采用不同评分，机构事件不自动计为下属团队成果。"}</p>
     </div>
-    {view === "domain" ? children : <div className="space-y-3">
+    {view === "domain" ? children : view === "reports" ? <AssessmentReports domains={domains} initialDomainId={domainId} onOpenRun={onOpenRun} /> : <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">与已保存研判相关的变化</h2><button className={button} disabled={busy} onClick={() => setReload(n => n + 1)}>刷新变化</button></div>
       {busy && <p role="status" className="p-4 text-sm text-slate-500">正在读取变化…</p>}
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}<button className={`${button} ml-2`} onClick={() => setReload(n => n + 1)}>重试</button></div>}

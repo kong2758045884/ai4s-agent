@@ -7,6 +7,7 @@ be separately undone with the guarded batch journals.
 """
 import argparse
 import gzip
+from http.cookiejar import CookieJar
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ import shutil
 import sqlite3
 import subprocess
 import time
-from urllib.request import urlopen, Request
+from urllib.request import urlopen, Request, build_opener, HTTPCookieProcessor
 
 ROOT = Path('/www/wwwroot/lab')
 OLD = ROOT / 'releases/ai4s-20260926T054442'
@@ -81,6 +82,9 @@ def backup(source, target):
 def migrate(release, db, directory):
     directory.mkdir(exist_ok=True)
     run(PYTHON, release/'tool/scripts/migrate_strategic_optimization.py', '--db', db, '--report', directory/'migration.json', cwd=release/'tool')
+    config = release/'release-config.json'
+    if config.is_file() and not json.loads(config.read_text()).get('applyDataBatches', True):
+        return
     for script, name in [('import_scoped_sources.py', 'new-units.json'), ('collect_team_outcomes.py', 'life-outcomes.json')]:
         manifest = directory/name
         if not manifest.exists():
@@ -120,12 +124,46 @@ def stage(release):
             assert result['parsedTask']['goals'] and len(result['items']) >= 3
             search = api(1608, '/intelligence/search?q=%E4%B8%AD%E7%A7%91%E9%99%A2&page=2&size=20&verified_only=true')
             assert search['total'] > 20 and search['items']
-            save(release/'stage.json', {'passed': True, 'status': status, 'recommendationCount': len(result['items']), 'searchTotal': search['total'], 'paidCalls': 0})
+            config = release/'release-config.json'
+            private = private_assessment_gate(1608) if config.is_file() and json.loads(config.read_text()).get('verifyPrivateAssessments') else None
+            save(release/'stage.json', {'passed': True, 'status': status, 'recommendationCount': len(result['items']), 'searchTotal': search['total'], 'privateAssessmentGate': private, 'paidCalls': 0})
             print('STAGE_PASSED', flush=True)
         finally:
             process.terminate()
             try: process.wait(timeout=20)
             except subprocess.TimeoutExpired: process.kill(); process.wait()
+
+
+def private_assessment_gate(port):
+    """Exercise visitor authorization and private APIs against the staged DB only."""
+    from datetime import datetime, timedelta, timezone
+    import uuid
+    opener = build_opener(HTTPCookieProcessor(CookieJar()))
+    with opener.open('http://127.0.0.1:8100/api/agent/visitor/bootstrap', timeout=15) as response:
+        assert json.load(response)['code'] == '0000'
+    def request(path, body=None):
+        req = Request(f'http://127.0.0.1:{port}/v1/strategic-map{path}',
+            data=json.dumps(body).encode() if body is not None else None, headers={'Content-Type': 'application/json'})
+        with opener.open(req, timeout=20) as response:
+            return json.load(response)['data']
+    record = request('/assessments', {'requestId': str(uuid.uuid4()), 'title': '隔离发布验收', 'taskDraft': '蛋白质'})
+    parsed = request('/task-interpretations', {'taskText': '蛋白质', 'scope': {'mode': 'auto'}})
+    current = request(f"/assessments/{record['taskId']}/confirm", {'requestId': str(uuid.uuid4()),
+        'expectedRevision': record['revision'], 'taskText': parsed['taskText'], 'scope': parsed['scope'],
+        'criteria': parsed['criteria'], 'evidenceVersion': parsed['evidenceVersion']})
+    result = current['run']
+    assert len(result['items']) >= 3 and result['inputVersion'] == 1
+    saved = request(f"/assessments/{record['taskId']}/export")
+    assert saved['run']['runId'] == result['runId'] and 'internalNotes' not in saved
+    investigations = request(f"/assessments/{record['taskId']}/runs/{result['runId']}/investigations")
+    assert investigations['canStart'] and investigations['jobs'] == []
+    day = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    report = request('/assessment-reports', {'requestId': str(uuid.uuid4()), 'day': day,
+        'domainId': result['scope']['domainIds'][0], 'kind': 'daily'})
+    assert report['revision'] == 1 and report['counts']['taskUpdates'] == 0
+    assert request('/assessment-updates')['total'] == 0
+    return {'privateRecommendationCount': len(result['items']), 'privateReportId': report['reportId'],
+            'visitorIdentityVerified': True, 'paidCalls': 0}
 
 
 def rollback(release):

@@ -34,11 +34,13 @@ def migrate(conn):
     from ai4s_tool.api import strategic_changes as changes, strategic_outcomes as outcomes, strategic_investigations as investigations
     from ai4s_tool.api import strategic_assessments as assessments
     from ai4s_tool.api import assessment_updates
+    from ai4s_tool.api import assessment_reports
     before = reconcile(conn)
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         changes.init(conn); outcomes.init(conn); investigations.init(conn); assessments.init(conn)
         assessment_updates.init(conn)
+        assessment_reports.init(conn)
         if "strategic_map_research_run" in before:
             for row in conn.execute("""SELECT r.*,t.domain_id FROM strategic_map_research_run r
                 LEFT JOIN strategic_map_team t ON t.id=r.team_id WHERE r.status IN

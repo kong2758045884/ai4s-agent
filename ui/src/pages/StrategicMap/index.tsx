@@ -1477,7 +1477,7 @@ export default function StrategicMap() {
             onOpenTeam={openTeamDetail}
           />
         ) : workspaceMode === "intelligence" ? (
-          ASSESSMENT_ENABLED ? <AssessmentUpdates onOpenRun={(taskId, runId) => { updateAssessmentContext(taskId, runId); setWorkspaceMode("recommend"); }}>
+          ASSESSMENT_ENABLED ? <AssessmentUpdates domains={loading ? [] : domains} domainId={loading || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} onOpenRun={(taskId, runId) => { updateAssessmentContext(taskId, runId); setWorkspaceMode("recommend"); }}>
             <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
           </AssessmentUpdates> : <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
         ) : workspaceMode === "graph" ? (

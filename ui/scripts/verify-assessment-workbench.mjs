@@ -139,6 +139,21 @@ try {
   passed.push('one-hop-context-graph', 'team-profile-return-context');
   await click('情报观察');
   await until(() => evaluate(`document.body.innerText.includes('与已保存研判相关的变化') && document.body.innerText.includes('暂未发现影响已保存研判的新证据')`), 'private update empty state');
+  await click('我的领域报告');
+  await until(() => evaluate(`document.querySelector('select[aria-label="报告领域"]')?.options.length>1`), 'report domain catalogue');
+  assert.ok(await evaluate(`document.querySelector('select[aria-label="报告领域"]').value.startsWith('domain_')`), 'report initialized to a real domain ID');
+  await click('生成并保存报告');
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="已保存领域报告"]') && !document.body.innerText.includes('正在保存…')`), 'frozen daily');
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive daily report');
+  await evaluate(`(()=>{const e=document.querySelector('select[aria-label="报告时间范围"]');e.value='weekly';e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await click('生成并保存报告');
+  await until(() => evaluate(`document.querySelector('section[aria-label="已保存领域报告"]')?.innerText.includes('有 6 天尚未保存日报') && !document.body.innerText.includes('正在保存…')`), 'weekly missing days explicit');
+  await evaluate(`(()=>{const old=URL.createObjectURL;URL.createObjectURL=b=>{window.__reportExport=b.text().then(JSON.parse);return old(b);};const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download)return;return click.call(this);};})()`);
+  await click('导出当前报告');
+  const exported = await evaluate('window.__reportExport');
+  assert.equal(exported.kind, 'weekly'); assert.equal(exported.missingDays.length, 6); assert.equal(exported.dailyInputs.length, 1);
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive weekly report');
+  passed.push('private-daily-weekly-export-same-snapshot');
   await click('领域情报、机构榜与日报');
   await until(() => evaluate(`document.body.innerText.includes('机构影响力') || document.body.innerText.includes('机构榜')`), 'domain intelligence accessible');
   await click('研判工作台');
@@ -155,7 +170,7 @@ try {
   }
   console.log(JSON.stringify({ width, passed, paidCalls: 0 }));
 } catch (error) {
-  console.error(await evaluate?.('({url:location.href,text:document.body.innerText.slice(0,7000)})'));
+  console.error(await evaluate?.('({url:location.href,reportDomain:document.querySelector("select[aria-label=报告领域]")?.value,text:document.body.innerText.slice(0,7000)})'));
   if (output) await writeFile(output + '.json', JSON.stringify({ width, passed, error: String(error) }, null, 2));
   throw error;
 } finally {
