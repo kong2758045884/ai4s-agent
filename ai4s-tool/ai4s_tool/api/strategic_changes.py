@@ -123,13 +123,16 @@ def process_pending(limit=100):
             init(conn)
             events = conn.execute("SELECT * FROM strategic_change_event WHERE state='pending' AND attempts<3 ORDER BY created_at,id LIMIT ?", (limit,)).fetchall()
             conn.commit()
-            if not events or not tasks._has_table(conn, "strategic_task_recommendation_run"):
+            if not events:
                 return {"processed": 0}
+            from . import assessment_updates
+            private_result = assessment_updates.process(events)
             domains = {r["domain_id"] for r in events}
             entity_change = any(r["subject_type"] != "team" for r in events)
             latest = {}
-            for row in conn.execute("""SELECT * FROM strategic_task_recommendation_run r WHERE NOT EXISTS
-                (SELECT 1 FROM strategic_recommendation_revision v WHERE v.parent_run_id=r.id) ORDER BY created_at,id"""):
+            public_rows = conn.execute("""SELECT * FROM strategic_task_recommendation_run r WHERE NOT EXISTS
+                (SELECT 1 FROM strategic_recommendation_revision v WHERE v.parent_run_id=r.id) ORDER BY created_at,id""") if tasks._has_table(conn, "strategic_task_recommendation_run") else []
+            for row in public_rows:
                 value = json.loads(row["result_json"])
                 latest[task_key(value)] = value
             version = tasks._recommendation_version(tasks._candidate_evidence()[2], tasks._institution_links())
@@ -148,7 +151,7 @@ def process_pending(limit=100):
                     parent_run_id=previous["runId"], change_ids=[r["id"] for r in events])
             with conn:
                 conn.executemany("UPDATE strategic_change_event SET state='processed',processed_at=?,error='' WHERE id=?", [(datetime.now(timezone.utc).isoformat(), r["id"]) for r in events])
-            return {"processed": len(events)}
+            return {"processed": len(events), "privateAssessments": private_result}
     except Exception as exc:
         # Preserve the outbox for retry, without storing provider bodies or credentials.
         if "conn" in locals() and "events" in locals():

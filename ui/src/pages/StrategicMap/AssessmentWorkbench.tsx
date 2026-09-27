@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpenText, Check, Download, ExternalLink, Fol
 import { assessmentApi, requestId, type Assessment, type AssessmentRun, type AssessmentScope, type AssessmentSummary, type Criterion, type FollowUp, type Interpretation } from "@/services/strategicAssessments";
 import type { StrategicDomain } from "@/services/strategicMap";
 import type { RecommendationCitation } from "@/services/strategicRecommendations";
+import AssessmentInvestigation from "./AssessmentInvestigation";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -258,6 +259,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         {record && record.runs.length > 1 && <label className="block text-sm">查看保存版本<select className={`${input} mt-1`} value={run.runId} onChange={e => onContextChange(record.taskId, e.target.value)}>
           {record.runs.map(r => <option key={r.runId} value={r.runId}>条件 v{r.inputVersion} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
         {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}</div>}
+        {!run.observation && <AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} />}
         {run.observation ? <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["收录科研单元", run.observation.totalUnits], ["已有成果证据", run.observation.outcomeBackedUnits], ["身份资料已收录，成果尚缺", run.observation.identityOnlyUnits]].map(([label, value]) => <div className={panel} key={label}><strong className="text-3xl">{value}</strong><p className="mt-2 text-sm text-slate-500">{label}</p></div>)}</div>
           <section className={panel}><h3 className="font-semibold">研究方向分布</h3><p className="mt-1 text-xs leading-5 text-slate-500">同一团队可能涉及多个方向，总数始终按唯一团队编号去重。</p><div className="mt-3 flex flex-wrap gap-2">{run.observation.directions.map(d => <span key={d.name} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">{d.name} · {d.teamCount}</span>)}</div></section>

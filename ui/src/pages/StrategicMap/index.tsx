@@ -81,6 +81,7 @@ import AssessmentWorkbench from "./AssessmentWorkbench";
 import EvidenceSearch from "./EvidenceSearch";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
+import AssessmentUpdates from "./AssessmentUpdates";
 import { recommendationApi, type RecommendationRun } from "@/services/strategicRecommendations";
 
 type AttentionLevel = string;
@@ -1476,7 +1477,9 @@ export default function StrategicMap() {
             onOpenTeam={openTeamDetail}
           />
         ) : workspaceMode === "intelligence" ? (
-          <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
+          ASSESSMENT_ENABLED ? <AssessmentUpdates onOpenRun={(taskId, runId) => { updateAssessmentContext(taskId, runId); setWorkspaceMode("recommend"); }}>
+            <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
+          </AssessmentUpdates> : <ImpactTriage embedded verifiedOnly domainId={recommendAcrossDomains || activeDomain.id === EMPTY_DOMAIN.id ? "" : activeDomain.id} subdomainId={recommendAcrossDomains ? "" : activeSubdomainId} />
         ) : workspaceMode === "graph" ? (
           loading ? (
             <div className="flex min-h-[420px] min-w-0 flex-1 items-center justify-center rounded-xl border border-[#e2e8f0] bg-white">

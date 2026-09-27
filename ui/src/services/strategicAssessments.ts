@@ -22,6 +22,15 @@ export type Assessment = { taskId: string; title: string; mode: "task" | "domain
     combination: { teamId: string; role: string; rationale: string }[]; followUps: FollowUp[]; internalNotes: string;
     taskScope?: AssessmentScope; domainScope?: AssessmentScope; requestedLimit?: number } };
 export type AssessmentSummary = Pick<Assessment, "taskId" | "title" | "mode" | "revision" | "updatedAt">;
+export type InvestigationOptions = { teamIds: string[]; criterionIds: string[]; publishedAfter: string | null };
+export type AssessmentInvestigation = { jobId: string; state: "queued" | "running" | "completed" | "partial" | "failed" | "interrupted" | "cancelled";
+  stage: string; stages: string[]; error: string; progress: { done: number; total: number }; cancelRequested?: boolean;
+  publishedTeams: string[]; failures: { teamId: string; reason: string }[]; calls: Record<string, number>; costCny: number | null;
+  costNotice: string; scopeNotice?: string; updatedRunId?: string | null; investigationOptions: InvestigationOptions };
+export type InvestigationOverview = { jobs: AssessmentInvestigation[]; configured: boolean; canStart: boolean; canRetry: boolean; configurationNotice: string; scopeNotice: string;
+  teams: { teamId: string; teamName: string; institutionName: string }[] };
+export type AssessmentUpdate = { id: string; taskId: string; title: string; beforeRunId: string; afterRunId: string; reason: string; createdAt: string;
+  changes: { added: unknown[]; removed: unknown[]; updated: unknown[] } };
 
 export function requestId() {
   // randomUUID requires HTTPS; getRandomValues also works on the existing HTTP host.
@@ -62,4 +71,10 @@ export const assessmentApi = {
     post<Assessment>(`/assessments/${encodeURIComponent(id)}/observe`, body),
   run: (id: string, runId: string) => request<AssessmentRun>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`),
   export: (id: string, runId: string) => request<Record<string, unknown>>(`/assessments/${encodeURIComponent(id)}/export?run_id=${encodeURIComponent(runId)}`),
+  investigations: (id: string, runId: string, signal?: AbortSignal) => request<InvestigationOverview>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/investigations`, { signal }),
+  investigate: (id: string, runId: string, options: InvestigationOptions, idempotencyKey: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/investigations`, { options, requestId: idempotencyKey }),
+  investigation: (id: string, jobId: string, signal?: AbortSignal) => request<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/investigations/${encodeURIComponent(jobId)}`, { signal }),
+  cancelInvestigation: (id: string, jobId: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/investigations/${encodeURIComponent(jobId)}/cancel`, {}),
+  retryInvestigation: (id: string, jobId: string, idempotencyKey: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/investigations/${encodeURIComponent(jobId)}/retry`, { requestId: idempotencyKey }),
+  updates: (page = 1, taskId = "", signal?: AbortSignal) => request<{ items: AssessmentUpdate[]; total: number; page: number }>(`/assessment-updates?page=${page}${taskId ? `&task_id=${encodeURIComponent(taskId)}` : ""}`, { signal }),
 };
