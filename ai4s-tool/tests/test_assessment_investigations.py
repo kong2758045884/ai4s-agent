@@ -5,6 +5,7 @@ import pytest
 
 from ai4s_tool.api import assessment_investigations as api, strategic_investigations as jobs
 from ai4s_tool.api import task_recommendations as tasks
+from ai4s_tool.api import strategic_access as access
 from tests.test_strategic_assessments import app_client, create, confirm
 
 
@@ -12,6 +13,8 @@ from tests.test_strategic_assessments import app_client, create, confirm
 def setup(app_client, monkeypatch):
     client, db, user, version = app_client
     client.app.include_router(api.router)
+    with db() as conn:
+        access.grant(conn, user[0], "maintainer", operator="offline-test", reason="离线调查测试的明确授权")
     submitted = []
     monkeypatch.setattr(jobs._POOL, "submit", lambda *args: submitted.append(args))
     monkeypatch.setattr(tasks.strategic_map, "_llm_config", lambda: ("offline", "test", "configured"))
@@ -20,6 +23,20 @@ def setup(app_client, monkeypatch):
     route = f"/strategic-map/assessments/{record['taskId']}/runs/{record['run']['runId']}/investigations"
     body = {"requestId": "web-request-001", "options": {"teamIds": ["t1"], "criterionIds": [record['run']['criteria'][0]['id']]}}
     return client, db, user, record, route, body, submitted
+
+
+def test_ungranted_owner_cannot_collect_or_retry_but_can_cancel_existing_work(setup):
+    client, db, user, record, route, body, submitted = setup
+    job = client.post(route, json=body).json()["data"]
+    with db() as conn:
+        access.grant(conn, user[0], "reviewer", operator="offline-test", reason="撤销联网采集权限，保留审核权限")
+    overview = client.get(route).json()["data"]
+    assert overview["canStart"] is False and overview["canRetry"] is False
+    assert client.post(route, json={**body, "requestId": "new-disallowed"}).status_code == 403
+    endpoint = f"/strategic-map/assessments/{record['taskId']}/investigations/{job['jobId']}"
+    assert client.post(endpoint + "/retry", json={"requestId": "retry-disallowed"}).status_code == 403
+    assert client.post(endpoint + "/cancel").status_code == 200
+    assert len(submitted) == 1
 
 
 def test_owner_scope_idempotency_and_private_results(setup):

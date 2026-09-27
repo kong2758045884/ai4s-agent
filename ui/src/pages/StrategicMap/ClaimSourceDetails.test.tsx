@@ -26,4 +26,16 @@ describe("saved source checks", () => {
     expect(html).toContain("未记录人工审核");
     expect(html).not.toContain("已有独立复核记录");
   });
+  it("shows frozen human conditions and an unavailable link without losing the source snapshot", () => {
+    const html = renderToStaticMarkup(<ClaimSourceDetails citation={{ ...citation, provenance: {
+      version: "v1", sourceRunId: "r1", sourceTitle: "当时成果页", sourceType: "official", publishedAt: "", fetchedAt: "2026-09-20",
+      contentHash: "body", quoteHash: "quote", locator: { status: "body_not_retained", start: null, end: null, basis: "saved_extracted_text" },
+      sourceCheck: { method: "source-rule", checkedAt: "2026-09-21", status: "recorded" }, modelReview: { status: "not_used", version: "", reviewedAt: "" },
+      humanReview: { status: "reviewed", decision: "conditional", reviewer: "审核甲", reviewedAt: "2026-09-26", scope: "仅原文样本", reason: "尚无跨样本证据" },
+      linkCheck: { status: "unavailable", checkedAt: "2026-09-26", method: "reviewer_report" },
+    } }} />);
+    expect(html).toContain("条件支持：审核甲");
+    expect(html).toContain("仅原文样本"); expect(html).toContain("暂不可访问"); expect(html).toContain("当时成果页");
+    expect(html).not.toContain("专家已确认");
+  });
 });

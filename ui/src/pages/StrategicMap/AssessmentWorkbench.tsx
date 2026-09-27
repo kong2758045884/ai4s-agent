@@ -5,6 +5,7 @@ import type { StrategicDomain } from "@/services/strategicMap";
 import type { RecommendationCitation } from "@/services/strategicRecommendations";
 import AssessmentInvestigation from "./AssessmentInvestigation";
 import ClaimSourceDetails from "./ClaimSourceDetails";
+import ClaimReviewEditor from "./ClaimReviewEditor";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -313,6 +314,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         <p>{evidence.citation.text}</p><blockquote className="rounded-xl border-l-4 border-blue-300 bg-slate-50 p-4 whitespace-pre-wrap">{evidence.citation.quote}</blockquote>
         <p className="break-all text-xs text-slate-500">引文编号：{evidence.citation.id} · 保存于研判 {run?.inputVersionId}</p>
         <ClaimSourceDetails citation={evidence.citation} />
+        {evidence.citation.id && <ClaimReviewEditor key={evidence.citation.id} claimId={evidence.citation.id} />}
         <p>以上是本次研判保存的引文。适用范围限于原文中的主体和成果；人员投入、资源可用性与交付承诺需另行确认。</p>
         <a className={`${button} break-all`} href={evidence.citation.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4 shrink-0" />打开来源原文</a><p className="break-all text-xs text-slate-500">{evidence.citation.url}</p>
         <p className="text-xs text-slate-500">若原链接无法访问，可保留此引文快照并记录核验事项；当前未实时检测链接可用性。</p></div>}

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from . import strategic_assessments as store, strategic_investigations as jobs, task_recommendations as tasks
 from .strategic_identity import current_visitor, problem
+from . import strategic_access as access
 
 router = APIRouter(prefix="/strategic-map", tags=["assessment_investigations"])
 
@@ -68,10 +69,12 @@ def investigations(task_id: str, run_id: str, owner: str = Depends(current_visit
     engines = {e.strip().lower() for e in os.getenv("USE_SEARCH_ENGINE", "ddg").split(",")}
     supported = engines & {"ddg", "bing", "exa", "google", "serper", "serp", "jina", "sogou"}
     configured = bool(sm._llm_config()) and bool(supported)
+    can_collect = "collection:run" in access.capabilities(owner)["permissions"]
     return store._reply({"jobs": [jobs.get(row[0]) for row in rows], "configured": configured,
-        "canStart": active_id == run_id and run.get("mode") != "domain",
-        "canRetry": bool(active_row and active_row[0] == run["inputVersionId"]),
-        "configurationNotice": "已登记搜索与模型配置；尚未通过本次真实联网调用验证" if configured else "缺少搜索或模型配置，本地研判仍可使用",
+        "canStart": can_collect and active_id == run_id and run.get("mode") != "domain",
+        "canRetry": can_collect and bool(active_row and active_row[0] == run["inputVersionId"]),
+        "configurationNotice": "当前访客没有联网采集权限；本地研判和已保存资料仍可查看" if not can_collect else
+            ("已登记搜索与模型配置；尚未通过本次真实联网调用验证" if configured else "缺少搜索或模型配置，本地研判仍可使用"),
         "teams": [{"teamId": t["id"], "teamName": t["teamName"], "institutionName": t["institutionName"]} for t in _teams(run)],
         "scopeNotice": "只补充所选范围内已有科研单元；时间为检索偏好，不保证所有来源均有发布日期。成果仍须独立复核后发布。"})
 
@@ -81,6 +84,7 @@ def start_investigation(task_id: str, run_id: str, body: StartInvestigation, own
     with closing(store._connect()) as conn:
         record, run = _run(conn, task_id, run_id, owner)
     _require_active(record, run)
+    access.authorized(owner, "collection:run")
     options = body.options.model_dump(mode="json")
     if len(set(options["teamIds"])) != len(options["teamIds"]) or not set(options["teamIds"]) <= {t["id"] for t in _teams(run)}:
         problem(422, "INVALID_TEAM_SCOPE", "调查对象必须是当前领域范围内的不同科研单元")
@@ -107,6 +111,7 @@ def cancel_investigation(task_id: str, job_id: str, owner: str = Depends(current
 @router.post("/assessments/{task_id}/investigations/{job_id}/retry", status_code=202)
 def retry_investigation(task_id: str, job_id: str, body: store.Mutation, owner: str = Depends(current_visitor)):
     record, run = _owned_job(task_id, job_id, owner)
+    access.authorized(owner, "collection:run")
     # A successful subset may already have produced an evidence-only descendant.
     active_id = json.loads(record["state_json"]).get("activeRunId")
     with closing(store._connect()) as conn:

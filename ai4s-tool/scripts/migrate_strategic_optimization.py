@@ -36,6 +36,7 @@ def migrate(conn, *, access_audit_only=False):
     from ai4s_tool.api import assessment_updates
     from ai4s_tool.api import assessment_reports
     from ai4s_tool.api import strategic_access
+    from ai4s_tool.api import claim_reviews
     before = reconcile(conn)
     if access_audit_only:
         with conn:
@@ -52,6 +53,7 @@ def migrate(conn, *, access_audit_only=False):
         assessment_updates.init(conn)
         assessment_reports.init(conn)
         strategic_access.init(conn)
+        claim_reviews.init(conn)
         if "strategic_map_research_run" in before:
             for row in conn.execute("""SELECT r.*,t.domain_id FROM strategic_map_research_run r
                 LEFT JOIN strategic_map_team t ON t.id=r.team_id WHERE r.status IN

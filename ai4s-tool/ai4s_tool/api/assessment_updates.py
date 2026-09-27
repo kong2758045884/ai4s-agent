@@ -130,7 +130,10 @@ def process(events):
     for task_id, run in active:
         if affected(run, events, teams, claims):
             evaluated += 1
-            updated += bool(refresh(task_id, run["runId"], change_ids=[e["id"] for e in events]))
+            reasons = list(dict.fromkeys(json.loads(e["payload_json"]).get("reason", "核验后的团队证据更新") for e in events
+                                       if e["subject_id"] in {i["teamId"] for i in run["items"]}))
+            updated += bool(refresh(task_id, run["runId"], change_ids=[e["id"] for e in events],
+                                    reason="；".join(reasons[:5]) or "核验后的团队证据更新"))
     return {"evaluated": evaluated, "updated": updated}
 
 

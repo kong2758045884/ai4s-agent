@@ -1,4 +1,5 @@
 import type { RecommendationCitation } from "@/services/strategicRecommendations";
+import { claimDecisionLabels } from "@/services/claimReviews";
 
 const types: Record<string, string> = {
   official_institution: "高校／科研院所官网", official_directory: "官网目录",
@@ -27,8 +28,10 @@ export default function ClaimSourceDetails({ citation }: { citation: Recommendat
     <div className="grid gap-2 text-xs sm:grid-cols-3">
       <div className="rounded-lg border border-slate-200 p-3"><h3 className="font-semibold">来源校验</h3><p className="mt-1">{value.sourceCheck.status === "quote_mismatch" ? "引文与保存正文不一致" : "已有规则检查记录"}</p><p className="mt-1 break-words text-slate-500">{methods[value.sourceCheck.method] || value.sourceCheck.method || "检查方法未记录"}</p><p className="mt-1 text-slate-500">{value.sourceCheck.checkedAt || "时间未记录"}</p></div>
       <div className="rounded-lg border border-slate-200 p-3"><h3 className="font-semibold">AI 复核</h3><p className="mt-1">{value.modelReview.status === "reviewed" ? "已有独立复核记录" : "此来源未使用 AI 复核"}</p><p className="mt-1 break-words text-slate-500">{value.modelReview.reviewedAt || "—"}</p></div>
-      <div className="rounded-lg border border-slate-200 p-3"><h3 className="font-semibold">人工审核</h3><p className="mt-1">{value.humanReview.status === "reviewed" ? `已记录：${value.humanReview.reviewer}` : "未记录人工审核"}</p><p className="mt-1 text-slate-500">{value.humanReview.reviewedAt || "不等于专家已确认"}</p></div>
+      <div className="rounded-lg border border-slate-200 p-3"><h3 className="font-semibold">人工审核</h3><p className="mt-1">{value.humanReview.status === "source_changed" ? "来源版本更新，原结论需复核" : value.humanReview.status === "reviewed" ? `${claimDecisionLabels[value.humanReview.decision || ""] || "已记录"}：${value.humanReview.reviewer}` : "未记录人工审核"}</p><p className="mt-1 text-slate-500">{value.humanReview.reviewedAt || "不等于专家已确认"}</p></div>
     </div>
+    {value.humanReview.scope && <div className="space-y-2 rounded-lg border border-slate-200 p-3 text-xs leading-6"><p>适用条件：{value.humanReview.scope}</p><p>审核依据：{value.humanReview.reason}</p>{value.humanReview.relatedEvidence?.map(ref => <div key={ref.url}><p>审核人员提供的对照资料（未自动验证）：<a href={ref.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">{ref.title}</a></p><blockquote>{ref.quote}</blockquote></div>)}</div>}
+    <p className={`rounded-lg p-3 text-xs leading-6 ${value.linkCheck.status === "unavailable" ? "bg-amber-50 text-amber-800" : "bg-slate-50 text-slate-600"}`}>{value.linkCheck.status === "unavailable" ? "审核人员记录：原文暂不可访问，以下引文仍来自保存版本，需重新核验。" : value.linkCheck.status === "available" ? "审核人员曾成功打开来源；不代表当前实时可用。" : "原文链接尚无可用性检查记录。"}{value.linkCheck.checkedAt && ` 检查时间：${value.linkCheck.checkedAt}`}</p>
     <details className="text-xs text-slate-500"><summary className="min-h-11 cursor-pointer py-3">查看保存版本与定位说明</summary><div className="space-y-1 break-all leading-5"><p>采集批次：{value.sourceRunId}</p><p>正文版本：{value.contentHash || "未保存正文摘要值"}</p><p>引文版本：{value.quoteHash}</p><p>AI 复核版本：{value.modelReview.version || "未使用／未记录"}</p><p>位置以采集时提取的正文为准，不是网页页码；网页后续修改不会改变此快照。</p></div></details>
   </section>;
 }

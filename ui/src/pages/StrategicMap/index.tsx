@@ -82,6 +82,7 @@ import EvidenceSearch from "./EvidenceSearch";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
 import AssessmentUpdates from "./AssessmentUpdates";
+import { TeamClaimReviews } from "./ClaimReviewEditor";
 import { recommendationApi, type RecommendationRun } from "@/services/strategicRecommendations";
 
 type AttentionLevel = string;
@@ -1748,6 +1749,7 @@ export default function StrategicMap() {
                 <summary className="min-h-11 cursor-pointer py-3">资料维护权限与修改记录</summary>
                 <p className="leading-6">{access.canEdit ? "已获得团队资料维护权限，保存时记录操作者。" : "当前为只读；维护角色由服务器管理员授予。"}</p>
                 <p className="break-all leading-6">本访客权限申请编号：{access.visitorId || "请先完成首页访客登录"}</p>
+                {access.canReview && <TeamClaimReviews key={selectedTeam.id} teamId={selectedTeam.id} />}
                 {access.canEdit && internalTeam?.teamId === selectedTeam.id && <div className="max-h-48 space-y-2 overflow-y-auto py-2">{internalTeam.audit.length ? internalTeam.audit.map(item => <div key={item.id} className="rounded border border-slate-200 p-2"><p>{item.createdAt} · {item.actorRecorded ? "已记录操作者" : "历史修改未记录操作者"}</p><p className="break-all">{item.fields.join("、")}</p><details><summary className="min-h-11 cursor-pointer py-3">查看修改前后</summary>{Object.entries(item.changes).map(([key, value]) => <p key={key}>{key}：{item.before[key] || "空"} → {value}</p>)}</details></div>) : <p>暂无人工修改记录。</p>}</div>}
               </details>
 

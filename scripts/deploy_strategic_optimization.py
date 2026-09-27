@@ -170,7 +170,7 @@ def private_assessment_gate(port):
     saved = request(f"/assessments/{record['taskId']}/export")
     assert saved['run']['runId'] == result['runId'] and 'internalNotes' not in saved
     investigations = request(f"/assessments/{record['taskId']}/runs/{result['runId']}/investigations")
-    assert investigations['canStart'] and investigations['jobs'] == []
+    assert investigations['canStart'] is False and investigations['jobs'] == []
     day = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     report = request('/assessment-reports', {'requestId': str(uuid.uuid4()), 'day': day,
         'domainId': result['scope']['domainIds'][0], 'kind': 'daily'})

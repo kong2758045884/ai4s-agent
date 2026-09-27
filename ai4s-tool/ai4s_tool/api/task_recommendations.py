@@ -131,23 +131,23 @@ def _candidate_signature() -> str:
     """Cheap invalidation key for team, research and person edits, including other processes."""
     with closing(_db()) as conn:
         values = [str(strategic_map._DB_PATH)]
-        for table in ("strategic_map_team", "strategic_map_person", "strategic_map_research_run", "strategic_team_outcome"):
+        for table in ("strategic_map_team", "strategic_map_person", "strategic_map_research_run", "strategic_team_outcome", "strategic_claim_review"):
             if not _has_table(conn, table):
                 values.extend(("0", "None"))
                 continue
-            column = "created_at" if table == "strategic_map_research_run" else "updated_at"
+            column = "created_at" if table in {"strategic_map_research_run", "strategic_claim_review"} else "updated_at"
             count, latest = conn.execute(f"SELECT COUNT(*),MAX({column}) FROM {table}").fetchone()
             values.extend((str(count), str(latest)))
         return "|".join(values)
 
 
-def _catalogue_evidence() -> tuple[list[dict[str, Any]], list[tuple[str, ...]], str]:
+def _catalogue_evidence(*, reviewed=True) -> tuple[list[dict[str, Any]], list[tuple[str, ...]], str]:
     """All published identity-backed teams, independent of recommendation gates."""
     global _EVIDENCE_CACHE
     from .verified_team_catalogue import project, VERSION
     from .team_research_store import HISTORY
     from sqlalchemy import inspect, select
-    signature = VERSION + "|" + _candidate_signature()
+    signature = VERSION + f"|reviews={reviewed}|" + _candidate_signature()
     with _CACHE_LOCK:
         if _EVIDENCE_CACHE and _EVIDENCE_CACHE[0] == signature:
             return _EVIDENCE_CACHE[1]
@@ -190,6 +190,9 @@ def _catalogue_evidence() -> tuple[list[dict[str, Any]], list[tuple[str, ...]], 
                     team_map[row["team_id"]].setdefault("claimProvenance", {})[row["id"]] = from_outcome(row)
                     versions.append(f"outcome:{row['id']}:{row['content_hash']}")
             version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
+        if reviewed:
+            from .claim_reviews import overlay
+            candidates, claims, version = overlay(candidates, claims, version, conn)
     result = (candidates, list({row[0]: row for row in claims}.values()), version)
     with _CACHE_LOCK:
         _EVIDENCE_CACHE = (signature, result)
@@ -199,6 +202,10 @@ def _catalogue_evidence() -> tuple[list[dict[str, Any]], list[tuple[str, ...]], 
 def _candidate_evidence() -> tuple[list[dict[str, Any]], list[tuple[str, ...]], str]:
     """Verified domestic units with outcomes; roster completeness is not a veto."""
     teams, claims, version = _catalogue_evidence()
+    by_team = {team["id"]: team for team in teams}
+    # A conditional claim remains discoverable, but cannot silently satisfy a
+    # required capability until its applicability is explicitly established.
+    claims = [c for c in claims if by_team[c[1]].get("claimProvenance", {}).get(c[0], {}).get("humanReview", {}).get("decision") != "conditional"]
     outcomes = {row[1] for row in claims if row[3] == "outcome"}
     candidates = [team for team in teams if team["id"] in outcomes and
                   (ELIGIBILITY_VERSION != "staffing-v1" or team.get("candidateQualified"))]

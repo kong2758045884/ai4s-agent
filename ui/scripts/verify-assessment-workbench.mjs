@@ -184,6 +184,7 @@ try {
     if (width < 1440) await click('团队画像');
     await until(() => evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='编辑'&&!b.disabled)`), 'authorized editor');
     const selectedId = await evaluate(`new URLSearchParams(location.search).get('smTeam')`);
+    const profileUrl = await evaluate('location.href');
     assert.ok(selectedId);
     const before = await evaluate(`Promise.all([fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)}).then(r=>r.json()).then(r=>r.data.team),fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)}+'/internal').then(r=>r.json()).then(r=>r.data)])`);
     await click('编辑');
@@ -196,8 +197,40 @@ try {
     assert.equal(audit.changes.ai_level, newLevel);
     const restore = { attention: before[1].fields.attention, contact: before[1].fields.contact, ai_level: before[0].aiLevel };
     assert.equal(await evaluate(`fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)},{method:'PUT',headers:{'Content-Type':'application/json'},body:${JSON.stringify(JSON.stringify(restore))}}).then(r=>r.status)`), 200);
+    // Real authenticated review on the isolated DB: preserve the saved run and
+    // revert through the same public API so the test does not erase audit rows.
+    await send('Page.navigate', { url: savedUrl });
+    await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'saved context for reviewer');
+    const frozen = await evaluate(`(()=>{const p=new URLSearchParams(location.search);return fetch('/tool/v1/strategic-map/assessments/'+p.get('taskId')+'/runs/'+p.get('runId')).then(r=>r.json()).then(r=>r.data);})()`);
+    await evaluate(`document.querySelector('.assessment-workbench article .text-blue-700 button')?.click()`);
+    await evaluate(`document.querySelector('.assessment-workbench article div.rounded-lg button')?.click()`);
+    await until(() => evaluate('!!document.querySelector("dialog[open]")'), 'review evidence dialog');
+    await click('审核此条当前证据');
+    await until(() => evaluate(`!!document.querySelector('[data-testid="claim-review-form"]')`), 'current source reviewer form');
+    await fill('[data-testid="claim-review-form"] input', '副本浏览器审核员');
+    await fill('[data-testid="claim-review-form"] textarea', '仅限本次副本验收，此结论不进入正式数据库');
+    await evaluate(`(()=>{const f=document.querySelector('[data-testid="claim-review-form"]');const s=f.querySelector('select');s.value='conflict';s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    // Each textarea is nested in a label, so use a temporary stable marker for the reason.
+    await evaluate(`document.querySelectorAll('[data-testid="claim-review-form"] textarea')[1].setAttribute('data-browser-reason','true')`);
+    await fill('[data-browser-reason]', '离线验收构造争议，确认不会覆盖历史推荐');
+    await click('保存本条审核');
+    await until(() => evaluate(`document.querySelector('dialog[open]')?.innerText.includes('已保存。相关研判将在本地更新') && document.querySelector('dialog[open]')?.innerText.includes('存在冲突')`), 'saved individual review');
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive claim review');
+    if (output) {
+      await evaluate(`document.querySelector('[data-testid="claim-review-form"]').scrollIntoView({block:'start'})`);
+      const reviewImage = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(output + '-review.png', Buffer.from(reviewImage.data, 'base64'));
+    }
+    const unchanged = await evaluate(`fetch('/tool/v1/strategic-map/assessments/${frozen.taskId}/runs/${frozen.runId}').then(r=>r.json()).then(r=>r.data)`);
+    assert.deepEqual(unchanged, frozen, 'old run source and comparison snapshot not rewritten by review');
+    await fill('[data-browser-reason]', '离线验收完成，撤销测试审核并保留日志');
+    await click('撤销最新审核并记录原因');
+    await until(() => evaluate(`document.querySelector('dialog[open]')?.innerText.includes('恢复来源检查状态')`), 'review rollback retained in history');
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    passed.push('isolated-claim-review-conflict-frozen-history-revert');
     await setTestRole(grantedVisitor, 'revoked'); grantedVisitor = '';
-    await send('Page.reload', { ignoreCache: true });
+    await send('Page.navigate', { url: profileUrl });
     if (width < 1440) await click('团队画像');
     await until(() => evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='只读'&&b.disabled)`), 'revoked editor');
     assert.ok(await evaluate(`document.body.innerText.includes('仅维护人员可见')`));

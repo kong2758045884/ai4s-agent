@@ -12,8 +12,10 @@ export type ClaimProvenance = {
   locator: { status: string; start: number | null; end: number | null; basis: string };
   sourceCheck: { method: string; checkedAt: string; status: string };
   modelReview: { status: string; version: string; reviewedAt: string };
-  humanReview: { status: string; reviewedAt: string; reviewer: string };
-  linkCheck: { status: string; checkedAt: string };
+  humanReview: { status: string; reviewedAt: string; reviewer: string; decision?: string; scope?: string; reason?: string;
+    reviewId?: string; revision?: number; sourceFingerprint?: string; revertedReviewId?: string | null;
+    relatedEvidence?: { title: string; url: string; quote: string }[] };
+  linkCheck: { status: string; checkedAt: string; method?: string; reviewer?: string };
 };
 
 export type RecommendationCitation = {
