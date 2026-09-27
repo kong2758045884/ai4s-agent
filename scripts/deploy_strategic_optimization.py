@@ -180,9 +180,20 @@ def private_assessment_gate(port):
             'visitorIdentityVerified': True, 'paidCalls': 0}
 
 
+def require_review_compatible(database, previous_tool):
+    """Do not silently republish disputed claims through a pre-review projection."""
+    if (previous_tool/'ai4s_tool/api/claim_reviews.py').is_file():
+        return
+    with sqlite3.connect(database.as_uri()+'?mode=ro', uri=True) as conn:
+        exists = conn.execute("SELECT 1 FROM sqlite_master WHERE name='strategic_claim_review'").fetchone()
+        if exists and conn.execute('SELECT COUNT(*) FROM strategic_claim_review').fetchone()[0]:
+            raise RuntimeError('Previous code cannot enforce saved human claim reviews; retain the review compatibility layer before rollback. No code or data changed.')
+
+
 def rollback(release):
     journal = release/'live-journal'
     saved = json.loads((journal/'state.json').read_text())
+    require_review_compatible(Path(environment()['STRATEGIC_MAP_DB_PATH']), Path(saved['frontend']).parents[1]/'tool')
     shutil.copy2(journal/'tool.conf', DROP)
     from deploy_canonical_frontend import deploy
     deploy(saved['frontend'])
