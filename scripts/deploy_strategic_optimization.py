@@ -109,7 +109,7 @@ def preflight():
 
 def stage(release):
     env = environment()
-    directory = release/'preview'; directory.mkdir(exist_ok=False)
+    directory = release/'preview'; directory.mkdir(exist_ok=False, mode=0o700)
     team = backup(Path(env['STRATEGIC_MAP_DB_PATH']), directory/'strategic_map.db')
     impact = backup(Path(env['AI4S_IMPACT_DB_PATH']), directory/'impact_triage.db')
     migrate(release, team, directory/'journal')

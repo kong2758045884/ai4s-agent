@@ -1,0 +1,106 @@
+{
+  "release": "ai4s-opt-20260928T0100",
+  "applicationCommit": "78671f8339698c70ab3959abaa57d9469f23df75",
+  "url": "http://81.71.163.184/workspace/strategic-map",
+  "backendTests": 66,
+  "frontendTests": 33,
+  "serverStage": {
+    "privateRecommendationCount": 4,
+    "privateReportId": "report-a00d47cbbbf145f3a74bedf906bb0a98",
+    "frozenGraphHash": "e2bd07c10062e341f0f609186dbd512e654655d183d13defc27c2bddda135463",
+    "sourceCoverage": {
+      "totalUnits": 118,
+      "outcomeBackedUnits": 77,
+      "identityOnlyUnits": 41,
+      "claimCount": 500,
+      "humanReviewedClaims": 0
+    },
+    "visitorIdentityVerified": true,
+    "paidCalls": 0
+  },
+  "database": {
+    "originalTables": 36,
+    "originalTablesUnchanged": true,
+    "newTables": [],
+    "integrity": "ok",
+    "foreignKeyErrors": []
+  },
+  "publicBrowsers": [
+    {
+      "width": 1440,
+      "passed": [
+        "home-canonical-workbench",
+        "separate-drafts",
+        "confirmed-local-recommendation",
+        "primary-button-enabled-disabled-contrast",
+        "source-coverage-and-combination-gaps",
+        "three-team-criteria-comparison",
+        "evidence-snapshot-keyboard",
+        "claim-source-review-provenance",
+        "refresh-restores-input-run-comparison",
+        "frozen-graph-edge-evidence-refresh-and-scope",
+        "team-profile-return-context",
+        "private-daily-weekly-export-same-snapshot",
+        "private-changes-and-domain-intelligence",
+        "observation-window-draft-and-run-restoration"
+      ],
+      "paidCalls": 0
+    },
+    {
+      "width": 390,
+      "passed": [
+        "home-canonical-workbench",
+        "separate-drafts",
+        "confirmed-local-recommendation",
+        "primary-button-enabled-disabled-contrast",
+        "source-coverage-and-combination-gaps",
+        "three-team-criteria-comparison",
+        "evidence-snapshot-keyboard",
+        "claim-source-review-provenance",
+        "refresh-restores-input-run-comparison",
+        "frozen-graph-edge-evidence-refresh-and-scope",
+        "team-profile-return-context",
+        "private-daily-weekly-export-same-snapshot",
+        "private-changes-and-domain-intelligence",
+        "observation-window-draft-and-run-restoration"
+      ],
+      "paidCalls": 0
+    }
+  ],
+  "backups": [
+    {
+      "file": "/www/wwwroot/lab/releases/ai4s-opt-20260928T0100/preview/strategic_map.db.gz",
+      "sha256": "2a5d9df834c812f4e4ae5aaad9a05b3ed8b3cf10a5a1b96fcaca977fcb13e65b",
+      "bytes": 58924685,
+      "originalBytes": 307359744
+    },
+    {
+      "file": "/www/wwwroot/lab/releases/ai4s-opt-20260928T0100/preview/impact_triage.db.gz",
+      "sha256": "fd20c25bd099824d2a1272ba9d3ca706b0a939a3753a740767e5db19efd043e3",
+      "bytes": 375302,
+      "originalBytes": 1363968
+    },
+    {
+      "file": "/www/wwwroot/lab/releases/ai4s-opt-20260928T0100/preview/autobots.db.gz",
+      "sha256": "67371404148f66d6160a2e1e71a0cc9c87f6e9a77b12400d540efa43cc236750",
+      "bytes": 425,
+      "originalBytes": 12288
+    },
+    {
+      "file": "/www/wwwroot/lab/releases/ai4s-opt-20260928T0100/live-journal/strategic_map.db.gz",
+      "sha256": "5e80f58c868664359e25d06f15057939f58615256af689886ff588ddd07e6522",
+      "bytes": 58262752,
+      "originalBytes": 305651712
+    },
+    {
+      "file": "/www/wwwroot/lab/releases/ai4s-opt-20260928T0100/live-journal/impact_triage.db.gz",
+      "sha256": "fd20c25bd099824d2a1272ba9d3ca706b0a939a3753a740767e5db19efd043e3",
+      "bytes": 375302,
+      "originalBytes": 1363968
+    }
+  ],
+  "deploymentScriptHashes": {
+    "deploy_canonical_frontend.py": "c2258e0d18c34814e25dc1d4ca6ea370184cc8bac95ba2b8ba42b9a89a79991e",
+    "deploy_strategic_optimization.py": "72ae7b357b1af55db6c4d49311d51707ea88a3e5adce1b97a3f0a720937e3e3c"
+  }
+}

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+from urllib.request import Request, urlopen
 
 ROOT = Path('/www/wwwroot/lab')
 BEGIN = '# BEGIN AI4S canonical entries'
@@ -23,6 +24,10 @@ def entry(path):
 def deploy(dist):
     dist = Path(dist).resolve()
     assert dist.is_relative_to(ROOT/'releases') and dist.name == 'dist'
+    # Validate the exact public path before switching the current symlink. A
+    # private release parent makes Nginx return 404 even if the files exist.
+    for directory in (dist, dist.parent, dist.parent.parent):
+        assert directory.stat().st_mode & 0o005 == 0o005, f'Nginx cannot traverse/read {directory}'
     current = ROOT/'ui/dist'
     assert current.is_symlink()
     previous = current.resolve()
@@ -69,6 +74,10 @@ location = /app {{
         temporary.symlink_to(dist, target_is_directory=True)
         os.replace(temporary,current)
         subprocess.run(['/www/server/nginx/sbin/nginx','-s','reload'], check=True)
+        for route in ('/app', '/workspace/strategic-map'):
+            request = Request('http://127.0.0.1' + route, headers={'Host': '81.71.163.184'})
+            with urlopen(request, timeout=10) as response:
+                assert response.status == 200 and new_entry in response.read().decode(), f'Frontend smoke failed: {route}'
     except Exception:
         config.write_text(original)
         if temporary.is_symlink():temporary.unlink()
