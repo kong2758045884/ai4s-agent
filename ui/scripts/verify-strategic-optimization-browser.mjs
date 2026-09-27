@@ -15,10 +15,11 @@ const width = Number(process.env.AI4S_INTEGRATION_WIDTH || 1440);
 const height = Number(process.env.AI4S_INTEGRATION_HEIGHT || 900);
 const profile = await mkdtemp(path.join(os.tmpdir(), "ai4s-integration-browser-"));
 const chrome = spawn(chromePath, ["--headless=new", "--no-first-run", "--no-default-browser-check",
+  ...(process.env.AI4S_BROWSER_DIRECT === '1' ? ['--no-proxy-server'] : []),
   "--disable-extensions", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"],
 { stdio: "ignore", windowsHide: true });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check, label, timeoutMs = 30000) {
+async function until(check, label, timeoutMs = 60000) {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     const value = await check();
@@ -29,6 +30,7 @@ async function until(check, label, timeoutMs = 30000) {
 }
 let socket;
 let inspect;
+const networkFailures = [];
 try {
   const portFile = path.join(profile, "DevToolsActivePort");
   const port = await until(async () => existsSync(portFile) ? Number((await readFile(portFile, "utf8")).split(/\r?\n/)[0]) : null, "Chrome port");
@@ -42,8 +44,15 @@ try {
   });
   let id = 0;
   const pending = new Map();
+  const assets = new Map();
   socket.addEventListener("message", ({ data }) => {
     const message = JSON.parse(data);
+    if (message.method === 'Network.requestWillBeSent') {
+      const address = new URL(message.params.request.url);
+      if (address.pathname.startsWith('/assets/')) assets.set(message.params.requestId, address.pathname);
+    }
+    if (message.method === 'Network.loadingFailed' && assets.has(message.params.requestId)) networkFailures.push({path:assets.get(message.params.requestId),error:message.params.errorText});
+    if (message.method === 'Network.responseReceived' && message.params.response.status >= 400 && assets.has(message.params.requestId)) networkFailures.push({path:assets.get(message.params.requestId),status:message.params.response.status});
     if (!message.id || !pending.has(message.id)) return;
     const request = pending.get(message.id);
     pending.delete(message.id);
@@ -52,7 +61,7 @@ try {
   });
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const next = ++id;
-    const timer = setTimeout(() => { pending.delete(next); reject(new Error(`CDP timeout: ${method}`)); }, 15000);
+    const timer = setTimeout(() => { pending.delete(next); reject(new Error(`CDP timeout: ${method}`)); }, method === 'Page.navigate' || method === 'Page.reload' ? 60000 : 15000);
     pending.set(next, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
     socket.send(JSON.stringify({ id: next, method, params }));
   });
@@ -64,6 +73,7 @@ try {
   inspect = evaluate;
   await send("Page.enable");
   await send("Runtime.enable");
+  await send('Network.enable');
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
     const original = window.fetch.bind(window); window.__requests = []; window.__paid = [];
@@ -159,9 +169,13 @@ try {
   const failed=await evaluate('window.__requests.filter(r=>r.status>=400&&r.url.includes("/strategic-map"))');
   assert.deepEqual(failed,[],'strategic APIs succeed');
   await send('Page.reload', {ignoreCache:false});
-  await until(() => evaluate('document.body.innerText.includes("AI4S战略力量图谱")'), 'ordinary refresh');
-  console.log(JSON.stringify({width,height,passed:['home-sidebar','canonical-route','three-real-teams','citation-comparison','pagination','scope','stale-request','edge-search','rank-q','taxonomy','daily','ordinary-refresh'],paidCalls:0}));
+  await until(() => evaluate('document.body?.innerText.includes("AI4S战略力量图谱")'), 'ordinary refresh');
+  const result = {width,height,url,passed:['home-sidebar','canonical-route','three-real-teams','citation-comparison','pagination','scope','stale-request','edge-search','rank-q','taxonomy','daily','ordinary-refresh'],paidCalls:0};
+  if (process.env.AI4S_INTEGRATION_RESULT) await writeFile(process.env.AI4S_INTEGRATION_RESULT, JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(result));
 } catch(error) {
+  if (process.env.AI4S_INTEGRATION_RESULT) await writeFile(process.env.AI4S_INTEGRATION_RESULT, JSON.stringify({width,height,url,error:String(error),networkFailures}, null, 2));
+  console.error(networkFailures);
   console.error(await inspect?.('({url:location.href,body:document.body?.innerText.slice(0,1800)})'));
   console.error(error);
   // Page text only; never credentials or network response bodies.

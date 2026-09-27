@@ -1,6 +1,7 @@
 """Stage on a server DB copy, then incrementally activate Python/UI only.
 
-No database replacement, dependency installation, Java restart or paid scans.
+No database replacement, dependency installation, Java code change or paid scans.
+Restore Java after Python restarts because the existing unit depends on it.
 Run stage before activate. Rollback restores code/UI; retained additive data can
 be separately undone with the guarded batch journals.
 """
@@ -52,6 +53,21 @@ def healthy(port):
         except Exception:
             time.sleep(1)
     raise RuntimeError('Tool API did not become healthy')
+
+
+def restore_java():
+    # The existing Java unit Requires=ai4s-reactor-tool. systemctl stop(tool)
+    # propagates to Java, but starting tool does not start its dependents.
+    run('systemctl', 'start', 'ai4s-reactor-backend')
+    for _ in range(60):
+        try:
+            with urlopen('http://127.0.0.1:8100/api/agent/visitor/bootstrap', timeout=5) as response:
+                if response.status == 200 and json.load(response).get('code') == '0000':
+                    return
+        except Exception:
+            pass
+        time.sleep(1)
+    raise RuntimeError('Java visitor bootstrap did not become healthy')
 
 
 def backup(source, target):
@@ -121,6 +137,7 @@ def rollback(release):
     run('systemctl', 'daemon-reload')
     run('systemctl', 'restart', 'ai4s-reactor-tool')
     healthy(1601)
+    restore_java()
     print('CODE_ROLLED_BACK; additive records and batch journals retained')
 
 
@@ -153,9 +170,10 @@ ExecStart={PYTHON} {release}/tool/server.py --host 127.0.0.1 --port 1601 --worke
 ''')
         run('systemctl', 'daemon-reload'); run('systemctl', 'start', 'ai4s-reactor-tool')
         status = healthy(1601)
+        restore_java()
         from deploy_canonical_frontend import deploy
         deploy(release/'ui/dist')
-        save(release/'activated.json', {'at': time.time(), 'status': status, 'database': env['STRATEGIC_MAP_DB_PATH'], 'javaRestarted': False, 'paidScheduler': False})
+        save(release/'activated.json', {'at': time.time(), 'status': status, 'database': env['STRATEGIC_MAP_DB_PATH'], 'javaCodeChanged': False, 'javaDependencyRestored': True, 'paidScheduler': False})
         print('ACTIVATED', release.name, flush=True)
     except Exception:
         rollback(release)
