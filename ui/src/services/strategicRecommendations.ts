@@ -1,6 +1,7 @@
 import { normalizeToolBaseUrlForBrowser } from "@/utils/fileUrl";
 
 export type RecommendationCitation = {
+  id?: string;
   kind: "outcome" | "capability" | "description" | "direction";
   text: string;
   quote: string;
@@ -20,6 +21,8 @@ export type RecommendationItem = {
   teamScoreVersion: string;
   matchVersion: string;
   capability: string;
+  taskCriteria?: { requirement: string; matched: boolean; citations: string[] }[];
+  supportedTasks?: string[];
   citations: RecommendationCitation[];
   unknowns: string[];
   nextStep: string;
@@ -27,6 +30,10 @@ export type RecommendationItem = {
 };
 
 export type RecommendationRun = {
+  parsedTask?: { version: string; goals: string[]; required: string[]; excluded: string[]; unresolved: string[]; mode: string; notice: string };
+  changes?: { added: string[]; removed: string[]; updated: string[]; reason: string };
+  previousRunId?: string;
+  updatedRunId?: string;
   runId: string;
   taskText: string;
   domainId: string | null;
@@ -42,6 +49,11 @@ export type RecommendationRun = {
   createdAt: string;
   notice: string;
   expansion?: {
+    updatedRunId?: string;
+    scopeNotice?: string;
+    costNotice?: string;
+    knownCostCny?: number;
+    calls?: { search: number; fetch: number; llm: number; llm_total_tokens?: number };
     jobId?: string;
     status?: string;
     state?: string;
@@ -62,6 +74,7 @@ export type IntelligenceSearchResult = {
   domainId: string | null;
   date?: string;
   reviewNotice?: string;
+  verificationMethod?: string;
 };
 
 export type IntelligenceDaily = {
@@ -109,8 +122,8 @@ export const recommendationApi = {
       }),
     }),
   get: (runId: string) => request<RecommendationRun>(`/task-recommendations/${encodeURIComponent(runId)}`),
-  expand: (runId: string) => request<RecommendationRun>(`/task-recommendations/${encodeURIComponent(runId)}/expand`, { method: "POST" }),
-  search: (q: string, domainId: string, page = 1) => {
+  expand: (runId: string, retry = false) => request<RecommendationRun>(`/task-recommendations/${encodeURIComponent(runId)}/expand${retry ? "/retry" : ""}`, { method: "POST" }),
+  search: (q: string, domainId: string, page = 1, options?: { subdomainId?: string; signal?: AbortSignal }) => {
     const params = new URLSearchParams({
       q,
       page: String(page),
@@ -118,7 +131,8 @@ export const recommendationApi = {
       verified_only: "true",
     });
     if (domainId) params.set("domain_id", domainId);
-    return request<{ items: IntelligenceSearchResult[]; total: number; page: number; size: number }>(`/intelligence/search?${params}`);
+    if (domainId && options?.subdomainId) params.set("subdomain_id", options.subdomainId);
+    return request<{ items: IntelligenceSearchResult[]; total: number; page: number; size: number; dataVersion: string }>(`/intelligence/search?${params}`, { signal: options?.signal });
   },
   daily: (day: string) => request<IntelligenceDaily>(`/intelligence/daily/${encodeURIComponent(day)}`),
   verifiedDaily: (day: string) => request<{

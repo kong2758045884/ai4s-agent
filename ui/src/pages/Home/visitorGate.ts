@@ -4,8 +4,9 @@
 export function shouldBootstrapVisitor(params: {
   bootstrapLoaded: boolean;
   bootstrapLoading: boolean;
+  bootstrapFailed?: boolean;
 }) {
-  return !params.bootstrapLoaded && !params.bootstrapLoading;
+  return !params.bootstrapLoaded && !params.bootstrapLoading && !params.bootstrapFailed;
 }
 
 /**

@@ -48,6 +48,7 @@ import {
 } from "@/services/strategicMap";
 import { aggregateGraphData } from "./graphAggregation";
 import { fusionApi } from "@/services/researchFusion";
+import { searchGraph } from "./graphSearch";
 
 type Props = {
   integrated?: boolean;
@@ -67,7 +68,7 @@ type ChatEntry = {
   text: string;
 };
 
-type SearchSort = "relevance" | "degree" | "evidence" | "name";
+type SearchSort = "degree" | "name";
 type ScanSort =
   | "rank"
   | "total"
@@ -127,8 +128,7 @@ function sortSearchResults(
   return [...rows].sort((left, right) => {
     if (mode === "name") return left.label.localeCompare(right.label, "zh-CN");
     if (mode === "degree") return right.degree - left.degree;
-    if (mode === "evidence") return right.evidenceScore - left.evidenceScore;
-    return right.relevance - left.relevance;
+    return left.label.localeCompare(right.label, "zh-CN");
   });
 }
 
@@ -189,7 +189,9 @@ export default function GraphWorkspace({
   const [selected, setSelected] = useState<StrategicGraphElement | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState(subdomainName || domainName);
-  const [searchSort, setSearchSort] = useState<SearchSort>("relevance");
+  const [searchSort, setSearchSort] = useState<SearchSort>("degree");
+  const [searchMode, setSearchMode] = useState<"nodes" | "edges">("nodes");
+  const [searchSubmitted, setSearchSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
@@ -277,6 +279,7 @@ export default function GraphWorkspace({
     // The previous branch must not remain visible while the new scoped graph
     // is loading, or after a taxonomy edit that does not change the URL.
     setData(EMPTY_GRAPH);
+    setSearchSubmitted(false);
     setSelected(null);
     void refreshGraph(controller.signal);
     return () => {
@@ -475,8 +478,8 @@ export default function GraphWorkspace({
             source: item.source,
             target: item.target,
             lineStyle: {
-              color: item.type === "aggregate" ? "#8b75cc" : "#cbd0dd",
-              width: viewMode === "edges" ? 1.6 : 1,
+              color: item.highlighted ? "#2563eb" : item.type === "aggregate" ? "#8b75cc" : "#cbd0dd",
+              width: item.highlighted ? 3 : viewMode === "edges" ? 1.6 : 1,
               opacity: viewMode === "edges" ? 0.88 : 0.64,
               curveness: 0.04,
             },
@@ -511,6 +514,11 @@ export default function GraphWorkspace({
         data.edges.find((item) => item.id === id) ||
         null;
       setSelected(element);
+      if (element?.source && element.target) {
+        setViewMode("edges");
+        setData(current => ({ ...current, edges: current.edges.map(e => ({ ...e, highlighted: e.id === id })),
+          nodes: current.nodes.map(n => ({ ...n, highlighted: n.id === element.source || n.id === element.target })) }));
+      }
       const index = displayData.nodes.findIndex((item) => item.id === id);
       if (index >= 0) {
         chartRef.current?.dispatchAction({
@@ -592,7 +600,7 @@ export default function GraphWorkspace({
                 error:
                     reason instanceof Error
                       ? reason.message
-                      : "扫描状态读取失败",
+                      : "再分析状态读取失败",
               }
               : current,
           );
@@ -609,17 +617,12 @@ export default function GraphWorkspace({
   const submitSearch = async (event: FormEvent) => {
     event.preventDefault();
     if (!query.trim()) return;
+    setSearchSubmitted(true);
     if (verifiedOnly || integrated) {
-      const phrase = query.trim().toLocaleLowerCase();
-      const hits = data.nodes.filter((node) =>
-        `${node.label || ""} ${JSON.stringify(rawOf(node))}`.toLocaleLowerCase().includes(phrase));
-      const ids = new Set(hits.map((node) => node.id));
-      setData({ ...data, nodes: data.nodes.map((node) => ({ ...node, highlighted: ids.has(node.id) })),
-        searchResults: hits.map((node) => ({ id: node.id, label: node.label || node.id,
-          level: String(rawOf(node).level || ""), description: String(rawOf(node).description || ""),
-          relevance: 1, degree: data.edges.filter((edge) => edge.source === node.id || edge.target === node.id).length,
-          evidenceScore: 1, highlighted: true })) });
-      setSelected(hits[0] || null);
+      const next = searchGraph(data, query, searchMode);
+      setData(next);
+      if (searchMode === "edges") setViewMode("edges");
+      setSelected((searchMode === "edges" ? next.edges : next.nodes).find(n => n.id === next.searchResults[0]?.id) || null);
       setSidePanel("search");
       return;
     }
@@ -715,7 +718,7 @@ export default function GraphWorkspace({
           total: 0,
         },
         result: null,
-        error: reason instanceof Error ? reason.message : "扫描启动失败",
+        error: reason instanceof Error ? reason.message : "再分析启动失败",
         persistent: false,
         createdAt: "",
         updatedAt: "",
@@ -750,6 +753,7 @@ export default function GraphWorkspace({
   };
 
   const resetGraph = () => {
+    setSearchSubmitted(false);
     setSidePanel(null);
     setExpandedGroups(new Set());
     setQuery(subdomainName || domainName);
@@ -799,7 +803,7 @@ export default function GraphWorkspace({
             {graphStatus.snapshotUpdatedAt?.[scope]
               ? ` · 更新至 ${graphStatus.snapshotUpdatedAt[scope].slice(0, 10)}`
               : " · 更新时间未知"}
-            ；不代表实时扫描结果。
+            ；不代表已有情报再分析结果。
           </p>
         ) : null}
         {aggregated.hiddenNodeCount ? (
@@ -897,7 +901,7 @@ export default function GraphWorkspace({
               : "border-[#d8dbe6] bg-white/95 text-[#667085]"
           }`}
         >
-          扫描
+          再分析
         </button>}
       </div>
 
@@ -957,7 +961,7 @@ export default function GraphWorkspace({
                 ? "搜索与排序"
                 : sidePanel === "chat"
                   ? "图谱对话"
-                  : integrated ? "机构与作者专题扫描" : "优势扫描"}
+                  : integrated ? "已有情报再分析" : "优势再分析"}
             </div>
             <button
               type="button"
@@ -971,13 +975,14 @@ export default function GraphWorkspace({
 
           {sidePanel === "search" ? (
             <>
+              <p className="px-4 pt-3 text-xs leading-5 text-slate-500">当前图谱内搜索 · {subdomainName || domainName} · 切换左侧领域可调整范围</p>
               <form
                 onSubmit={submitSearch}
                 className="flex shrink-0 gap-2 border-b border-[#efedf4] p-4"
               >
                 <input
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => { setQuery(event.target.value); setSearchSubmitted(false); setData(current => ({ ...current, searchResults: [] })); }}
                   aria-label="搜索图谱"
                   placeholder="搜索节点、关系或方向"
                   className="h-10 min-w-0 flex-1 rounded-xl border border-[#ddd9e9] px-3 text-sm outline-none focus:border-[#2563eb]"
@@ -996,6 +1001,7 @@ export default function GraphWorkspace({
                 </button>
               </form>
               <div className="flex shrink-0 items-center justify-between px-4 py-3">
+                <select aria-label="图谱检索对象" value={searchMode} onChange={e => { setSearchMode(e.target.value as "nodes" | "edges"); setSearchSubmitted(false); setData(current => ({ ...current, searchResults: [] })); }} className="mr-2 rounded border p-1 text-xs"><option value="nodes">节点</option><option value="edges">关系</option></select>
                 <span className="text-xs text-[#8991a3]">
                   {sortedSearchResults.length} 条结果
                 </span>
@@ -1007,9 +1013,7 @@ export default function GraphWorkspace({
                   aria-label="搜索结果排序"
                   className="h-8 rounded-lg border border-[#e0ddea] bg-white px-2 text-xs text-[#5f6678]"
                 >
-                  <option value="relevance">相关度</option>
-                  <option value="degree">影响力</option>
-                  <option value="evidence">证据评分</option>
+                  <option value="degree">连接数</option>
                   <option value="name">名称</option>
                 </select>
               </div>
@@ -1030,7 +1034,7 @@ export default function GraphWorkspace({
                           {item.label}
                         </span>
                         <span className="mt-1 block text-[11px] text-[#8b91a0]">
-                          {item.level} · 相关度 {item.relevance} · 影响力{" "}
+                          {item.level} · 连接数{" "}
                           {item.degree}
                         </span>
                       </span>
@@ -1038,7 +1042,7 @@ export default function GraphWorkspace({
                   ))
                 ) : (
                   <div className="px-4 py-12 text-center text-xs text-[#959cad]">
-                    输入关键词开始搜索
+                    {searchSubmitted ? "当前图谱范围内没有匹配结果。可调整关键词、切换领域或重置图谱。" : "输入关键词开始搜索"}
                   </div>
                 )}
               </div>
@@ -1096,13 +1100,13 @@ export default function GraphWorkspace({
 
           {sidePanel === "scan" ? (
             <>
-              {integrated && <p className="border-b border-slate-100 px-4 py-3 text-xs leading-5 text-slate-500">扫描机构与作者的来源图谱，展示独立的三维研判，不作为团队入榜资格。点击开始后调用模型；打开页面不会自动扫描。</p>}
+              {integrated && <p className="border-b border-slate-100 px-4 py-3 text-xs leading-5 text-slate-500">从已入库的机构、作者与事件中召回候选并调用模型重新研判，不进行全网采集。需要联网时，请使用任务推荐中的“联网补充资料”。打开页面不会调用模型。</p>}
               {!graphStatus?.features.scan ? (
                 <div className="mx-4 mt-4 rounded-xl border border-[#e9dfb9] bg-[#fffbeb] px-3 py-3 text-xs leading-5 text-[#795c26]">
                   <p>
                     {graphStatus
-                      ? "Hyper-Extract 实时扫描服务尚未连接。可使用本系统的公开来源定向调查，结果写入当前领域或子领域的团队与关系节点；这不是 Hyper 实时扫描。"
-                      : "正在检查实时扫描服务状态；图谱浏览和搜索不受影响。"}
+                      ? "Hyper-Extract 已有情报再分析服务尚未连接。可使用本系统的公开来源定向调查，结果写入当前领域或子领域的团队与关系节点；这不是 Hyper 已有情报再分析。"
+                      : "正在检查已有情报再分析服务状态；图谱浏览和搜索不受影响。"}
                   </p>
                   {graphStatus ? (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1159,14 +1163,14 @@ export default function GraphWorkspace({
                 <input
                   value={scanKeyword}
                   onChange={(event) => setScanKeyword(event.target.value)}
-                  aria-label={integrated ? "机构与作者扫描关键词" : "优势团队扫描关键词"}
+                  aria-label={integrated ? "机构与作者再分析关键词" : "优势团队再分析关键词"}
                   placeholder="领域关键词"
                   className="h-10 min-w-0 flex-1 rounded-xl border border-[#ddd9e9] px-3 text-sm outline-none focus:border-[#2563eb]"
                 />
                 <select
                   value={scanLimit}
                   onChange={(event) => setScanLimit(Number(event.target.value))}
-                  aria-label="扫描候选数量"
+                  aria-label="再分析候选数量"
                   className="h-10 rounded-xl border border-[#ddd9e9] px-2 text-xs"
                 >
                   {(integrated ? [5, 10, 30] : [30, 100, 200]).map((limit) => <option key={limit} value={limit}>{limit}</option>)}
@@ -1177,7 +1181,7 @@ export default function GraphWorkspace({
                   disabled={
                     scanTask?.status === "running" || !scanKeyword.trim() || !graphStatus?.features.scan
                   }
-                  aria-label="开始扫描"
+                  aria-label="开始再分析"
                   className="flex size-10 items-center justify-center rounded-xl bg-[#2563eb] text-white disabled:opacity-50"
                 >
                   {scanTask?.status === "running" ? (
@@ -1193,7 +1197,7 @@ export default function GraphWorkspace({
               {scanHistory.length ? (
                 <div className="flex shrink-0 items-center gap-2 border-b border-[#f2f0f6] px-4 py-2">
                   <span className="shrink-0 text-[10px] font-semibold text-[#8b91a0]">
-                    历史扫描
+                    历史再分析
                   </span>
                   <select
                     value={scanTask?.jobId || ""}
@@ -1206,7 +1210,7 @@ export default function GraphWorkspace({
                         setExpandedCandidate("");
                       }
                     }}
-                    aria-label="历史扫描任务"
+                    aria-label="历史再分析任务"
                     className="h-8 min-w-0 flex-1 rounded-lg border border-[#e0ddea] bg-white px-2 text-[11px] text-[#5f6678]"
                   >
                     {scanHistory.map((task) => (
@@ -1223,7 +1227,7 @@ export default function GraphWorkspace({
                     ? `${scanTask.stage || "排队中"} ${scanTask.progress.total ? `${scanTask.progress.done}/${scanTask.progress.total}` : ""}`
                     : (!integrated && scanTask?.result?.scoringSummary) ||
                       scanTask?.result?.summary ||
-                      "等待扫描"}
+                      "等待再分析"}
                   {scanTask?.persistent && scanTask.updatedAt ? (
                     <span className="block text-[10px] text-[#a0a5b2]">
                       已持久化 · {scanTime(scanTask.updatedAt)}
@@ -1235,7 +1239,7 @@ export default function GraphWorkspace({
                   onChange={(event) =>
                     setScanSort(event.target.value as ScanSort)
                   }
-                  aria-label="扫描结果排序"
+                  aria-label="再分析结果排序"
                   className="h-8 rounded-lg border border-[#e0ddea] bg-white px-2 text-xs text-[#5f6678]"
                 >
                   <option value="rank">综合排名</option>
@@ -1264,7 +1268,7 @@ export default function GraphWorkspace({
                     <button type="button" onClick={() => setExpandedCandidate(open ? "" : candidate.name)} className="flex w-full items-start gap-2 text-left">
                       <span className="text-xs font-semibold text-blue-600">{candidate.rank}</span><span className="min-w-0 flex-1"><strong className="text-sm text-slate-800">{candidate.name}</strong><span className="mt-1 block text-xs text-slate-500">{candidate.type} · {candidate.event_count} 条图谱事件</span></span><span className="text-sm font-bold text-blue-700">{scoreText(candidate.total)}</span>
                     </button>
-                    {open && <div className="mt-3 space-y-2 text-xs leading-5 text-slate-600"><p>{candidate.comment}</p><p>成就 {scoreText(candidate.legacyScores?.achievement ?? null)} · 地位 {scoreText(candidate.legacyScores?.status ?? null)} · 趋势 {scoreText(candidate.legacyScores?.future ?? null)}</p><p>{candidate.reasons?.achievement}</p><p>{candidate.reasons?.status}</p><p>{candidate.reasons?.future}</p><p className="text-slate-400">来源扫描评分 · 与团队评分独立</p></div>}
+                    {open && <div className="mt-3 space-y-2 text-xs leading-5 text-slate-600"><p>{candidate.comment}</p><p>成就 {scoreText(candidate.legacyScores?.achievement ?? null)} · 地位 {scoreText(candidate.legacyScores?.status ?? null)} · 趋势 {scoreText(candidate.legacyScores?.future ?? null)}</p><p>{candidate.reasons?.achievement}</p><p>{candidate.reasons?.status}</p><p>{candidate.reasons?.future}</p><p className="text-slate-400">来源再分析评分 · 与团队评分独立</p></div>}
                   </article>;
                   return (
                     <div

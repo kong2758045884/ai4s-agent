@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, BookOpenText, Check, Clock3, ExternalLink, LoaderCircle, Search, Sparkles, UsersRound } from "lucide-react";
 import {
   recommendationApi,
-  type IntelligenceSearchResult,
   type RecommendationRun,
 } from "@/services/strategicRecommendations";
+import EvidenceSearch from "./EvidenceSearch";
 
 type Props = {
   domainId: string;
@@ -19,73 +19,65 @@ type Props = {
 };
 
 const examples = ["蛋白质结构预测", "量子计算与模拟", "具身智能", "催化与能源材料"];
+const impactLabel = (value?: string) => !value || value === "待核验关联" ? "未关联机构影响力档案" : value;
 
 export default function RecommendationWorkspace({
   domainId, subdomainId, domainName, subdomainName, draft, onDraftChange,
   run, onRunChange, onOpenTeam,
 }: Props) {
+  const [scope, setScope] = useState<"current" | "all">("current");
+  const requestSequence = useRef(0);
+  const scopeDomain = scope === "all" ? "" : domainId;
+  const scopeSubdomain = scope === "all" ? "" : subdomainId;
   const [limit, setLimit] = useState(10);
   const [busy, setBusy] = useState(false);
   const [expanding, setExpanding] = useState(false);
   const [error, setError] = useState("");
   const [compared, setCompared] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<IntelligenceSearchResult[]>([]);
-  const [searchTotal, setSearchTotal] = useState<number | null>(null);
-  const activeRun = (run?.domainId || "") === domainId && (run?.subdomainId || "") === subdomainId ? run : null;
+  const activeRun = (run?.domainId || "") === scopeDomain && (run?.subdomainId || "") === scopeSubdomain ? run : null;
 
   useEffect(() => {
     setCompared([]);
-    setSearchResults([]);
-    setSearchTotal(null);
-  }, [domainId, subdomainId]);
+    requestSequence.current += 1;
+    setBusy(false);
+  }, [domainId, subdomainId, scope]);
 
   useEffect(() => {
     const job = activeRun?.expansion;
-    if (!activeRun || !job || !["accepted", "running"].includes(job.state || job.status || "")) return;
+    if (!activeRun) return;
+    const isRunning = job && ["queued", "accepted", "running"].includes(job.state || job.status || "");
+    let cancelled = false;
     const timer = window.setInterval(() => {
-      void recommendationApi.get(activeRun.runId).then(onRunChange).catch((reason) => setError(String(reason)));
-    }, 3000);
-    return () => window.clearInterval(timer);
+      void recommendationApi.get(activeRun.runId).then(value => { if (!cancelled) onRunChange(value); }).catch((reason) => setError(String(reason)));
+    }, isRunning ? 3000 : 15000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [activeRun, onRunChange]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (draft.trim().length < 2 || busy) return;
+    const sequence = ++requestSequence.current;
     setBusy(true);
     setError("");
     try {
-      const next = await recommendationApi.create(draft.trim(), domainId, subdomainId, limit);
+      const next = await recommendationApi.create(draft.trim(), scopeDomain, scopeSubdomain, limit);
+      if (sequence !== requestSequence.current) return;
       onRunChange(next);
       setCompared([]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (sequence === requestSequence.current) setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      if (sequence === requestSequence.current) setBusy(false);
     }
   };
 
-  const expand = async () => {
+  const expand = async (retry = false) => {
     if (!activeRun || expanding) return;
     setExpanding(true);
     setError("");
-    try { onRunChange(await recommendationApi.expand(activeRun.runId)); }
+    try { onRunChange(await recommendationApi.expand(activeRun.runId, retry)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setExpanding(false); }
-  };
-
-  const doSearch = async (event: FormEvent) => {
-    event.preventDefault();
-    if (search.trim().length < 2) return;
-    setSearching(true);
-    setError("");
-    try {
-      const found = await recommendationApi.search(search.trim(), domainId);
-      setSearchResults(found.items);
-      setSearchTotal(found.total);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setSearching(false); }
   };
 
   const toggleCompare = (id: string) => setCompared((current) => current.includes(id)
@@ -99,10 +91,10 @@ export default function RecommendationWorkspace({
         <div>
           <p className="text-[11px] font-semibold tracking-[.24em] text-slate-400">AI4S · RESEARCH TEAMS</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[30px]">输入任务，找到能承担它的国内团队</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">基于已通过审核的团队成果，匹配任务所需能力，推荐依据可直接查看原文。</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">先检索本地团队资料与成果，不调用付费服务；推荐依据可直接查看原文。</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
-          当前范围 <strong className="block text-sm font-medium text-slate-700">{subdomainName || domainName}</strong>
+          当前范围 <strong className="block text-sm font-medium text-slate-700">{scope === "all" ? "全部领域" : (subdomainName || domainName)}</strong>
         </div>
       </div>
       <form onSubmit={(event) => void submit(event)} className="relative mt-6 rounded-xl border border-slate-200 bg-white p-2 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-50">
@@ -113,6 +105,8 @@ export default function RecommendationWorkspace({
           className="w-full resize-y rounded-lg px-3 py-2 text-[15px] leading-6 text-[#173a4f] outline-none placeholder:text-[#91a4ae]" />
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e6edf0] px-2 pt-2">
           <div className="flex items-center gap-2 text-xs text-[#64748b]">
+            <select aria-label="推荐范围" value={scope} onChange={event => setScope(event.target.value as "current" | "all")}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5"><option value="current">当前领域</option><option value="all">全部领域</option></select>
             <span>推荐数量</span>
             <select aria-label="推荐数量" value={limit} onChange={(event) => setLimit(Number(event.target.value))}
               className="rounded-lg border border-[#e2e8f0] bg-[#f7fafb] px-2 py-1.5 text-[#194761]">
@@ -134,6 +128,20 @@ export default function RecommendationWorkspace({
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
     {activeRun ? <>
+      {(activeRun.updatedRunId || activeRun.expansion?.updatedRunId) && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+        <span>新证据已生成更新版本，当前结果仍保留。</span>
+        <button className="font-semibold underline" onClick={() => void recommendationApi.get((activeRun.updatedRunId || activeRun.expansion?.updatedRunId)!).then(value => { onRunChange(value); setCompared([]); }).catch(reason => setError(String(reason)))}>查看更新推荐</button>
+      </div>}
+      {activeRun.changes && <p className="px-1 text-xs text-slate-500">较前一版本：新增 {activeRun.changes.added.length} 支，移除 {activeRun.changes.removed.length} 支，依据更新 {activeRun.changes.updated.length} 支。{activeRun.changes.reason}</p>}
+
+      {activeRun.parsedTask && <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm" aria-label="任务理解">
+        <h3 className="font-semibold text-slate-800">任务理解</h3>
+        <p className="mt-2 text-slate-600">研究目标：{activeRun.parsedTask.goals.join("、") || "尚未识别，请补充具体研究目标"}</p>
+        {activeRun.parsedTask.required.length > 0 && <p className="mt-1 text-slate-600">成果要求：{activeRun.parsedTask.required.join("、")}</p>}
+        {activeRun.parsedTask.excluded.length > 0 && <p className="mt-1 text-slate-600">排除条件：{activeRun.parsedTask.excluded.join("、")}</p>}
+        {activeRun.parsedTask.unresolved.length > 0 && <p className="mt-1 text-slate-500">按原词检索，条件含义仍需确认：{activeRun.parsedTask.unresolved.join("、")}</p>}
+        <p className="mt-2 text-xs text-slate-500">{activeRun.parsedTask.notice}。可修改上方任务后重新生成。</p>
+      </section>}
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e2e8f0] bg-white px-5 py-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-5">
           <div><strong className="text-2xl text-[#0f172a]">{activeRun.items.length}</strong><span className="ml-2 text-sm text-[#64748b]">支可推荐</span></div>
@@ -148,15 +156,18 @@ export default function RecommendationWorkspace({
         <button type="button" onClick={() => void expand()} disabled={expanding || !!activeRun.expansion}
           className="inline-flex items-center gap-2 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-4 py-2 text-sm font-semibold text-[#2563eb] hover:bg-[#dbeafe] disabled:opacity-60">
           {expanding ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
-          {activeRun.expansion ? "扩展调查已启动" : "扩展调查 · 全网深搜"}
+          {activeRun.expansion ? "联网调查已创建" : "联网补充资料"}
         </button>
       </div>
 
       {activeRun.expansion && <div className="rounded-xl border border-[#bddce2] bg-[#f8fafc] px-4 py-3 text-sm text-[#28596a]" role="status">
-        扩展调查：{activeRun.expansion.stage || activeRun.expansion.state || activeRun.expansion.status || "排队中"}
+        联网调查：{activeRun.expansion.stage || activeRun.expansion.state || activeRun.expansion.status || "排队中"}
         {activeRun.expansion.progress?.total ? ` · ${activeRun.expansion.progress.done}/${activeRun.expansion.progress.total}` : ""}
         {activeRun.expansion.error ? ` · ${activeRun.expansion.error}` : ""}
-        <p className="mt-1 text-xs text-[#64818b]">调查结果完成身份与成果审核后更新推荐。</p>
+        <p className="mt-1 text-xs text-[#64818b]">检索来源 → 抓取原文 → 核验归属 → 发布证据 → 更新推荐</p>
+        <p className="mt-1 text-xs text-slate-500">{activeRun.expansion.scopeNotice} {activeRun.expansion.costNotice}</p>
+        {activeRun.expansion.calls && <p className="mt-1 text-xs text-slate-500">检索 {activeRun.expansion.calls.search} 次 · 抓取 {activeRun.expansion.calls.fetch} 次 · 模型 {activeRun.expansion.calls.llm} 次{activeRun.expansion.knownCostCny ? ` · 已知部分费用 ¥${activeRun.expansion.knownCostCny.toFixed(4)}，非总费用` : ""}</p>}
+        {["failed", "interrupted", "partial"].includes(activeRun.expansion.state || "") && <button className="mt-2 font-semibold underline" disabled={expanding} onClick={() => void expand(true)}>重试未完成的调查</button>}
       </div>}
 
       {activeRun.items.length ? <div className="grid gap-4 xl:grid-cols-2">{activeRun.items.map((item, index) => <article key={item.teamId}
@@ -175,19 +186,23 @@ export default function RecommendationWorkspace({
           <div><strong className="block text-xl text-[#1e40af]">{item.citations.length}</strong><span className="text-[11px] text-[#64748b]">原文证据</span></div>
         </div>
         <p className="mt-4 line-clamp-3 text-sm leading-6 text-[#475569]">{item.capability}</p>
+        <p className="mt-2 text-xs text-slate-500">机构影响力：{impactLabel(item.institutionImpact)}（独立于任务匹配分）</p>
         <div className="mt-4 space-y-2"><p className="text-xs font-semibold text-[#475569]">可追溯成果与能力</p>
+          {item.supportedTasks?.length ? <p className="text-sm font-medium text-slate-800">成果支持的任务要素：{item.supportedTasks.join("、")}</p> : null}
           {item.citations.slice(0, 2).map((citation) => <a key={`${citation.url}${citation.quote}`} href={citation.url}
             target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-[#e4edf0] bg-[#ffffff] px-3 py-2 text-xs leading-5 text-[#475569] hover:border-[#a8d0da]">
             <span className="line-clamp-2">{citation.quote}</span><span className="mt-1 inline-flex items-center gap-1 font-semibold text-[#2563eb]">查看原文 <ExternalLink className="size-3" /></span>
           </a>)}</div>
         <div className="mt-4 border-t border-[#edf1f3] pt-3 text-xs leading-5 text-[#64748b]">
           <p>适用范围：推荐依据为所列成果，具体交付条件需与团队沟通。</p>
-          <p>下一步：查看成果原文，联系团队讨论任务方案。</p>
+          {item.taskCriteria?.map(criterion => <p key={criterion.requirement}>{criterion.matched ? "✓" : "—"} {criterion.requirement}：{criterion.matched ? "有引用依据" : "尚无对应依据"}</p>)}
+          {item.taskCriteria && item.unknowns.map(value => <p key={value}>尚缺信息：{value}</p>)}
+          <p>下一步：{item.taskCriteria ? item.nextStep : "查看成果原文，联系团队讨论任务方案。"}</p>
         </div>
         <button type="button" onClick={() => onOpenTeam(item.teamId)}
           className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563eb] hover:text-[#0b506a]">查看完整团队档案 <ArrowRight className="size-4" /></button>
       </article>)}</div> : <div className="rounded-xl border border-dashed border-[#bcd1d9] bg-white px-6 py-10 text-center text-sm text-[#5d7481]">
-        当前范围没有同时具备已核实科研归属和任务相关成果原文的团队。可调整任务描述或显式启动扩展调查。
+        当前范围没有同时具备已核实科研归属和任务相关成果原文的团队。可调整任务描述、选择全部领域，或点击“联网补充资料”。
       </div>}
 
       {comparedItems.length >= 2 && <section className="overflow-x-auto rounded-2xl border border-[#e2e8f0] bg-white p-5">
@@ -196,9 +211,13 @@ export default function RecommendationWorkspace({
           <tbody>{[
             ["任务匹配", ...comparedItems.map((item) => String(item.taskMatchScore))],
             ["团队总分", ...comparedItems.map((item) => String(item.teamScore ?? "—"))],
+            ["机构影响力", ...comparedItems.map((item) => impactLabel(item.institutionImpact))],
             ["原文证据", ...comparedItems.map((item) => `${item.citations.length} 条`)],
             ["成果与能力", ...comparedItems.map((item) => item.capability)],
-          ].map((row) => <tr key={row[0]} className="border-b border-[#eef2f4]">{row.map((value, index) => <td key={index} className="p-2 align-top text-[#475569]">{value}</td>)}</tr>)}</tbody></table>
+            ...Array.from(new Set(comparedItems.flatMap(item => item.taskCriteria?.map(c => c.requirement) || []))).map(requirement => [requirement, ...comparedItems.map(item => item.taskCriteria?.some(c => c.requirement === requirement && c.matched) ? "有成果引用依据" : "尚无对应依据")]),
+          ].map((row) => <tr key={row[0]} className="border-b border-[#eef2f4]">{row.map((value, index) => <td key={index} className="p-2 align-top text-[#475569]">{value}</td>)}</tr>)}
+          <tr><th className="p-2 align-top">成果原文</th>{comparedItems.map(item => <td key={item.teamId} className="p-2 align-top">{item.citations.map((citation, i) => <a className="mb-2 block text-xs leading-5 text-blue-700" key={`${citation.url}-${i}`} href={citation.url} target="_blank" rel="noreferrer">{citation.text} ↗</a>)}</td>)}</tr>
+          </tbody></table>
       </section>}
     </> : <section className="grid gap-3 sm:grid-cols-3">{[
       [UsersRound, "身份核验", "机构、团队、人员分别核对，避免把机构新闻算给团队。"],
@@ -206,22 +225,6 @@ export default function RecommendationWorkspace({
       [Check, "有据可查", "展示通过审核且有成果原文依据的团队。"],
     ].map(([Icon, title, description]) => { const CardIcon = Icon as typeof UsersRound; return <div key={title as string} className="rounded-xl border border-[#e2e8f0] bg-white p-4 shadow-sm"><CardIcon className="size-5 text-[#2563eb]" /><h3 className="mt-3 text-sm font-semibold text-[#0f172a]">{title as string}</h3><p className="mt-1 text-xs leading-5 text-[#64748b]">{description as string}</p></div>; })}</section>}
 
-    <section className="rounded-2xl border border-[#e2e8f0] bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-base font-semibold text-[#0f172a]">检索团队成果与原文</h3><span className="text-xs text-[#64748b]">已审核证据</span></div>
-      <form onSubmit={(event) => void doSearch(event)} className="mt-3 flex gap-2"><input aria-label="证据检索" value={search} onChange={(event) => setSearch(event.target.value)}
-        placeholder="输入团队、成果、论文或事件关键词" className="min-w-0 flex-1 rounded-lg border border-[#cadce4] px-3 py-2 text-sm outline-none focus:border-[#1687a3]" />
-      <button type="submit" disabled={search.trim().length < 2 || searching} className="rounded-lg bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{searching ? "检索中" : "检索"}</button></form>
-      {searchTotal !== null && <p className="mt-3 text-xs text-[#67808b]">找到 {searchTotal} 条档案与证据</p>}
-      {searchResults.length > 0 && <div className="mt-3 space-y-2">{searchResults.map((result) => <div key={`${result.type}-${result.id}`} className="rounded-lg border border-[#e7eef1] p-3">
-        <p className="text-xs text-[#64748b]">{{
-          team_claim: "已核团队证据",
-          team_profile: "团队档案",
-          institution_event: "机构事件"
-        }[result.type]}{result.date ? ` · ${result.date}` : ""}</p>
-        <p className="mt-1 text-sm font-semibold text-[#0f172a]">{result.title}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#64748b]">{result.snippet}</p>
-        {result.reviewNotice && <p className="mt-1 text-xs text-amber-700">{result.reviewNotice}</p>}
-        {result.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#2563eb]">打开原文 <ExternalLink className="size-3" /></a>}
-      </div>)}</div>}
-    </section>
+    <EvidenceSearch domainId={domainId} subdomainId={subdomainId} domainName={domainName} subdomainName={subdomainName} onOpenTeam={onOpenTeam} />
   </main>;
 }

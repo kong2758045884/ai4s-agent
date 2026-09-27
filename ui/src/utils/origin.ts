@@ -11,13 +11,12 @@ export function resolveServiceBaseUrl(configuredBaseUrl?: string): string {
     const parsed = new URL(normalized);
     if (typeof window !== "undefined") {
       const currentHost = window.location.hostname;
-      const currentPort = window.location.port;
       const isLoopbackHost =
         parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
       // Vite dev server proxies backend requests same-origin. This avoids
       // loopback CORS differences between localhost:3000 and 127.0.0.1:3000.
       if (
-        currentPort === "3000" &&
+        import.meta.env.DEV &&
         (currentHost === "127.0.0.1" || currentHost === "localhost") &&
         isLoopbackHost
       ) {

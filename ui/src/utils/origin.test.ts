@@ -5,9 +5,11 @@ import { resolveServiceBaseUrl } from "./origin";
 describe("resolveServiceBaseUrl", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("should align loopback backend host to current localhost page host", () => {
+    vi.stubEnv("DEV", false);
     vi.stubGlobal("window", {
       location: {
         hostname: "localhost",
@@ -41,7 +43,7 @@ describe("resolveServiceBaseUrl", () => {
     vi.stubGlobal("window", {
       location: {
         hostname: "127.0.0.1",
-        port: "3000",
+        port: "3004",
       },
     });
 

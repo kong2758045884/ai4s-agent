@@ -7,6 +7,10 @@ import {
 } from "./visitorGate";
 
 describe("visitorGate", () => {
+  it("失败后等待显式重试，避免请求与错误提示无限循环", () => {
+    expect(shouldBootstrapVisitor({ bootstrapLoaded: false, bootstrapLoading: false, bootstrapFailed: true })).toBe(false);
+    expect(shouldBootstrapVisitor({ bootstrapLoaded: false, bootstrapLoading: false, bootstrapFailed: false })).toBe(true);
+  });
   it("未完成 bootstrap 前不能加载 visitor 保护数据", () => {
     expect(
       shouldLoadVisitorProtectedData({

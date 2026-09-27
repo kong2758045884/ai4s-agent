@@ -255,6 +255,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   const [visitorBootstrap, setVisitorBootstrap] = useState<VisitorBootstrapInfo>();
   const [visitorBootstrapLoaded, setVisitorBootstrapLoaded] = useState(false);
   const [visitorBootstrapLoading, setVisitorBootstrapLoading] = useState(false);
+  const [visitorBootstrapFailed, setVisitorBootstrapFailed] = useState(false);
   const [visitorNamingLoading, setVisitorNamingLoading] = useState(false);
   const [conversationBootstrapLoading, setConversationBootstrapLoading] =
     useState(false);
@@ -366,6 +367,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
     if (!shouldBootstrapVisitor({
       bootstrapLoaded: visitorBootstrapLoaded,
       bootstrapLoading: visitorBootstrapLoading,
+      bootstrapFailed: visitorBootstrapFailed,
     })) {
       return;
     }
@@ -380,11 +382,12 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
       })
       .catch((error) => {
         console.error("加载访客状态失败", error);
+        setVisitorBootstrapFailed(true);
       })
       .finally(() => {
         setVisitorBootstrapLoading(false);
       });
-  }, [visitorBootstrapLoaded, visitorBootstrapLoading]);
+  }, [visitorBootstrapLoaded, visitorBootstrapLoading, visitorBootstrapFailed]);
 
   useEffect(() => {
     if (!visitorProtectedDataReady) {
@@ -986,7 +989,7 @@ const Home: AI4SType.FC<HomeProps> = memo(() => {
   // Strategic evidence remains publicly readable; naming still gates conversations.
   const publicStrategicMap = location.pathname === ROUTES.WORKSPACE_STRATEGIC_MAP;
   if (!publicStrategicMap && visitorWorkspaceStage === "bootstrapping") {
-    return <VisitorBootstrapScreen />;
+    return <VisitorBootstrapScreen failed={visitorBootstrapFailed} onRetry={() => setVisitorBootstrapFailed(false)} />;
   }
 
   if (!publicStrategicMap && visitorWorkspaceStage === "ready" && conversationBootstrapLoading) {

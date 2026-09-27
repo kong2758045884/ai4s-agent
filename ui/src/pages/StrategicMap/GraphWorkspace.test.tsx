@@ -21,6 +21,6 @@ describe("StrategicMap GraphWorkspace", () => {
     expect(html).toContain("搜索");
     expect(html).toContain("重置图谱");
     expect(html).toContain("图谱对话");
-    expect(html).toContain("扫描");
+    expect(html).toContain("再分析");
   });
 });

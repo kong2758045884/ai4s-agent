@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Building2, CalendarDays, ExternalLink, FolderTree, X } from "lucide-react";
 import { impactApi, type ImpactRanking, type ImpactDetail, type ImpactDirection, type ImpactEvent, type ImpactCandidate } from "@/services/impactTriage";
 import { fusionApi, type FusionStatus, type FusionDaily } from "@/services/researchFusion";
@@ -50,6 +50,7 @@ export default function VerifiedIntelligence({ domainId, subdomainId = "" }: { d
   const eventRequest = useRef(0);
   const [institutions, setInstitutions] = useState<ImpactRanking[]>([]);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [tier, setTier] = useState("");
   const [onlyFollowed, setOnlyFollowed] = useState(false);
   const [detail, setDetail] = useState<ImpactDetail | null>(null);
@@ -67,9 +68,15 @@ export default function VerifiedIntelligence({ domainId, subdomainId = "" }: { d
   const [reportLoading, setReportLoading] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(false);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   useEffect(() => { const c = new AbortController(); void fusionApi.status(c.signal).then(setStatus).catch((e) => { if (!c.signal.aborted) setError(String(e)); }); return () => c.abort(); }, []);
   useEffect(() => {
     let disposed = false;
+    const controller = new AbortController();
     eventRequest.current += 1; setEventsLoading(false);
     setLoading(true); setError(""); setInstitutions([]); setSelectedId(""); setDetail(null); setTreeEvents([]); setEventHeading("");
     void impactApi.directions().then(async (value) => {
@@ -79,11 +86,14 @@ export default function VerifiedIntelligence({ domainId, subdomainId = "" }: { d
       if ((domainId || subdomainId) && !selected) return;
       const params = new URLSearchParams({ view: "official", country: "zn" });
       if (selected) params.set("direction_id", selected.id);
-      const result = await impactApi.ranking(params);
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (tier) params.set("tier", tier);
+      if (onlyFollowed) params.set("followed", "true");
+      const result = await impactApi.ranking(params, controller.signal);
       if (!disposed) setInstitutions(result.items.filter((item) => item.kind === "institution" && item.eligibility === "eligible" && item.mainland_confirmed === 1));
     }).catch((e) => { if (!disposed) setError(String(e)); }).finally(() => { if (!disposed) setLoading(false); });
-    return () => { disposed = true; };
-  }, [domainId, subdomainId, revision]);
+    return () => { disposed = true; controller.abort(); };
+  }, [domainId, subdomainId, revision, debouncedQuery, tier, onlyFollowed]);
   useEffect(() => {
     let disposed = false; setDetail(null);
     if (selectedId) void impactApi.entity(selectedId).then((value) => { if (!disposed) setDetail(value); }).catch((e) => { if (!disposed) setError(String(e)); });
@@ -101,8 +111,7 @@ export default function VerifiedIntelligence({ domainId, subdomainId = "" }: { d
       .catch((e) => { if (!c.signal.aborted) setError(String(e)); }).finally(() => { if (!c.signal.aborted) setReportLoading(false); });
     return () => c.abort();
   }, [tab, date, domainId, subdomainId, revision]);
-  const visible = useMemo(() => institutions.filter((item) => (!tier || item.tier === tier) && (!onlyFollowed || item.follow_status !== "unfollowed")
-    && `${item.name} ${item.identity_aliases.map((a) => a.name).join(" ")} ${Object.values(item.reasons).join(" ")}`.toLowerCase().includes(query.toLowerCase())), [institutions, query, tier, onlyFollowed]);
+  const visible = query.trim() === debouncedQuery ? institutions : [];
   const mappedLeaves = directions.filter((d) => d.level === 3 && d.ai4s_subdomain_id === subdomainId);
   const l2 = directions.filter((d) => d.level === 2 && d.status === "formal" && (!domainId || d.ai4s_domain_id === domainId)
     && (!subdomainId || d.ai4s_subdomain_id === subdomainId || mappedLeaves.some((leaf) => leaf.parent_id === d.id)));
@@ -140,17 +149,19 @@ export default function VerifiedIntelligence({ domainId, subdomainId = "" }: { d
     </header>
     <nav aria-label="分诊视图" className="flex overflow-x-auto rounded-xl border border-slate-200 bg-white p-1.5">{([{ key: "ranking", title: "A/B/C 机构排名", icon: Building2 }, { key: "tree", title: "L1→L3 类目树", icon: FolderTree }, { key: "daily", title: "每日报告", icon: CalendarDays }] as const).map(({ key, title, icon: Icon }) =>
       <button key={key} aria-pressed={tab === key} onClick={() => { setTab(key); setError(""); }} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${tab === key ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-50"}`}><Icon className="size-4" />{title}</button>)}</nav>
+    {Boolean(status?.localUpdates?.failed) && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{status?.localUpdates?.failed} 项本地更新处理失败，已有推荐仍可查看。<button className="ml-3 text-blue-700" disabled={busy} onClick={async () => { setBusy(true); try { const result = await fusionApi.retryChanges(); if (result.error) throw new Error(result.error); setStatus(await fusionApi.status()); setRevision(n => n + 1); } catch (e) { setError(String(e)); } finally { setBusy(false); } }}>重试本地更新</button></div>}
     {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>}
     {tab === "ranking" && <>
       <div className={`${panel} flex flex-wrap items-center gap-3`}><input aria-label="检索科研机构" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="机构、别名或成果关键词" className={`${input} min-w-0 flex-1`} /><select aria-label="机构等级" value={tier} onChange={(e) => setTier(e.target.value)} className={input}><option value="">全部等级</option>{["A", "B", "C"].map((v) => <option key={v}>{v}</option>)}</select><label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={onlyFollowed} onChange={(e) => setOnlyFollowed(e.target.checked)} />仅看关注</label></div>
       <p className="px-1 text-xs leading-5 text-slate-500">{visible.length} 个具备机构资格与评分记录的科研机构。历史来源评级尚未按 AI4S 样本校准，独立于团队评分和任务匹配分。</p>
-      {loading && <p className="p-5 text-sm text-slate-500">正在读取机构排名…</p>}
+      {(loading || query.trim() !== debouncedQuery) && <p className="p-5 text-sm text-slate-500">正在读取机构排名…</p>}
       <div className="space-y-3">{visible.map((item, index) => <button key={item.id} type="button" data-impact-entity={item.id} onClick={() => setSelectedId(item.id)} className={`${panel} w-full text-left transition hover:border-blue-300`}>
         <div className="flex items-start gap-3"><span className="mt-1 font-mono text-sm text-slate-400">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-900">{item.name}</h3><p className="mt-1 text-xs text-slate-500">{item.event_count} 条事件 · {item.flagship_count} 项代表成果 · {item.scan_date}</p></div><span className={`rounded-lg px-3 py-1.5 text-sm font-bold ${levelColor(item.tier)}`}>{item.tier}</span><strong className="text-xl text-slate-900">{item.total.toFixed(1)}</strong></div>
         <div className="mt-4 grid grid-cols-3 gap-3">{[["成就", item.eff_achievement], ["地位", item.eff_status], ["趋势", item.eff_trend]].map(([label, value]) => <div key={label} className="text-xs text-slate-500">{label}<strong className="ml-2 text-slate-700">{value}</strong><div className="mt-2 h-1 rounded bg-slate-100"><div className="h-1 rounded bg-blue-400" style={{ width: `${Math.max(0, Math.min(100, Number(value)))}%` }} /></div></div>)}</div>
         <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">{item.change_reason || "本期无等级变化"} · 查看评语与趋势 →</p>
+        {item.match_snippet && <p className="mt-2 rounded-lg bg-blue-50 p-2 text-xs leading-5 text-blue-800">命中{item.match_reason}：{item.match_snippet}</p>}
       </button>)}</div>
-      {!loading && !visible.length && <p className={`${panel} text-sm text-slate-500`}>当前范围没有符合筛选的机构评分记录。{subdomainId ? "可切换全部子领域查看所属领域的排名。" : "团队库仍可独立检索已核实团队。"}</p>}
+      {!loading && query.trim() === debouncedQuery && !visible.length && <p className={`${panel} text-sm text-slate-500`}>当前范围没有符合筛选的机构评分记录。{subdomainId ? "可切换全部子领域查看所属领域的排名。" : "团队库仍可独立检索已核实团队。"}</p>}
       {selectedId && <section aria-label="机构影响力详情" className={panel}><div className="flex items-center justify-between gap-3"><h3 className="text-lg font-semibold">{detail?.name || "正在读取机构详情…"}</h3><button aria-label="关闭机构详情" onClick={() => setSelectedId("")}><X className="size-5 text-slate-400" /></button></div>
         {detail && <div className="mt-4 space-y-4"><div className="flex flex-wrap items-center gap-3"><button disabled={busy} onClick={() => void follow()} className="rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700">{detail.follow_status === "unfollowed" ? "关注机构" : "取消关注"}</button>{safeUrl(detail.eligibility_basis_url) && <a href={detail.eligibility_basis_url} target="_blank" rel="noreferrer" className="text-xs text-blue-700">机构官网依据 ↗</a>}</div>
           <div className="grid gap-3 xl:grid-cols-3">{Object.entries(selectedRanking?.reasons || {}).map(([key, reason]) => <article key={key} className="rounded-xl bg-slate-50 p-4"><h4 className="text-xs font-semibold text-slate-700">{{ achievement: "成就评语", status: "地位评语", future: "趋势评语", trend: "趋势评语" }[key] || key}</h4><p className="mt-2 text-xs leading-6 text-slate-600">{reason}</p></article>)}</div>
@@ -168,16 +179,16 @@ export default function VerifiedIntelligence({ domainId, subdomainId = "" }: { d
       {manage && <section className={panel}><h3 className="font-semibold">类目调整记录</h3>{audits.filter((audit) => directions.some((d) => d.id === audit.direction_id && (l2.some((branch) => branch.id === d.id || branch.id === d.parent_id)) && (!subdomainId || d.ai4s_subdomain_id === subdomainId))).map((audit) => <div key={audit.id} className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-600"><span>{directions.find((d) => d.id === audit.direction_id)?.name} · {audit.action} · {audit.reviewed_on}</span>{audit.reverted_on ? <span className="text-slate-400">已撤销</span> : <button disabled={busy} onClick={() => void rollback(audit.id)} className="shrink-0 text-blue-700">撤销此项调整</button>}</div>)}</section>}
       {eventHeading && <section className={panel}><h3 className="mb-4 font-semibold">{eventHeading} · 来源事件</h3>{eventsLoading ? <p className="text-sm text-slate-500">正在读取事件…</p> : <EventCards events={treeEvents} />}{!eventsLoading && !treeEvents.length && <p className="text-sm text-slate-500">当前主题没有关联事件。</p>}</section>}
     </>}
-    {tab === "daily" && <section className={panel}><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">每日领域报告</h3><label className="text-xs text-slate-500">日期 <input aria-label="报告日期" type="date" value={date} onChange={(e) => setDate(e.target.value)} className={input} /></label></div>
+    {tab === "daily" && <section className={panel}><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">每日领域报告</h3><button disabled={busy || reportLoading} onClick={async () => { setBusy(true); try { setReport(await fusionApi.freezeDaily(date, domainId, subdomainId)); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(false); } }} className="text-xs font-semibold text-blue-700">{report?.frozen ? "按新资料生成修订版" : "保存完整日报快照"}</button><label className="text-xs text-slate-500">日期 <input aria-label="报告日期" type="date" value={date} onChange={(e) => setDate(e.target.value)} className={input} /></label></div>
       <div className="mt-3 flex flex-wrap gap-2">{status?.triage.dates.slice(0, 8).map((day) => <button key={day} onClick={() => setDate(day)} className={`rounded-lg px-2 py-1 text-xs ${date === day ? "bg-blue-50 text-blue-700" : "bg-slate-50 text-slate-500"}`}>{day}</button>)}</div>
       {reportLoading ? <p className="mt-6 text-sm text-slate-500">正在读取当期报告…</p> : report && <div className="mt-5 space-y-5">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[[report.sourceEvents.length, "领域事件"], [report.treeChanges.length, "类目变更"], [report.scoreChanges.length, "机构评分"], [report.teamChanges.length, "团队更新"]].map(([n, label]) => <div key={label} className="rounded-xl bg-slate-50 p-3"><strong className="text-xl">{n}</strong><p className="mt-1 text-xs text-slate-500">{label}</p></div>)}</div>
-        <section><h4 className="text-sm font-semibold">一、数据流入与领域事件</h4><p className="mt-2 text-xs leading-5 text-slate-500">按事件日期回看来源记录；历史快照不计作今天的新流入。</p>{report.sourceEvents.map((event) => <article key={event.id} className="mt-3 rounded-xl border border-slate-200 p-4"><h5 className="text-sm font-medium">{event.title}</h5><p className="mt-2 text-xs leading-6 text-slate-500">{event.summary}</p>{event.sources.filter((s) => safeUrl(s.url)).map((s, i) => <a key={`${s.url}-${i}`} href={s.url} target="_blank" rel="noreferrer" className="mr-3 mt-2 inline-block text-xs text-blue-700">{s.title || `原文 ${i + 1}`} ↗</a>)}</article>)}{!report.sourceEvents.length && <p className="mt-2 text-xs text-slate-500">当日无符合当前范围的机构事件。</p>}</section>
+        <section><h4 className="text-sm font-semibold">一、数据流入与领域事件</h4><p className="mt-2 text-xs leading-5 text-slate-500">以北京时间划分入库日期，保留事件发生日期；迟到证据作为补录，历史快照不计作今天的新流入。</p>{report.sourceEvents.map((event) => <article key={event.id} className="mt-3 rounded-xl border border-slate-200 p-4"><p className="mb-2 text-xs text-slate-400">发生：{event.event_date || "未注明"} · 入库：{event.imported_on || "未注明"}{event.lateArrival ? " · 补录" : ""}</p><h5 className="text-sm font-medium">{event.title}</h5><p className="mt-2 text-xs leading-6 text-slate-500">{event.summary}</p>{event.sources.filter((s) => safeUrl(s.url)).map((s, i) => <a key={`${s.url}-${i}`} href={s.url} target="_blank" rel="noreferrer" className="mr-3 mt-2 inline-block text-xs text-blue-700">{s.title || `原文 ${i + 1}`} ↗</a>)}</article>)}{!report.sourceEvents.length && <p className="mt-2 text-xs text-slate-500">当日无符合当前范围的机构事件。</p>}</section>
         <section><h4 className="text-sm font-semibold">二、类目更新</h4>{report.treeChanges.map((item) => <p key={item.id} className="mt-2 text-xs text-slate-600">{item.label || item.action} · {item.reverted_on ? "已回滚" : item.reviewed_on}</p>)}{!report.treeChanges.length && <p className="mt-2 text-xs text-slate-500">当日无类目变更。</p>}</section>
         <section><h4 className="text-sm font-semibold">三、机构排名变动</h4>{report.scoreChanges.map((item) => <p key={item.id} className="mt-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{item.name} · {item.tier} · {item.change_reason || "本期无等级变化"}</p>)}{!report.scoreChanges.length && <p className="mt-2 text-xs text-slate-500">当日没有机构评分期次。</p>}</section>
         <section><h4 className="text-sm font-semibold">四、团队与推荐变化</h4>{report.teamChanges.map((item, i) => <p key={i} className="mt-2 text-sm leading-6 text-slate-600">{item.institutionName} · {item.teamName}：{item.reason}</p>)}{report.recommendationChanges.map((item, i) => <p key={i} className="mt-2 text-sm text-slate-600">{item.taskText}：{item.reason}（{item.before.length} → {item.after.length} 支）</p>)}{!report.teamChanges.length && !report.recommendationChanges.length && <p className="mt-2 text-xs text-slate-500">当日无已发布的团队或推荐变化。</p>}</section>
         <section><h4 className="text-sm font-semibold">五、领域摘要与跟进</h4><p className="mt-2 text-sm leading-6 text-slate-600">{report.date}，当前范围有 {report.sourceEvents.length} 条领域事件、{report.scoreChanges.length} 期机构评分和 {report.teamChanges.length} 次团队资料更新。</p>{report.teamChanges.map((item, i) => <p key={i} className="mt-2 text-xs leading-5 text-slate-500">跟进{item.teamName}新增成果的任务适用条件及合作接口。</p>)}</section>
-        <footer className="break-all border-t border-slate-100 pt-3 text-[11px] text-slate-400">{report.frozen ? `团队与推荐快照 r${report.revision}` : "当前数据回放"} · 输入版本 {report.inputHash.slice(0, 16)} · 来源评分待校准</footer>
+        <footer className="break-all border-t border-slate-100 pt-3 text-[11px] text-slate-400">{report.frozen ? `完整日报快照 r${report.revision}` : "当前数据回放（北京时间）"} · 输入版本 {report.inputHash.slice(0, 16)} · 来源评分待校准</footer>
       </div>}
     </section>}
   </main>;
