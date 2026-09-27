@@ -63,9 +63,11 @@ def source(claim, team):
     metadata = copy.deepcopy(team.get("claimProvenance", {}).get(claim[0]) or {})
     value = {"id": claim[0], "teamId": claim[1], "sourceRunId": claim[2], "kind": claim[3],
              "text": claim[4], "quote": claim[5], "url": claim[6], "publishedAt": claim[7], "provenance": metadata}
-    # Machine checks and collection times can change; a human decision is bound
-    # to the exact retained source version, not only to the URL or team name.
-    fingerprint = hashlib.sha256(_json(value).encode()).hexdigest()
+    # Identical content collected again must not invalidate a human decision.
+    # Bind it to the actual claim/body version, excluding run IDs and check times.
+    content = {key: value[key] for key in ("id", "teamId", "kind", "text", "quote", "url", "publishedAt")}
+    content.update(contentHash=metadata.get("contentHash", ""), quoteHash=metadata.get("quoteHash", ""))
+    fingerprint = hashlib.sha256(_json(content).encode()).hexdigest()
     return {**value, "fingerprint": fingerprint}
 
 

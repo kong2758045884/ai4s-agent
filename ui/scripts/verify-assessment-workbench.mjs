@@ -11,12 +11,15 @@ const output = process.env.AI4S_ASSESSMENT_OUTPUT;
 const replayInvestigation = process.env.AI4S_ASSESSMENT_INVESTIGATION_REPLAY === '1';
 const replayRole = process.env.AI4S_ASSESSMENT_ROLE_REPLAY === '1';
 const project = path.resolve(process.cwd(), '..');
+const roleDb = path.resolve(process.env.AI4S_ASSESSMENT_ROLE_DB || path.join(project, 'runtime/optimization-20260926/teacher-preview.db'));
+assert.equal(path.dirname(roleDb), path.join(project, 'runtime/optimization-20260926'));
+assert.ok(/^teacher(?:-claim)?-preview\.db$/.test(path.basename(roleDb)), 'Role replay only accepts named isolated preview copies');
 let grantedVisitor = '';
 const setTestRole = (visitor, role) => new Promise((resolve, reject) => {
   assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Role replay is restricted to localhost');
   const child = spawn(path.join(project, 'ai4s-tool/.venv/Scripts/python.exe'), [
     path.join(project, 'ai4s-tool/scripts/manage_strategic_roles.py'),
-    '--db', path.join(project, 'runtime/optimization-20260926/teacher-preview.db'),
+    '--db', roleDb,
     '--visitor', visitor, '--role', role, '--operator', 'isolated-browser-acceptance', '--reason', '副本浏览器权限验收'],
   { stdio: 'ignore', windowsHide: true });
   child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(Error('Isolated role command failed')));
@@ -215,6 +218,8 @@ try {
     await fill('[data-browser-reason]', '离线验收构造争议，确认不会覆盖历史推荐');
     await click('保存本条审核');
     await until(() => evaluate(`document.querySelector('dialog[open]')?.innerText.includes('已保存。相关研判将在本地更新') && document.querySelector('dialog[open]')?.innerText.includes('存在冲突')`), 'saved individual review');
+    await until(() => evaluate(`document.querySelector('[data-testid="claim-review-form"] button[type=submit]')?.disabled===false`), 'review receipt fully reloaded');
+    assert.ok(await evaluate(`(()=>{const style=getComputedStyle(document.querySelector('[data-testid="claim-review-form"] button[type=submit]'));return style.color!==style.backgroundColor;})()`), 'review action text visible against its background');
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'), true, 'responsive claim review');
     if (output) {
       await evaluate(`document.querySelector('[data-testid="claim-review-form"]').scrollIntoView({block:'start'})`);

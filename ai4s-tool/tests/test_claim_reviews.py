@@ -184,3 +184,14 @@ def test_replaced_claim_id_retains_old_human_decision_for_recheck(review_client)
     assert queue["items"][0]["available"] is False
     assert state(client)["history"][0]["decision"] == "supported"
     assert state(client, "new-quote-id")["review"]["status"] == "not_recorded"
+
+
+def test_recollecting_identical_content_does_not_invalidate_human_judgment(review_client):
+    client, _, _, teams, claims, version = review_client
+    saved = save(client)
+    claims[0] = (claims[0][0], claims[0][1], "another-source-run", *claims[0][3:])
+    teams[0]["claimProvenance"]["c1"].update(sourceRunId="another-source-run", fetchedAt="2026-09-27")
+    version[0] = "recollected"
+    assert state(client)["review"]["status"] == "reviewed"
+    assert state(client)["review"]["reviewId"] == saved["reviewId"]
+    assert len(tasks._candidate_evidence()[0]) == 1
