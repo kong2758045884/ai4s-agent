@@ -10,11 +10,12 @@ import json
 from contextlib import closing
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from . import impact_store, strategic_graph as graph, task_recommendations as tasks
 
-router = APIRouter(prefix='/strategic-map/integration', tags=['research_fusion'])
+from .strategic_access import maintenance_guard
+router = APIRouter(prefix='/strategic-map/integration', tags=['research_fusion'], dependencies=[Depends(maintenance_guard)])
 
 
 def _directions(conn, domain_id, subdomain_id):

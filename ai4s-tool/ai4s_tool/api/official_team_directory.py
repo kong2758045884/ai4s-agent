@@ -66,6 +66,7 @@ def compact(value: str) -> str:
 
 
 def citation(page: dict, quote: str) -> dict:
+    from .claim_provenance import locate
     if not quote.strip() or compact(quote) not in compact(page.get("text", "")):
         raise ValueError("引用不在抓取的正文中")
     return {
@@ -73,6 +74,10 @@ def citation(page: dict, quote: str) -> dict:
         "quote": quote,
         "fetched_at": page.get("fetched_at", ""),
         "source_type": "official_institution",
+        "title": page.get("title", ""),
+        "published_at": page.get("published_at", ""),
+        "content_hash": hashlib.sha256(page.get("text", "").encode()).hexdigest(),
+        "quote_locator": locate(page.get("text", ""), quote),
     }
 
 

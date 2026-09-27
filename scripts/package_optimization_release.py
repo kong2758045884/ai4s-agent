@@ -23,6 +23,7 @@ def package(project, release):
         shutil.copy2(root / 'ai4s-tool' / name, stage / 'tool' / name)
     (stage / 'tool/scripts').mkdir()
     shutil.copy2(root / 'ai4s-tool/scripts/migrate_strategic_optimization.py', stage / 'tool/scripts')
+    shutil.copy2(root / 'ai4s-tool/scripts/manage_strategic_roles.py', stage / 'tool/scripts')
     (stage / 'scripts').mkdir()
     for name in ['deploy_strategic_optimization.py', 'deploy_canonical_frontend.py', 'ensure_spa_cache.py']:
         shutil.copy2(root / 'scripts' / name, stage / 'scripts')

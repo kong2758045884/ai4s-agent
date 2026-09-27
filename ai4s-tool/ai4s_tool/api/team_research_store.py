@@ -167,7 +167,7 @@ def persist(session, team, run):
     from .strategic_map import StrategicPersonRow, _now, _team_to_dict, _update_team_score
     if run.get('extracted') and not run.get('reviewed'):
         return persist_collected(session, team, run)
-    before = _team_to_dict(team, session)
+    before = _team_to_dict(team, session, include_private=True)
     reviewed = run.get('reviewed') or {}
     accepted = (run.get('status') == 'reviewed'
                 and reviewed.get('entity_relation') in ('same', 'rename')
@@ -303,7 +303,7 @@ def persist_collected(session, team, run):
     from .strategic_map import _now, _team_to_dict, _update_team_score
     from .team_research import Research
     value = run.get('extracted') or {}
-    before = _team_to_dict(team, session)
+    before = _team_to_dict(team, session, include_private=True)
     guard = Research(lambda **kwargs: '', seconds=1)
     guard.pages = {p['url']: p for p in run.get('pages', [])}
     def sourced(fact):

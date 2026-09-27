@@ -70,6 +70,18 @@ class PipelineTest(unittest.TestCase):
                   ai_level='较高',science_level='较高',dual_judgement='AI 较高｜科学 较高'))
             s.commit()
         app=FastAPI(); app.include_router(sm.router,prefix='/v1')
+        # Business write-path tests use an explicit offline maintenance actor;
+        # HTTP role denials/grants are independently covered by test_strategic_access.
+        from ai4s_tool.api import strategic_access as access
+        async def maintainer():
+            token = access.ACTOR.set('pipeline-test-maintainer')
+            try:
+                yield
+            finally:
+                access.ACTOR.reset(token)
+        app.dependency_overrides[access.maintenance_guard] = maintainer
+        app.dependency_overrides[access.current_editor] = lambda: 'pipeline-test-maintainer'
+        app.include_router(access.router, prefix='/v1')
         self.client=TestClient(app)
 
     def save(self, value):
@@ -79,7 +91,10 @@ class PipelineTest(unittest.TestCase):
             return published
 
     def detail(self):
-        return self.client.get('/v1/strategic-map/teams/t').json()['data']
+        public = self.client.get('/v1/strategic-map/teams/t').json()['data']
+        internal = self.client.get('/v1/strategic-map/teams/t/internal').json()['data']
+        self.assertNotIn('contactRecord', public['team'])
+        return {**public, 'team': {**public['team'], **internal['fields']}}
 
     def test_legacy_migration_preserves_records_and_does_not_promote(self):
         from sqlalchemy import create_engine

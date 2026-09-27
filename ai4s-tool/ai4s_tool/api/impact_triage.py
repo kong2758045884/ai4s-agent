@@ -9,12 +9,13 @@ from datetime import date
 from urllib.parse import urlsplit
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 
 from . import impact_store as store
 
-router = APIRouter(prefix="/impact-triage", tags=["impact_triage"])
+from .strategic_access import maintenance_guard
+router = APIRouter(prefix="/impact-triage", tags=["impact_triage"], dependencies=[Depends(maintenance_guard)])
 
 
 @contextmanager
@@ -35,12 +36,17 @@ def _write():
     try:
         store.init_schema(conn)
         from . import strategic_changes
+        from . import strategic_access
         strategic_changes.init(conn)
+        strategic_access.init(conn, include_roles=False)
         with conn:
             before = conn.total_changes
             yield conn
             if conn.total_changes != before:
                 import uuid
+                if strategic_access.ACTOR.get():
+                    strategic_access.audit(conn, actor=strategic_access.ACTOR.get(), operation=strategic_access.ACTION.get(),
+                        resource_id="registry", payload={"note": "对应本事务机构／类目／身份审核记录"})
                 strategic_changes.record(conn, subject_type="impact", subject_id="registry",
                     kind="impact_mutation", source_id=uuid.uuid4().hex,
                     payload={"reason": "机构身份、事件、类目或评分审核变更；机构事件不自动归入团队成果"})

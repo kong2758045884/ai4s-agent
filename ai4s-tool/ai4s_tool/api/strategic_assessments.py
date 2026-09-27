@@ -232,7 +232,8 @@ def observe_assessment(task_id: str, body: ObserveAssessment, owner: str = Depen
             "institutionName": team.get("institutionName") or team["name"], "outcomeCount": len(outcomes),
             "recentOutcomeCount": len(recent), "undatedOutcomeCount": sum(not c[7] for c in outcomes),
             "reason": "已有具体团队成果，可按任务继续查证" if outcomes else "有身份与方向来源，具体成果尚缺",
-            "citations": [{"id": c[0], "kind": c[3], "text": c[4], "quote": c[5], "url": c[6], "publishedAt": c[7]}
+            "citations": [{"id": c[0], "kind": c[3], "text": c[4], "quote": c[5], "url": c[6], "publishedAt": c[7],
+                           "provenance": team.get("claimProvenance", {}).get(c[0])}
                           for c in (outcomes or evidence)[:3]]})
     units.sort(key=lambda t: (-t["outcomeCount"], t["teamId"]))
     run_id = "observation-" + uuid.uuid4().hex

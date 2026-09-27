@@ -113,6 +113,8 @@ def stage(release):
     team = backup(Path(env['STRATEGIC_MAP_DB_PATH']), directory/'strategic_map.db')
     impact = backup(Path(env['AI4S_IMPACT_DB_PATH']), directory/'impact_triage.db')
     migrate(release, team, directory/'journal')
+    run(PYTHON, release/'tool/scripts/migrate_strategic_optimization.py', '--db', impact,
+        '--access-audit-only', '--report', directory/'journal/impact-access-migration.json', cwd=release/'tool')
     env.update(STRATEGIC_MAP_DB_PATH=str(team), AI4S_IMPACT_DB_PATH=str(impact),
                SQLITE_DB_PATH=str(directory/'autobots.db'), SQLITE_PATH=str(directory/'mrag.db'),
                LOG_PATH=str(directory/'server.log'))
@@ -153,6 +155,18 @@ def private_assessment_gate(port):
         'criteria': parsed['criteria'], 'evidenceVersion': parsed['evidenceVersion']})
     result = current['run']
     assert len(result['items']) >= 3 and result['inputVersion'] == 1
+    assert all(c.get('provenance', {}).get('fetchedAt') for item in result['items'] for c in item['citations'])
+    public = api(port, '/intelligence/verified-teams')
+    assert not any({'contactRecord', 'internalReview', 'nextAction'} & set(team) for team in public['teams'])
+    access = request('/access')
+    assert access['permissions'] == []
+    from urllib.error import HTTPError
+    try:
+        request('/teams/' + result['items'][0]['teamId'] + '/internal')
+    except HTTPError as exc:
+        assert exc.code == 403
+    else:
+        raise AssertionError('An ungranted visitor read internal team records')
     saved = request(f"/assessments/{record['taskId']}/export")
     assert saved['run']['runId'] == result['runId'] and 'internalNotes' not in saved
     investigations = request(f"/assessments/{record['taskId']}/runs/{result['runId']}/investigations")
@@ -194,6 +208,8 @@ def activate(release):
             with target.open('rb') as source, gzip.open(str(target)+'.gz', 'wb', compresslevel=3) as zipped:
                 shutil.copyfileobj(source, zipped)
         migrate(release, Path(env['STRATEGIC_MAP_DB_PATH']), journal)
+        run(PYTHON, release/'tool/scripts/migrate_strategic_optimization.py', '--db', env['AI4S_IMPACT_DB_PATH'],
+            '--access-audit-only', '--report', journal/'impact-access-migration.json', cwd=release/'tool')
         (release/'logs').mkdir(exist_ok=True)
         DROP.write_text(f'''[Service]
 WorkingDirectory={release}/tool

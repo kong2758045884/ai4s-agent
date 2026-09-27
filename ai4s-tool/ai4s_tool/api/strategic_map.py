@@ -24,7 +24,7 @@ from typing import Any, Iterable, Literal
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, create_engine, text as sql_text
 from sqlalchemy.exc import OperationalError
@@ -32,7 +32,8 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from ai4s_tool.util.log_util import logger
 
 
-router = APIRouter(prefix="/strategic-map", tags=["strategic_map"])
+from .strategic_access import maintenance_guard
+router = APIRouter(prefix="/strategic-map", tags=["strategic_map"], dependencies=[Depends(maintenance_guard)])
 
 _DEFAULT_DAILY_BASE_URL = "https://ai4s-frontier.github.io/AI4S-Daily-HTML"
 _DAILY_BASE_URL = os.getenv("AI4S_DAILY_BASE_URL", _DEFAULT_DAILY_BASE_URL).rstrip("/")
@@ -931,7 +932,7 @@ def _team_people(session: Session, team_id: str) -> tuple[list[dict[str, Any]], 
     return leaders, [person for person in values if not person["isLeader"]]
 
 
-def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dict[str, Any]:
+def _team_to_dict(team: StrategicTeamRow, session: Session | None = None, *, include_private=False) -> dict[str, Any]:
     institution = _normalise_institution_name(team.institution_name or team.name)
     team_name = _clean(team.team_name, _UNKNOWN_TEAM_LABEL)
     directions = _normalise_directions(team.research_directions, team.focus)
@@ -1025,6 +1026,12 @@ def _team_to_dict(team: StrategicTeamRow, session: Session | None = None) -> dic
             and payload["scoreTotal"] >= _CANDIDATE_SCORE_THRESHOLD
         )
         payload["candidate_qualified"] = payload["candidateQualified"]
+    if not include_private:
+        from .strategic_access import PRIVATE_FIELDS
+        for field in PRIVATE_FIELDS:
+            payload.pop(field, None)
+        # Human free-text update notes can contain internal communications.
+        payload["recentUpdate"] = payload["updatedAt"][:10]
     return payload
 
 
@@ -4104,10 +4111,11 @@ def update_team_status(team_id: str, payload: TeamStatusPayload) -> dict[str, An
         if not team:
             raise HTTPException(status_code=404, detail="候选团队不存在")
         from .team_research_store import append_history
+        from .strategic_access import ACTOR
         fields = {key for key, value in payload.model_dump().items() if value is not None}
         if payload.ai_level is not None or payload.science_level is not None:
             fields.add("dual_judgement")
-        append_history(session, team.id, "manual", {"fields": sorted(fields),
+        append_history(session, team.id, "manual", {"fields": sorted(fields), "actorId": ACTOR.get(),
             "before": {key: getattr(team, key) for key in fields},
             "changes": payload.model_dump(exclude_none=True)})
         team.attention = payload.attention.strip()
@@ -4132,7 +4140,7 @@ def update_team_status(team_id: str, payload: TeamStatusPayload) -> dict[str, An
             team.next_action = payload.next_action.strip()
         team.updated_at = _now()
         session.commit()
-        return _response(_team_to_dict(team, session))
+        return _response(_team_to_dict(team, session, include_private=True))
 
 
 @router.post("/domains/{domain_id}/sync")

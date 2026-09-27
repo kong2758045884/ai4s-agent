@@ -40,6 +40,7 @@ def build_api_router() -> APIRouter:
     from .assessment_updates import router as assessment_updates_router
     from .assessment_investigations import router as assessment_investigations_router
     from .assessment_reports import router as assessment_reports_router
+    from .strategic_access import router as strategic_access_router
     from ai4s_tool.tool.mrag.api.routes.document import router as document_router
     from ai4s_tool.tool.mrag.api.routes.history import router as mrag_history_router
 
@@ -56,6 +57,7 @@ def build_api_router() -> APIRouter:
     api_router.include_router(assessment_updates_router, tags=["assessment_updates"])
     api_router.include_router(assessment_investigations_router, tags=["assessment_investigations"])
     api_router.include_router(assessment_reports_router, tags=["assessment_reports"])
+    api_router.include_router(strategic_access_router, tags=["strategic_access"])
     api_router.include_router(document_router, tags=["documents"])
     api_router.include_router(mrag_history_router, tags=["mrag_history"])
 

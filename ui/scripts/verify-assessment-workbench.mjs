@@ -9,6 +9,18 @@ const url = process.env.AI4S_ASSESSMENT_URL || 'http://127.0.0.1:3003/';
 const width = Number(process.env.AI4S_ASSESSMENT_WIDTH || 1440);
 const output = process.env.AI4S_ASSESSMENT_OUTPUT;
 const replayInvestigation = process.env.AI4S_ASSESSMENT_INVESTIGATION_REPLAY === '1';
+const replayRole = process.env.AI4S_ASSESSMENT_ROLE_REPLAY === '1';
+const project = path.resolve(process.cwd(), '..');
+let grantedVisitor = '';
+const setTestRole = (visitor, role) => new Promise((resolve, reject) => {
+  assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Role replay is restricted to localhost');
+  const child = spawn(path.join(project, 'ai4s-tool/.venv/Scripts/python.exe'), [
+    path.join(project, 'ai4s-tool/scripts/manage_strategic_roles.py'),
+    '--db', path.join(project, 'runtime/optimization-20260926/teacher-preview.db'),
+    '--visitor', visitor, '--role', role, '--operator', 'isolated-browser-acceptance', '--reason', '副本浏览器权限验收'],
+  { stdio: 'ignore', windowsHide: true });
+  child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(Error('Isolated role command failed')));
+});
 const profile = await mkdtemp(path.join(os.tmpdir(), 'ai4s-assessment-'));
 const chrome = spawn(process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', [
   '--headless=new', '--no-first-run', '--no-default-browser-check', '--no-proxy-server', '--disable-extensions',
@@ -101,11 +113,14 @@ try {
   await evaluate(`document.querySelector('.assessment-workbench article div.rounded-lg button')?.click()`);
   await until(() => evaluate('!!document.querySelector("dialog[open]")'), 'evidence dialog');
   assert.ok(await evaluate(`document.querySelector('dialog[open]').innerText.includes('原始网页抓取时间')`));
+  assert.ok(await evaluate(`document.querySelector('dialog[open]').innerText.includes('来源校验') && document.querySelector('dialog[open]').innerText.includes('AI 复核') && document.querySelector('dialog[open]').innerText.includes('未记录人工审核')`));
+  assert.ok(await evaluate(`document.querySelector('dialog[open]').innerText.includes('对应任务条件')`));
   assert.ok(await evaluate(`!!document.querySelector('dialog[open] a[href^="http"]')`));
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
   await until(() => evaluate('!document.querySelector("dialog[open]")'), 'keyboard close');
   passed.push('three-team-criteria-comparison', 'evidence-snapshot-keyboard');
+  passed.push('claim-source-review-provenance');
   await send('Page.reload', { ignoreCache: false });
   await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'refresh restores comparison');
   assert.equal(await evaluate('location.href'), savedUrl);
@@ -159,6 +174,35 @@ try {
   await click('研判工作台');
   await until(() => evaluate(`document.querySelectorAll('.assessment-workbench article input[type=checkbox]:checked').length===3`), 'intelligence return retains run');
   passed.push('private-changes-and-domain-intelligence');
+  if (replayRole) {
+    const access = await evaluate(`fetch('/tool/v1/strategic-map/access').then(r=>r.json()).then(r=>r.data)`);
+    assert.deepEqual(access.permissions, []);
+    grantedVisitor = access.visitorId;
+    await setTestRole(grantedVisitor, 'reviewer');
+    await send('Page.reload', { ignoreCache: true });
+    await click('团队资料');
+    if (width < 1440) await click('团队画像');
+    await until(() => evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='编辑'&&!b.disabled)`), 'authorized editor');
+    const selectedId = await evaluate(`new URLSearchParams(location.search).get('smTeam')`);
+    assert.ok(selectedId);
+    const before = await evaluate(`Promise.all([fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)}).then(r=>r.json()).then(r=>r.data.team),fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)}+'/internal').then(r=>r.json()).then(r=>r.data)])`);
+    await click('编辑');
+    const newLevel = before[0].aiLevel === '一般' ? '较高' : '一般';
+    await evaluate(`(()=>{const e=document.querySelector('select[aria-label="AI 能力"]');e.value=${JSON.stringify(newLevel)};e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await click('保存');
+    await until(() => evaluate(`document.querySelector('[data-team-id="${selectedId}"] [data-capability="ai"]')?.textContent===${JSON.stringify(newLevel)} && !document.querySelector('select[aria-label="AI 能力"]')`), 'saved manual capability');
+    const audit = await evaluate(`fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)}+'/internal').then(r=>r.json()).then(r=>r.data.audit[0])`);
+    assert.equal(audit.actorId, grantedVisitor);
+    assert.equal(audit.changes.ai_level, newLevel);
+    const restore = { attention: before[1].fields.attention, contact: before[1].fields.contact, ai_level: before[0].aiLevel };
+    assert.equal(await evaluate(`fetch('/tool/v1/strategic-map/teams/'+${JSON.stringify(selectedId)},{method:'PUT',headers:{'Content-Type':'application/json'},body:${JSON.stringify(JSON.stringify(restore))}}).then(r=>r.status)`), 200);
+    await setTestRole(grantedVisitor, 'revoked'); grantedVisitor = '';
+    await send('Page.reload', { ignoreCache: true });
+    if (width < 1440) await click('团队画像');
+    await until(() => evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='只读'&&b.disabled)`), 'revoked editor');
+    assert.ok(await evaluate(`document.body.innerText.includes('仅维护人员可见')`));
+    passed.push('isolated-role-grant-manual-edit-audit-revoke');
+  }
   assert.deepEqual(await evaluate('window.__paid'), []);
   assert.deepEqual(await evaluate(`window.__requests.filter(r=>r.path.includes('/strategic-map')&&r.status>=400)`), []);
   if (output) {
@@ -170,10 +214,11 @@ try {
   }
   console.log(JSON.stringify({ width, passed, paidCalls: 0 }));
 } catch (error) {
-  console.error(await evaluate?.('({url:location.href,reportDomain:document.querySelector("select[aria-label=报告领域]")?.value,text:document.body.innerText.slice(0,7000)})'));
+  console.error(await evaluate?.(replayRole ? `({url:location.href,errors:window.__requests.filter(r=>r.status>=400),alerts:[...document.querySelectorAll('[role=alert]')].map(e=>e.textContent)})` : '({url:location.href,reportDomain:document.querySelector("select[aria-label=报告领域]")?.value,text:document.body.innerText.slice(0,7000)})'));
   if (output) await writeFile(output + '.json', JSON.stringify({ width, passed, error: String(error) }, null, 2));
   throw error;
 } finally {
+  if (grantedVisitor) await setTestRole(grantedVisitor, 'revoked');
   socket?.close(); chrome.kill();
   const safe = path.resolve(profile);
   assert.ok(safe.startsWith(path.resolve(os.tmpdir()) + path.sep) && path.basename(safe).startsWith('ai4s-assessment-'));

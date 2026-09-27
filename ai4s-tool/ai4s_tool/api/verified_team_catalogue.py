@@ -10,7 +10,7 @@ import hashlib
 import re
 from urllib.parse import urlsplit
 
-VERSION = "verified-directory-v3"
+VERSION = "verified-directory-v4"
 
 
 def citations(values):
@@ -118,10 +118,16 @@ def project(payload, observations):
         if current_key != _identity(institution, team):
             continue
         claims = []
+        provenance = {}
+        from .claim_provenance import from_observation
         for kind, text, refs in fields:
             for cite in refs:
                 digest = hashlib.sha256(f"{payload['id']}\x1f{kind}\x1f{cite['url']}\x1f{cite['quote']}".encode()).hexdigest()[:32]
-                claims.append((digest, payload["id"], entry["id"], kind, text, cite["quote"], cite["url"], ""))
+                metadata = from_observation(entry, cite)
+                if metadata["sourceCheck"]["status"] == "quote_mismatch":
+                    continue
+                claims.append((digest, payload["id"], entry["id"], kind, text, cite["quote"], cite["url"], metadata["publishedAt"]))
+                provenance[digest] = metadata
         if not claims:
             continue
         public = {**payload, "institutionName": institution, "teamName": team,
@@ -132,6 +138,7 @@ def project(payload, observations):
                   "evidenceUrls": list(dict.fromkeys(c[6] for c in claims)),
                   "evidenceSummary": "\n".join(dict.fromkeys(c[5] for c in claims)),
                   "institutionEvidence": basis, "catalogueVersion": VERSION,
-                  "catalogueSourceRunId": entry["id"], "catalogueBasis": status}
+                  "catalogueSourceRunId": entry["id"], "catalogueBasis": status,
+                  "claimProvenance": provenance}
         return public, list({c[0]: c for c in claims}.values())
     return None

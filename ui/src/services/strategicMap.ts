@@ -559,9 +559,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     const raw = record(body);
+    const detail = record(raw.detail);
     throw new Error(
       text(
-        raw.detail || raw.message || raw.msg,
+        detail.message || (Array.isArray(raw.detail) ? raw.detail.map((item) => record(item).msg).join("；") : raw.detail) || raw.message || raw.msg,
         `战略图谱请求失败（${response.status}）`,
       ),
     );

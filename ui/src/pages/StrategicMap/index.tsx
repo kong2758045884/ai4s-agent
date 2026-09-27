@@ -7,7 +7,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -78,6 +77,7 @@ import {
 import FusionGraphWorkspace from "./FusionGraphWorkspace";
 import RecommendationWorkspace from "./RecommendationWorkspace";
 import AssessmentWorkbench from "./AssessmentWorkbench";
+import { readInternalTeam, useStrategicAccess, type InternalTeam } from "@/services/strategicAccess";
 import EvidenceSearch from "./EvidenceSearch";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
@@ -373,6 +373,8 @@ async function loadVerifiedSnapshot(options?: { signal?: AbortSignal }) {
 }
 
 export default function StrategicMap() {
+  const access = useStrategicAccess();
+  const [internalTeam, setInternalTeam] = useState<InternalTeam | null>(null);
   const FUSION_ENABLED = import.meta.env.VITE_STRATEGIC_MAP_FUSION_ENABLED !== "false";
   const navigate = useNavigate();
   const location = useLocation();
@@ -504,9 +506,20 @@ export default function StrategicMap() {
       : activeDomain.teams,
   );
   const visibleTeams = scopedTeams;
-  const selectedTeam =
+  const publicSelectedTeam =
     visibleTeams.find((team) => team.id === selectedTeamId) ??
     visibleTeams[0] ?? EMPTY_TEAM;
+  const selectedTeam = access.canEdit && internalTeam?.teamId === publicSelectedTeam.id && internalTeam.updatedAt === publicSelectedTeam.updatedAt
+    ? { ...publicSelectedTeam, ...internalTeam.fields } : publicSelectedTeam;
+  useEffect(() => {
+    setInternalTeam(null);
+    if (!access.canEdit || publicSelectedTeam.id === EMPTY_TEAM.id) return;
+    const controller = new AbortController();
+    void readInternalTeam(publicSelectedTeam.id, controller.signal).then(setInternalTeam).catch(reason => {
+      if (!controller.signal.aborted) setError(String(reason));
+    });
+    return () => controller.abort();
+  }, [access.canEdit, publicSelectedTeam.id, publicSelectedTeam.updatedAt]);
   const activeSubdomain = activeDomain.subdomains.find(
     (subdomain) => subdomain.id === activeSubdomainId,
   );
@@ -538,11 +551,6 @@ export default function StrategicMap() {
     selectedTeam.recentUpdate,
     selectedTeam.nextAction,
   ]);
-
-  const priorityCount = useMemo(
-    () => visibleTeams.filter((team) => team.attention === "重点关注").length,
-    [visibleTeams],
-  );
 
   const captureScrollState = useCallback(
     (): StrategicMapScrollState => ({
@@ -1024,7 +1032,7 @@ export default function StrategicMap() {
   };
 
   const startSubdomainEditor = (subdomain?: StrategicSubdomain) => {
-    if (loading || activeDomain.id === EMPTY_DOMAIN.id) return;
+    if (!access.canMaintain || loading || activeDomain.id === EMPTY_DOMAIN.id) return;
     setEditor({
       kind: "subdomain",
       id: subdomain?.id,
@@ -1244,7 +1252,7 @@ export default function StrategicMap() {
                 <button
                   type="button"
                   onClick={() => startSubdomainEditor()}
-                  disabled={loading || activeDomain.id === EMPTY_DOMAIN.id}
+                  disabled={!access.canMaintain || loading || activeDomain.id === EMPTY_DOMAIN.id}
                 >
                   新增子领域
                 </button>
@@ -1254,12 +1262,14 @@ export default function StrategicMap() {
                     <span key={subdomain.id} className="flex gap-4">
                       <button
                         type="button"
+                        disabled={!access.canMaintain}
                         onClick={() => startSubdomainEditor(subdomain)}
                       >
                         编辑子领域
                       </button>
                       <button
                         type="button"
+                        disabled={!access.canMaintain}
                         onClick={() => void removeSubdomain(subdomain)}
                         className="text-red-600"
                       >
@@ -1390,7 +1400,7 @@ export default function StrategicMap() {
                 <button
                   type="button"
                   onClick={() => startSubdomainEditor()}
-                  disabled={loading || activeDomain.id === EMPTY_DOMAIN.id}
+                  disabled={!access.canMaintain || loading || activeDomain.id === EMPTY_DOMAIN.id}
                   className="rounded-lg p-1 text-[#236ca8] hover:bg-[#edf6fb]"
                   title="新增子领域"
                   aria-label="新增子领域"
@@ -1433,6 +1443,7 @@ export default function StrategicMap() {
                     <span className="absolute right-1 flex opacity-0 group-hover/sub:opacity-100">
                       <button
                         type="button"
+                        disabled={!access.canMaintain}
                         onClick={() => startSubdomainEditor(subdomain)}
                         className="rounded p-1 text-[#607486] hover:bg-[#e8f0f6]"
                         title="编辑子领域"
@@ -1442,6 +1453,7 @@ export default function StrategicMap() {
                       </button>
                       <button
                         type="button"
+                        disabled={!access.canMaintain}
                         onClick={() => void removeSubdomain(subdomain)}
                         className="rounded p-1 text-[#a46b73] hover:bg-red-50"
                         title="删除子领域"
@@ -1514,7 +1526,7 @@ export default function StrategicMap() {
                       国内科研团队库
                     </h2>
                     <span className="rounded-full border border-[#c2d9eb] bg-[#eef7fd] px-2.5 py-1 text-[11px] font-semibold text-[#2c6a98]">
-                      {visibleTeams.length} 支 · 重点 {priorityCount}
+                      {visibleTeams.length} 支
                     </span>
                   </div>
                   <p className="mt-1 text-[12px] text-[var(--chat-text-muted)]">
@@ -1523,7 +1535,7 @@ export default function StrategicMap() {
                     展示有来源的科研归属与公开资料 ·{" "}
                     {source.refreshed
                       ? "刚刚完成多源公开证据研判"
-                      : "展示已保存研判结果，点击右侧按钮更新"}
+                      : access.canCollect ? "展示已保存研判结果，点击右侧按钮更新" : "展示已保存的公开资料"}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -1531,7 +1543,7 @@ export default function StrategicMap() {
                   <button
                     type="button"
                     onClick={() => void refreshNationwideTeams()}
-                    disabled={loading || syncing || nationwideSyncing}
+                    disabled={!access.canCollect || loading || syncing || nationwideSyncing}
                     className="inline-flex items-center gap-1.5 rounded-full bg-[#176f78] px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-[#125f67] disabled:cursor-not-allowed disabled:opacity-60"
                     title="载入六大领域官方团队候选并启动全国公开网络核验"
                   >
@@ -1546,7 +1558,7 @@ export default function StrategicMap() {
                     type="button"
                     onClick={() => void refreshTeams()}
                     disabled={
-                      loading ||
+                      !access.canCollect || loading ||
                       syncing ||
                       nationwideSyncing ||
                       !activeDomain.id ||
@@ -1590,7 +1602,7 @@ export default function StrategicMap() {
                 <div className="strategic-map-table-head hidden grid-cols-[1fr_112px_178px] items-center gap-3 border-b border-[#dfe8ef] px-3 py-2 text-[11px] font-semibold tracking-[0.06em] text-[#75899a] sm:grid">
                   <span>团队</span>
                   <span>AI / 科学</span>
-                  <span>关注与联系</span>
+                  <span>档案与维护记录</span>
                 </div>
                 {syncing && !visibleTeams.length ? (
                   <div
@@ -1668,11 +1680,11 @@ export default function StrategicMap() {
                           </span>)}
                         </span>
                         <span className="strategic-map-team-status flex items-center justify-between gap-2 sm:block">
-                          <AttentionBadge level={team.attention} />
+                          {access.canEdit && internalTeam?.teamId === team.id ? <AttentionBadge level={selectedTeam.attention} /> : <span className="text-xs text-slate-500">{access.canEdit ? "点击查看维护记录" : "公开档案"}</span>}
                           <span
                             className={`ml-2 text-[11px] ${contactStyles[team.contact] ?? contactStyles.未接触}`}
                           >
-                            {team.contact}
+                            {access.canEdit && internalTeam?.teamId === team.id ? selectedTeam.contact : ""}
                           </span>
                           <span className="strategic-map-mobile-hint items-center gap-1">
                             查看画像
@@ -1692,9 +1704,7 @@ export default function StrategicMap() {
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#e6edf4] pt-3 text-[12px] text-[var(--chat-text-muted)]">
-                <span>关注等级与联系状态分别标注</span>
-                <AttentionBadge level="重点关注" />
-                <AttentionBadge level="持续关注" />
+                <span>{access.canEdit ? "选择团队后查看关注等级与联系记录" : "公开资料可直接查看；内部联系与评价按权限开放"}</span>
               </div>
             </main>
 
@@ -1719,7 +1729,7 @@ export default function StrategicMap() {
                     }
                   }}
                   disabled={
-                    selectedTeam.id === EMPTY_TEAM.id || teamDetailsSaving
+                    !access.canEdit || internalTeam?.teamId !== selectedTeam.id || selectedTeam.id === EMPTY_TEAM.id || teamDetailsSaving
                   }
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#236ca8] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#1b5d94] disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -1730,9 +1740,16 @@ export default function StrategicMap() {
                   ) : (
                     <Pencil className="size-3.5" />
                   )}
-                  {teamEditing ? "保存" : "编辑"}
+                  {teamEditing ? "保存" : access.canEdit ? "编辑" : "只读"}
                 </button>
               </div>
+
+              <details className="shrink-0 text-xs text-slate-500">
+                <summary className="min-h-11 cursor-pointer py-3">资料维护权限与修改记录</summary>
+                <p className="leading-6">{access.canEdit ? "已获得团队资料维护权限，保存时记录操作者。" : "当前为只读；维护角色由服务器管理员授予。"}</p>
+                <p className="break-all leading-6">本访客权限申请编号：{access.visitorId || "请先完成首页访客登录"}</p>
+                {access.canEdit && internalTeam?.teamId === selectedTeam.id && <div className="max-h-48 space-y-2 overflow-y-auto py-2">{internalTeam.audit.length ? internalTeam.audit.map(item => <div key={item.id} className="rounded border border-slate-200 p-2"><p>{item.createdAt} · {item.actorRecorded ? "已记录操作者" : "历史修改未记录操作者"}</p><p className="break-all">{item.fields.join("、")}</p><details><summary className="min-h-11 cursor-pointer py-3">查看修改前后</summary>{Object.entries(item.changes).map(([key, value]) => <p key={key}>{key}：{item.before[key] || "空"} → {value}</p>)}</details></div>) : <p>暂无人工修改记录。</p>}</div>}
+              </details>
 
               <h3 className="shrink-0 border-b border-[#e6edf4] py-4 text-[#0f172a]">
                 <span className="block text-[19px] font-semibold">
@@ -2075,7 +2092,7 @@ export default function StrategicMap() {
                         <span
                           className={`text-[13px] font-semibold ${contactStyles[selectedTeam.contact] ?? contactStyles.未接触}`}
                         >
-                          {selectedTeam.contact}
+                          {access.canEdit ? selectedTeam.contact : "仅维护人员可见"}
                         </span>
                       </div>
                     </div>
@@ -2085,6 +2102,7 @@ export default function StrategicMap() {
                 <div
                   className={`space-y-4 py-4 text-[14px] ${teamEditing ? "" : "space-y-3 py-3"}`}
                 >
+                  {!access.canEdit && <p className="text-xs leading-6 text-slate-500">这是公开档案。联系记录、内部评价与维护操作仅对获授权人员开放；可在自己的研判中保存跟进事项。</p>}
                   <div className="flex items-start gap-4">
                     <UsersRound className="mt-0.5 size-4 shrink-0 text-[#6b96b5]" />
                     <div className="grid min-w-0 flex-1 grid-cols-[68px_1fr] gap-3">
@@ -2105,7 +2123,7 @@ export default function StrategicMap() {
                         />
                       ) : (
                         <div className="font-semibold text-[#304b61]">
-                          {selectedTeam.contactRecord}
+                          {access.canEdit ? selectedTeam.contactRecord : "仅维护人员可见"}
                         </div>
                       )}
                     </div>
@@ -2130,7 +2148,7 @@ export default function StrategicMap() {
                         />
                       ) : (
                         <div className="font-semibold leading-5 text-[#304b61]">
-                          {selectedTeam.internalReview}
+                          {access.canEdit ? selectedTeam.internalReview : "仅维护人员可见"}
                         </div>
                       )}
                     </div>
@@ -2183,7 +2201,7 @@ export default function StrategicMap() {
                     />
                   ) : (
                     <p className="mt-2 text-[14px] font-semibold leading-6 text-[#294b65]">
-                      {selectedTeam.nextAction}
+                      {access.canEdit ? selectedTeam.nextAction : "在研判工作台选择团队后，可保存自己的问题和跟进记录。"}
                     </p>
                   )}
                   <p className="mt-3 text-[11px] text-[#63829a]">

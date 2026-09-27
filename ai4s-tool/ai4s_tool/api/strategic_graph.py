@@ -19,14 +19,15 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import requests
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, DateTime, Integer, JSON, String, Text
 
 from . import strategic_map as _strategic_map
 
 
-router = APIRouter(prefix="/strategic-map/graph", tags=["strategic_graph"])
+from .strategic_access import maintenance_guard
+router = APIRouter(prefix="/strategic-map/graph", tags=["strategic_graph"], dependencies=[Depends(maintenance_guard)])
 
 GraphScope = Literal["domestic", "international"]
 GraphCluster = Literal["高峰", "高原"]

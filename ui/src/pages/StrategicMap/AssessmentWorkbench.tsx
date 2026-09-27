@@ -4,6 +4,7 @@ import { assessmentApi, requestId, type Assessment, type AssessmentRun, type Ass
 import type { StrategicDomain } from "@/services/strategicMap";
 import type { RecommendationCitation } from "@/services/strategicRecommendations";
 import AssessmentInvestigation from "./AssessmentInvestigation";
+import ClaimSourceDetails from "./ClaimSourceDetails";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -39,7 +40,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("尚未保存");
-  const [evidence, setEvidence] = useState<{ citation: RecommendationCitation; team: string } | null>(null);
+  const [evidence, setEvidence] = useState<{ citation: RecommendationCitation; team: string; requirement?: string; support?: string } | null>(null);
   const evidenceDialog = useRef<HTMLDialogElement>(null);
   const [followDraft, setFollowDraft] = useState<FollowUp | null>(null);
   const followDialog = useRef<HTMLDialogElement>(null);
@@ -169,7 +170,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     lastSavedDraft.current = ""; failedDraft.current = "";
     newRequest.current = requestId(); confirmRequest.current = requestId(); onContextChange("", "");
   }
-  function openEvidence(citation: RecommendationCitation, team: string) { setEvidence({ citation, team }); evidenceDialog.current?.showModal(); }
+  function openEvidence(citation: RecommendationCitation, team: string, requirement?: string, support?: string) { setEvidence({ citation, team, requirement, support }); evidenceDialog.current?.showModal(); }
   function openFollowUp(teamId: string, claimIds: string[]) {
     setFollowDraft({ id: requestId(), teamId, claimIds, question: "", method: "原文核对并联系团队确认", owner: "", dueDate: null, result: "", status: "open" });
     followDialog.current?.showModal();
@@ -282,7 +283,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
             <h4 className="mt-4 text-sm font-semibold">可讨论承担的工作</h4><p className="mt-1 text-sm leading-6">{item.supportedTasks?.join("、") || "按原文成果确认任务适用范围"}</p>
             <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-500">{item.capability}</p>
             <div className="mt-4 space-y-2">{item.criteriaMatrix.map(row => <div key={row.criterionId} className="rounded-lg border border-slate-100 p-3 text-sm"><p><span className={row.status === "supported" ? "text-emerald-700" : "text-slate-500"}>{statuses[row.status]}</span> · {row.text}</p>
-              {row.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName)}><BookOpenText className="mr-1 inline size-3.5" />{c.text}</button> : null; })}</div>)}</div>
+              {row.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, row.text, statuses[row.status])}><BookOpenText className="mr-1 inline size-3.5" />{c.text}</button> : null; })}</div>)}</div>
             <p className="mt-3 text-xs leading-5 text-slate-500">尚缺信息：可投入人员、交付周期与合作资源需团队确认。AI 或来源检查不等于专家人工审定。</p>
             <details className="mt-3 rounded-lg bg-slate-50 p-3"><summary className="min-h-8 cursor-pointer text-xs font-medium">查看独立评分与版本</summary><p className="mt-2 text-xs leading-6">任务匹配 {item.taskMatchScore} · 团队原分 {item.teamScore ?? "暂无"} · {item.institutionImpact}<br />任务版本 {item.matchVersion}；任务分按证据60%、方向25%、成果覆盖15%计算，未与机构或团队分相加。</p></details>
             <div className="mt-4 flex flex-wrap gap-2"><button className={button} onClick={() => onOpenTeam(item.teamId)}>团队档案<ArrowRight className="size-4" /></button><button className={button} onClick={() => onOpenRelations(item.teamId)}><Network className="size-4" />相关关系</button>
@@ -291,7 +292,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           {compared.length >= 2 && <section className={panel} aria-label="团队逐项比较"><h3 className="text-lg font-semibold">按同一任务条件比较</h3><p className="mt-1 text-xs leading-5 text-slate-500">全部依据来自当前保存的推荐快照；缺少依据不等于能力为零。</p>
             <div className="mt-4 space-y-3">{run.criteria?.map(criterion => <details className="rounded-xl border border-slate-200 p-3" open key={criterion.id}><summary className="min-h-11 cursor-pointer text-sm font-semibold">{criterion.text}</summary>
               <div className="grid gap-3 md:grid-cols-3">{compared.map(item => { const row = item.criteriaMatrix.find(c => c.criterionId === criterion.id); return <div className="rounded-lg bg-slate-50 p-3" key={item.teamId}><h4 className="text-sm font-semibold">{item.teamName}</h4><p className="mt-2 text-xs">{row ? statuses[row.status] : "依据不足"}</p>
-                {row?.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName)}>{c.text} ↗</button> : null; })}</div>; })}</div></details>)}</div>
+                {row?.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, criterion.text, statuses[row.status])}>{c.text} ↗</button> : null; })}</div>; })}</div></details>)}</div>
             <h4 className="mt-5 font-semibold">讨论候选分工</h4><p className="mt-1 text-xs text-slate-500">这是待沟通方案；尚未确认资源、协作接口和协调成本，不代表已经分派任务。</p>
             <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 建议角色<input disabled={historical} className={`${input} mt-1`} value={role?.role || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: e.target.value, rationale: role?.rationale || "" }])} /></label>
               <label className="text-xs">分工依据和协作缺口<input disabled={historical} className={`${input} mt-1`} value={role?.rationale || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: role?.role || "", rationale: e.target.value }])} /></label></div>; })}</div>
@@ -307,8 +308,11 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     </>}
     <dialog ref={evidenceDialog} onClose={() => setEvidence(null)} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(680px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
       <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">判断依据与原文</h2><button className={button} aria-label="关闭证据详情" onClick={() => evidenceDialog.current?.close()}><X className="size-4" /></button></div>
-      {evidence && <div className="mt-4 space-y-4 text-sm leading-6"><p>所属科研单元：<strong>{evidence.team}</strong></p><p>{evidence.citation.text}</p><blockquote className="rounded-xl border-l-4 border-blue-300 bg-slate-50 p-4 whitespace-pre-wrap">{evidence.citation.quote}</blockquote>
-        <p className="break-all text-xs text-slate-500">引文编号：{evidence.citation.id} · 保存于研判 {run?.inputVersionId}<br />原始网页抓取时间、逐条人工审核状态：当前引文记录未提供，不能视为专家已确认。</p>
+      {evidence && <div className="mt-4 space-y-4 text-sm leading-6"><p>所属科研单元：<strong>{evidence.team}</strong></p>
+        {evidence.requirement && <p className="rounded-xl bg-blue-50 p-3">对应任务条件：{evidence.requirement}<br />本次判断：{evidence.support}</p>}
+        <p>{evidence.citation.text}</p><blockquote className="rounded-xl border-l-4 border-blue-300 bg-slate-50 p-4 whitespace-pre-wrap">{evidence.citation.quote}</blockquote>
+        <p className="break-all text-xs text-slate-500">引文编号：{evidence.citation.id} · 保存于研判 {run?.inputVersionId}</p>
+        <ClaimSourceDetails citation={evidence.citation} />
         <p>以上是本次研判保存的引文。适用范围限于原文中的主体和成果；人员投入、资源可用性与交付承诺需另行确认。</p>
         <a className={`${button} break-all`} href={evidence.citation.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4 shrink-0" />打开来源原文</a><p className="break-all text-xs text-slate-500">{evidence.citation.url}</p>
         <p className="text-xs text-slate-500">若原链接无法访问，可保留此引文快照并记录核验事项；当前未实时检测链接可用性。</p></div>}

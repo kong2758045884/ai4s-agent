@@ -64,6 +64,14 @@ def client(tmp_path, source_db, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", target)
     app = FastAPI()
     app.include_router(router, prefix="/v1")
+    from ai4s_tool.api import strategic_access as access
+    async def reviewer():
+        token = access.ACTOR.set('triage-test-reviewer')
+        try:
+            yield
+        finally:
+            access.ACTOR.reset(token)
+    app.dependency_overrides[access.maintenance_guard] = reviewer
     return TestClient(app)
 
 

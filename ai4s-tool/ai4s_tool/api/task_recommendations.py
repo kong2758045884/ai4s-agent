@@ -18,14 +18,15 @@ from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import impact_store, strategic_map
 from .team_research_store import history
 from . import strategic_text
 
-router = APIRouter(prefix="/strategic-map", tags=["strategic_recommendations"])
+from .strategic_access import maintenance_guard
+router = APIRouter(prefix="/strategic-map", tags=["strategic_recommendations"], dependencies=[Depends(maintenance_guard)])
 MATCH_VERSION = strategic_text.VERSION
 ELIGIBILITY_VERSION = os.environ.get("AI4S_TASK_ELIGIBILITY_VERSION", "verified-outcomes-v2")
 _OUTCOME = re.compile(r"论文|成果|发表|项目|专利|模型|开源|系统|装置|平台|实验|Nature|Science|CVPR|ICLR", re.I)
@@ -179,11 +180,14 @@ def _catalogue_evidence() -> tuple[list[dict[str, Any]], list[tuple[str, ...]], 
     version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
     from .strategic_outcomes import valid_source
     ids = {team["id"] for team in candidates}
+    team_map = {team["id"]: team for team in candidates}
+    from .claim_provenance import from_outcome
     with closing(_db()) as conn:
         if _has_table(conn, "strategic_team_outcome"):
             for row in conn.execute("SELECT * FROM strategic_team_outcome WHERE status='approved' ORDER BY id"):
                 if row["team_id"] in ids and valid_source(row):
                     claims.append((row["id"], row["team_id"], row["batch_id"], "outcome", row["title"], row["quote"], row["url"], row["published_at"]))
+                    team_map[row["team_id"]].setdefault("claimProvenance", {})[row["id"]] = from_outcome(row)
                     versions.append(f"outcome:{row['id']}:{row['content_hash']}")
             version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
     result = (candidates, list({row[0]: row for row in claims}.values()), version)
@@ -371,6 +375,7 @@ def _recommend(body: TaskRequest, *, parent_run_id: str | None = None, change_id
             continue
         eligible_count += 1
         score, citations, criteria = strategic_text.evaluate_task(parsed, team, by_team.get(team["id"], []))
+        citations = [{**c, "provenance": team.get("claimProvenance", {}).get(c["id"])} for c in citations]
         if score <= 0 or not citations:
             continue
         link = links.get(team["id"])

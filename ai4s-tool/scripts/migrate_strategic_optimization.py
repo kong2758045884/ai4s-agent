@@ -30,17 +30,28 @@ def reconcile(conn):
     return result
 
 
-def migrate(conn):
+def migrate(conn, *, access_audit_only=False):
     from ai4s_tool.api import strategic_changes as changes, strategic_outcomes as outcomes, strategic_investigations as investigations
     from ai4s_tool.api import strategic_assessments as assessments
     from ai4s_tool.api import assessment_updates
     from ai4s_tool.api import assessment_reports
+    from ai4s_tool.api import strategic_access
     before = reconcile(conn)
+    if access_audit_only:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            strategic_access.init(conn, include_roles=False)
+        after = reconcile(conn)
+        assert all(after[name] == values for name, values in before.items()), "审核迁移不得改写原表"
+        return {"before": before, "after": after, "newTables": sorted(after.keys() - before.keys()),
+                "foreignKeyErrors": [tuple(r) for r in conn.execute("PRAGMA foreign_key_check")],
+                "integrity": conn.execute("PRAGMA quick_check").fetchone()[0]}
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         changes.init(conn); outcomes.init(conn); investigations.init(conn); assessments.init(conn)
         assessment_updates.init(conn)
         assessment_reports.init(conn)
+        strategic_access.init(conn)
         if "strategic_map_research_run" in before:
             for row in conn.execute("""SELECT r.*,t.domain_id FROM strategic_map_research_run r
                 LEFT JOIN strategic_map_team t ON t.id=r.team_id WHERE r.status IN
@@ -70,13 +81,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--db", type=Path, required=True)
     p.add_argument("--report", type=Path, required=True)
+    p.add_argument("--access-audit-only", action="store_true", help="分诊库仅新增维护审计表，不改业务表")
     args = p.parse_args()
     if not args.db.is_file():
         p.error("仅迁移已经存在且已备份的数据库")
     os.environ.update(STRATEGIC_MAP_DB_PATH=str(args.db.resolve()), STRATEGIC_MAP_SKIP_STARTUP_SYNC="true", STRATEGIC_MAP_SCHEDULER_ENABLED="false")
     with sqlite3.connect(args.db, timeout=30) as conn:
         conn.row_factory = sqlite3.Row
-        result = migrate(conn)
+        result = migrate(conn, access_audit_only=args.access_audit_only)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"newTables": result["newTables"], "integrity": result["integrity"], "foreignKeyErrors": result["foreignKeyErrors"]}))

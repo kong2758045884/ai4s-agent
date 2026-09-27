@@ -1,11 +1,29 @@
 import { normalizeToolBaseUrlForBrowser } from "@/utils/fileUrl";
 
+export type ClaimProvenance = {
+  version: string;
+  sourceRunId: string;
+  sourceTitle: string;
+  sourceType: string;
+  publishedAt: string;
+  fetchedAt: string;
+  contentHash: string;
+  quoteHash: string;
+  locator: { status: string; start: number | null; end: number | null; basis: string };
+  sourceCheck: { method: string; checkedAt: string; status: string };
+  modelReview: { status: string; version: string; reviewedAt: string };
+  humanReview: { status: string; reviewedAt: string; reviewer: string };
+  linkCheck: { status: string; checkedAt: string };
+};
+
 export type RecommendationCitation = {
   id?: string;
   kind: "outcome" | "capability" | "description" | "direction";
   text: string;
   quote: string;
   url: string;
+  publishedAt?: string;
+  provenance?: ClaimProvenance | null;
 };
 
 export type RecommendationItem = {

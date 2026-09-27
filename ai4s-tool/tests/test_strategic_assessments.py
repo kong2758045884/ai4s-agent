@@ -108,6 +108,21 @@ def test_duplicate_submit_and_optimistic_conflict(app_client):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
+def test_source_metadata_is_frozen_with_the_claim_not_replaced_on_history_read(app_client):
+    client, _, _, version = app_client
+    team = tasks._candidate_evidence()[0][0]
+    team["claimProvenance"] = {"c1": {"fetchedAt": "2026-09-20", "sourceTitle": "当时的原文标题"}}
+    record = confirm(client, create(client)).json()["data"]
+    old_run = record["run"]
+    assert old_run["items"][0]["citations"][0]["provenance"]["fetchedAt"] == "2026-09-20"
+    team["claimProvenance"]["c1"] = {"fetchedAt": "2026-09-27", "sourceTitle": "后来更新的标题"}
+    version[0] = "changed-source"
+    historical = client.get(f"/strategic-map/assessments/{record['taskId']}/runs/{old_run['runId']}").json()["data"]
+    exported = client.get(f"/strategic-map/assessments/{record['taskId']}/export").json()["data"]
+    assert historical == old_run
+    assert exported["run"]["items"][0]["citations"][0]["provenance"]["sourceTitle"] == "当时的原文标题"
+
+
 def test_long_constraints_original_spans_block_unproven_conditions(app_client):
     client, _, _, _ = app_client
     record = create(client)

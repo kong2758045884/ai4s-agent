@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useStrategicAccess } from "@/services/strategicAccess";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { ROUTES } from "@/router/routes";
@@ -28,6 +29,7 @@ export default function ImpactTriage(props: ImpactProps) {
 function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = "" }: {
   embedded?: boolean; domainId?: string; subdomainId?: string;
 }) {
+  const access = useStrategicAccess();
   const [tab, setTab] = useState<Tab>("ranking");
   const [status, setStatus] = useState<{ ready: boolean; entities: number; events: number; scores: number } | null>(null);
   const [directions, setDirections] = useState<ImpactDirection[]>([]);
@@ -71,7 +73,9 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
     const s = await impactApi.status();
     setStatus(s);
     if (!s.ready) return;
-    const [d, r, a] = await Promise.all([impactApi.directions(), impactApi.reviews(), impactApi.audits()]);
+    const [d, r, a] = await Promise.all([impactApi.directions(),
+      access.canReview ? impactApi.reviews() : Promise.resolve({ items: [] }),
+      access.canReview ? impactApi.audits() : Promise.resolve({ items: [], event_mappings: [] })]);
     setDirections(d.items);
     setCandidates(d.candidates);
     setL2Candidates(d.l2_candidates);
@@ -83,7 +87,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
 
   useEffect(() => {
     void refresh().catch((reason) => setError(String(reason)));
-  }, []);
+  }, [access.canReview]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 180);
@@ -165,6 +169,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
     catch (reason) { setError(String(reason)); }
   };
   const act = async (work: () => Promise<unknown>) => {
+    if (!access.canReview) { setError("当前为只读访问，审核需要服务器授予维护角色"); return; }
     if (reviewNote.trim().length < 3) { setError("请先填写至少三个字的审核依据"); return; }
     setBusy(true);
     try { await work(); await refresh(); setRankingRevision((value) => value + 1); setSelectedEntity(null); setReviewNote(""); setError(""); }
@@ -265,6 +270,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
         {status === null && !error && <p>正在加载分诊数据…</p>}
         {status && !status.ready && <div className="rounded-xl border bg-white p-6">尚无分诊快照。请先运行迁移预检并导入隔离库。</div>}
         {status?.ready && <>
+          {!access.canReview && <p className="text-xs leading-6 text-slate-500">当前为公开只读视图。机构归一、类目审核与回滚仅向获授权人员开放。</p>}
           <nav aria-label="分诊视图" className="flex gap-2 border-b border-[#d6e1e9] pb-2">
             {(["ranking", "tree", "daily"] as const).map((key) => (
               <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)}
@@ -335,7 +341,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
             </div>}
             {selectedEntity && <section aria-label="主体证据详情" className="rounded-xl border bg-white p-5">
               <div className="flex justify-between"><h2 className="text-lg font-semibold">{selectedEntity.name} · 证据与历史</h2>
-                <div className="flex gap-3"><button type="button" disabled={busy} onClick={() => void toggleFollow()} className="text-[#17658f] underline">{selectedEntity.follow_status === "unfollowed" ? "关注主体" : "取消关注"}</button>
+                <div className="flex gap-3"><button type="button" disabled={!access.canReview || busy} onClick={() => void toggleFollow()} className="text-[#17658f] underline">{selectedEntity.follow_status === "unfollowed" ? "关注主体" : "取消关注"}</button>
                   <button type="button" onClick={() => setSelectedEntity(null)}>关闭</button></div></div>
               <p className="mt-2 text-sm">资格：{selectedEntity.eligibility}；机构与团队是独立主体，关联不会将机构事件计作团队成果。</p>
               <details className="mt-3 rounded-xl border border-[#dbe6e9] bg-[#f8fbfc] p-3 text-sm">
@@ -343,7 +349,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
                 <div className="mt-3 space-y-2">
                   {selectedEntity.team_links.map((link) => <div key={link.team_id} className="flex flex-wrap items-center gap-2 rounded-lg bg-white p-2">
                     <span>{link.team_id} · {link.relation}</span><a href={link.evidence_url} target="_blank" rel="noreferrer" className="text-[#17658f] underline">关联依据</a>
-                    {!!link.audit_id && <button type="button" disabled={busy} onClick={() => void undoTeamLink(link.audit_id!)} className="text-[#a44949] underline">撤销关联</button>}
+                    {!!link.audit_id && <button type="button" disabled={!access.canReview || busy} onClick={() => void undoTeamLink(link.audit_id!)} className="text-[#a44949] underline">撤销关联</button>}
                   </div>)}
                   {selectedEntity.eligibility === "eligible" && <div className="space-y-2 border-t pt-3">
                     <div className="flex flex-wrap gap-2"><input aria-label="查找团队" value={teamQuery} onChange={(event) => setTeamQuery(event.target.value)} placeholder="输入机构或团队名" className="min-w-0 flex-1 rounded border p-2" />
@@ -355,7 +361,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
                       <option value="member">机构直属团队</option><option value="affiliated">机构附属团队</option><option value="same_organization">同一机构</option></select>
                     <input aria-label="关联官方来源" value={teamBasisUrl} onChange={(event) => setTeamBasisUrl(event.target.value)} placeholder="https:// 官网团队或机构页面" className="min-w-0 flex-1 rounded border p-2" /></div>
                     <textarea aria-label="关联审核说明" value={teamNote} onChange={(event) => setTeamNote(event.target.value)} placeholder="写明官网原文如何证明归属" className="w-full rounded border p-2" rows={2} />
-                    <button type="button" disabled={busy || !selectedTeamId || !teamBasisUrl.startsWith("https://") || teamNote.trim().length < 3}
+                    <button type="button" disabled={!access.canReview || busy || !selectedTeamId || !teamBasisUrl.startsWith("https://") || teamNote.trim().length < 3}
                       onClick={() => void saveTeamLink()} className="rounded bg-[#145d73] px-4 py-2 text-white disabled:opacity-50">保存审核关联</button>
                   </div>}
                 </div>
@@ -363,7 +369,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
               {selectedEntity.identity_aliases.length > 0 && <p className="mt-2 rounded-lg bg-[#eef5f6] p-3 text-sm">同一展示主体：{selectedEntity.identity_aliases.map((x) => x.name).join("、")}。事件合并展示，原始评分期次分别保留，须重新评分。
                 {selectedEntity.identity_aliases.map((x) => <span key={x.id} className="ml-2">
                   <a href={x.evidence_url} target="_blank" rel="noreferrer" className="text-[#17658f] underline">身份依据</a>
-                  <button type="button" disabled={busy} onClick={() => void rollbackIdentity(x.id)} className="ml-2 text-[#17658f] underline">撤销归一</button>
+                  <button type="button" disabled={!access.canReview || busy} onClick={() => void rollbackIdentity(x.id)} className="ml-2 text-[#17658f] underline">撤销归一</button>
                 </span>)}</p>}
               <div className="mt-3 flex flex-wrap items-center gap-2 border-b pb-3 text-sm">
                 <input aria-label="主体审核依据" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder="资格或身份核验依据" className="rounded border p-2" />
@@ -372,16 +378,16 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
                 </select>
                 <input aria-label="资格一手来源" value={basisUrl} onChange={(e) => setBasisUrl(e.target.value)} placeholder="https:// 官方资格依据" className="min-w-60 rounded border p-2" />
                 <label className="flex items-center gap-1"><input type="checkbox" checked={mainlandConfirmed} onChange={(e) => setMainlandConfirmed(e.target.checked)} />官网确认位于中国内地</label>
-                <button type="button" disabled={busy || reviewNote.trim().length < 3 || !basisUrl.startsWith("https://") || !mainlandConfirmed}
+                <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3 || !basisUrl.startsWith("https://") || !mainlandConfirmed}
                   onClick={() => void act(() => impactApi.eligibility(selectedEntity.id, "eligible", reviewNote, researchType, basisUrl, mainlandConfirmed))} className="text-[#17658f] underline">确认入榜资格</button>
-                <button type="button" disabled={busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.eligibility(selectedEntity.id, "excluded", reviewNote))} className="text-[#a44949] underline">排除主体</button>
+                <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.eligibility(selectedEntity.id, "excluded", reviewNote))} className="text-[#a44949] underline">排除主体</button>
               </div>
               {selectedRankingRow?.review_cases.filter((c) => c.kind === "possible_duplicate").map((c) => <div key={c.id} className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
                 <p>{c.reason}</p>
-                <button type="button" disabled={busy || reviewNote.trim().length < 3 || !basisUrl.startsWith("https://")}
+                <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3 || !basisUrl.startsWith("https://")}
                   onClick={() => void act(() => impactApi.reviewIdentity(c.id, "confirmed_duplicate", reviewNote, selectedEntity.id, basisUrl))}
                   className="mr-4 mt-2 text-[#8a5d18] underline">按此主体归一身份</button>
-                <button type="button" disabled={busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewIdentity(c.id, "false_positive", reviewNote))} className="text-[#17658f] underline">核实为不同主体</button>
+                <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewIdentity(c.id, "false_positive", reviewNote))} className="text-[#17658f] underline">核实为不同主体</button>
               </div>)}
               <h3 className="mt-4 font-semibold">逐期分数</h3>
               <div className="mt-2 flex flex-wrap gap-2">{selectedEntity.history.map((score) => <div key={score.id} className="rounded border bg-[#f8fbfd] p-3 text-xs">
@@ -407,11 +413,11 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
                 {directions.filter((d) => d.parent_id === root.id && (!embedded || scopedL2Ids.has(d.id))).map((l2) => <div key={l2.id} className="ml-4 mt-2 rounded border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{l2.name} <small>· {l2.review_status}</small></span>
                     <div className="flex gap-3"><button type="button" onClick={() => void openTreeEvents(l2.id, l2.name)} className="text-xs text-[#17658f] underline">{l2.event_count} 条事件</button>
-                      <button type="button" disabled={busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewDirection(l2.id, "approve", reviewNote))} className="text-xs text-[#17658f] underline">确认映射</button></div></div>
+                      <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewDirection(l2.id, "approve", reviewNote))} className="text-xs text-[#17658f] underline">确认映射</button></div></div>
                   <div className="mt-2 flex flex-wrap gap-2">{directions.filter((d) => d.parent_id === l2.id).map((l3) =>
                     <div key={l3.id} className="rounded bg-[#edf4f8] px-2 py-1 text-xs">{l3.name} · {l3.review_status}
                       <button type="button" onClick={() => void openTreeEvents(l3.id, l3.name)} className="ml-2 underline">{l3.event_count} 条事件</button>
-                      <button type="button" disabled={busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewDirection(l3.id, "approve", reviewNote))} className="ml-2 underline">确认</button></div>)}</div>
+                      <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewDirection(l3.id, "approve", reviewNote))} className="ml-2 underline">确认</button></div>)}</div>
                 </div>)}</div>)}
             </div>
             <aside className="space-y-4"><div className="rounded-xl border bg-white p-4"><label className="text-sm font-semibold">审核依据
@@ -422,8 +428,8 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
                 <p>{nameById.get(c.parent_id)} / {c.name} · {c.event_count} 事件 · {c.independent_publishers} 个来源机构 · {c.active_dates} 个事件日期</p>
                 {!c.multi_source_ready && <p className="text-xs text-amber-800">独立来源或持续日期不足；请在审核时说明证据局限。</p>}
                 <button type="button" onClick={() => void openTreeEvents(c.parent_id, c.name, c.name)} className="mr-3 text-[#17658f] underline">查看事件</button>
-                <button type="button" disabled={busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewCandidate(c.parent_id, c.name, "approve", reviewNote))} className="mr-3 text-[#17658f] underline">通过</button>
-                <button type="button" disabled={busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewCandidate(c.parent_id, c.name, "reject", reviewNote))} className="text-[#a44949] underline">驳回</button>
+                <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewCandidate(c.parent_id, c.name, "approve", reviewNote))} className="mr-3 text-[#17658f] underline">通过</button>
+                <button type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3} onClick={() => void act(() => impactApi.reviewCandidate(c.parent_id, c.name, "reject", reviewNote))} className="text-[#a44949] underline">驳回</button>
               </div>)}
               {candidates.length === 0 && <p className="mt-3 text-sm text-[#607486]">当前无候选</p>}
             </div>
@@ -434,7 +440,7 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
                 <button type="button" onClick={() => void openPoolEvents(c.name)} className="text-[#17658f] underline">{c.name} · {c.event_count} 条</button>
                 {c.name_collision ? <span className="ml-2 text-amber-700">与现有节点撞名</span> : null}
                 {c.name_collision ? directions.filter((d) => d.level === 3 && d.name === c.name).map((match) =>
-                  <button key={match.id} type="button" disabled={busy || reviewNote.trim().length < 3}
+                  <button key={match.id} type="button" disabled={!access.canReview || busy || reviewNote.trim().length < 3}
                     onClick={() => void act(() => impactApi.resolveExisting(c.name, match.id, reviewNote))}
                     className="ml-2 text-[#17658f] underline">归入已有 L3 · 可回滚</button>) : null}
               </div>)}
@@ -448,9 +454,9 @@ function ImpactReviewWorkspace({ embedded = false, domainId = "", subdomainId = 
             </div>}
             <div className="rounded-xl border bg-white p-4"><h3 className="font-semibold">审核记录与回滚</h3>
               {eventMappings.filter((a) => !embedded || scopedDirections.some((d) => d.id === a.target_direction_id)).map((a) => <div key={`mapping-${a.id}`} className="mt-2 border-t pt-2 text-xs"><p>{a.reviewed_on} · {a.label} → 已有 L3 · 事件归一</p>
-                {!a.reverted_on && <button type="button" disabled={busy} onClick={() => void rollbackMapped(a.id)} className="text-[#17658f] underline">回滚事件归一</button>}</div>)}
+                {!a.reverted_on && <button type="button" disabled={!access.canReview || busy} onClick={() => void rollbackMapped(a.id)} className="text-[#17658f] underline">回滚事件归一</button>}</div>)}
               {audits.filter((a) => !embedded || scopedDirections.some((d) => d.id === a.direction_id)).map((a) => <div key={a.id} className="mt-2 border-t pt-2 text-xs"><p>{a.reviewed_on} · {nameById.get(a.direction_id) || a.direction_id} · {a.action}</p>
-                {!a.reverted_on && <button type="button" disabled={busy} onClick={() => void rollback(a.id)} className="text-[#17658f] underline">回滚此项</button>}</div>)}
+                {!a.reverted_on && <button type="button" disabled={!access.canReview || busy} onClick={() => void rollback(a.id)} className="text-[#17658f] underline">回滚此项</button>}</div>)}
             </div>
             </aside>
           </section>}
