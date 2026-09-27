@@ -29,6 +29,17 @@ SOURCES = (
      "team_name": "复杂量子材料及其微结构研究组",
      "intro_start": "我们致力于", "intro_stop": "长期招聘",
      "result_pattern": r"在本研究中，我们.+?我们的工作发表在了.+?。"},
+    {"url": "https://nano.nju.edu.cn/", "institution": "南京大学",
+     "domains": ("高能物理与量子科技",), "adapter": "scoped_unit", "team_name": "介观物理和量子器件实验室",
+     "intro_start": "我们主要开展二维材料", "intro_stop": "Latest News",
+     "identity_anchor": "版权所有 南京大学缪峰教授研究组", "directions": ("量子模拟", "量子材料"),
+     "results_url": "https://www.nju.edu.cn/info/3201/117451.htm", "evidence_hosts": ("www.nju.edu.cn",),
+     "results_anchor": "我校缪峰教授合作团队", "result_pattern": r'面对上述机遇与挑战，我校缪峰教授合作团队[^。]+。'},
+    {"url": "https://pol.ouc.edu.cn/2020/0222/c18628a281656/page.htm", "institution": "中国海洋大学",
+     "domains": ("地球科学",), "adapter": "scoped_unit", "team_name": "物理海洋教育部重点实验室",
+     "intro_start": "物理海洋教育部重点实验室前身", "intro_stop": "实验室现有固定成员",
+     "identity_anchor": "中国海洋大学物理海洋实验室", "directions": ("海洋", "气候"),
+     "result_pattern": r'“十三五”以来先后获批实施[^。]+。'},
 )
 
 
@@ -153,6 +164,25 @@ def _record(source, directory, link, page):
 
 def discover_source(source, directory, fetch):
     adapter = source["adapter"]
+    if adapter == "scoped_unit":
+        from .official_team_directory import citation
+        text = text_of(directory)
+        if any(s not in text for s in (source["team_name"], source["intro_start"], source["identity_anchor"])):
+            return [], [{"url": source["url"], "reason": "exact_unit_identity_missing"}]
+        profile = text[text.index(source["intro_start"]):].split(source["intro_stop"], 1)[0].strip()
+        result_page = fetch(source["results_url"]) if source.get("results_url") else directory
+        result_text = text_of(result_page)
+        if result_page.get("status") != "ok" or source.get("results_anchor", source["team_name"]) not in result_text:
+            return [], [{"url": result_page.get("url"), "reason": "outcome_ownership_not_confirmed"}]
+        result = re.search(source["result_pattern"], result_text)
+        facts = [{"kind": "description", "text": profile, "citations": [citation(directory, profile)]}]
+        if result:
+            facts.append({"kind": "outcome", "text": result.group(), "citations": [citation(result_page, result.group())]})
+        return [{"team_name": source["team_name"], "institution_name": source["institution"],
+            "domain": source["domains"][0], "description": profile, "directions": list(source["directions"]),
+            "leader": None, "members": [], "citations": [citation(directory, source["team_name"]), citation(directory, source["identity_anchor"])] + [c for f in facts for c in f["citations"]],
+            "facts": facts, "source_urls": list(dict.fromkeys([source["url"], result_page["url"]])),
+            "identity_basis": "official_research_unit_with_scoped_facts", "observed_at": directory.get("fetched_at", "")}], []
     if adapter == "quantum_portal":
         from .official_team_directory import citation, person
         text = text_of(directory)

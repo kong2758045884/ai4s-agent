@@ -41,7 +41,7 @@ def active_jobs(conn):
                 raise RuntimeError("存在进行中的调查任务，请完成后重放导入")
 
 
-def undo(conn, manifest):
+def undo(conn, manifest, *, commit=True):
     """Refuse to undo rows edited after the batch; preserve unrelated user data."""
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -65,7 +65,8 @@ def undo(conn, manifest):
                                  [old[c] for c in cols if c != "id"] + [old["id"]])
         if conn.execute("PRAGMA foreign_key_check").fetchall():
             raise RuntimeError("回滚外键检查失败")
-        conn.commit()
+        if commit:
+            conn.commit()
     except Exception:
         conn.rollback()
         raise
