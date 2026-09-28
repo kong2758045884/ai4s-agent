@@ -2,6 +2,30 @@
 from urllib.parse import urlsplit
 
 
+# Research-direction leads checked against the institute's own team pages.
+# They remain outside the published subdomain until a reviewer records a decision.
+_PROTEIN_PILOT_LEADS = {
+    "team_0bd6a5a348c66005e5e077f6": (
+        "https://www.ibp.cas.cn/rc/zxz/202411/t20241107_7435201.html",
+        "冷冻电镜解析蛋白质复合物的结构与功能",
+    ),
+    "team_6923d2ee28492e6286a6025c": (
+        "https://www.ibp.cas.cn/rc/rzh/202411/t20241107_7435312.html",
+        "研究重要蛋白质与病毒的三维结构",
+    ),
+    "team_41706ec34ff71b592d378742": (
+        "https://www.ibp.cas.cn/rc/lm/202411/t20241108_7436129.html",
+        "研究光合作用膜蛋白及复合物的结构与功能",
+    ),
+    "team_551667fa4f56da0e1622b189": (
+        "https://www.ibp.cas.cn/rc/shihg/202608/t20260820_8262708.html",
+        "以结构研究指导分子胶设计和蛋白质降解研究",
+    ),
+}
+_PROTEIN_PILOT_SCOPE = ("domain_22924cc35a604e09be55c917feb51db7",
+                        "subdomain_9320b214075f454f82e1d9558b110be0")
+
+
 def summarize(teams, claims, version):
     by_id = {team["id"]: team for team in teams}
     claims = list({c[0]: c for c in claims if c[1] in by_id}.values())
@@ -79,3 +103,26 @@ def pilot_roster(teams, claims, version, *, target=20):
             "outcomeBackedUnits": sum(item["outcomeCount"] > 0 for item in items),
             "unclassifiedUnits": sum(not item["subdomainId"] for item in items),
             "shortfall": max(0, target - len(items)), "items": items}
+
+
+def pilot_candidate_leads(teams, claims, domain_id, subdomain_id):
+    """Only suggest existing, still-unclassified units with the saved official source."""
+    if (domain_id, subdomain_id) != _PROTEIN_PILOT_SCOPE:
+        return []
+    evidence_by_team = {}
+    for claim in claims:
+        if claim[3] != "outcome":
+            evidence_by_team.setdefault(claim[1], set()).add(claim[6].rstrip("/"))
+    eligible = []
+    for team in teams:
+        lead = _PROTEIN_PILOT_LEADS.get(team["id"])
+        if (not lead or team.get("domainId") != domain_id or team.get("subdomainId")
+                or lead[0].rstrip("/") not in evidence_by_team.get(team["id"], set())):
+            continue
+        eligible.append((team, lead))
+    roster = pilot_roster([team for team, _ in eligible], claims, "candidate-projection")
+    details = {team["id"]: lead for team, lead in eligible}
+    for item in roster["items"]:
+        source_url, reason = details[item["teamId"]]
+        item.update(candidateReason=reason, candidateSourceUrl=source_url, candidateStatus="awaiting_review")
+    return roster["items"]

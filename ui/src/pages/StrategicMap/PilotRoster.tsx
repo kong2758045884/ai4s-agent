@@ -9,10 +9,11 @@ type RosterItem = {
   classificationSources?: { claimId: string; title: string; url: string }[];
   subdomainName: string; identitySourceUrl: string | null; claimCount: number;
   outcomeCount: number; humanReviewedClaimCount: number;
+  candidateReason?: string; candidateSourceUrl?: string; candidateStatus?: "awaiting_review";
 };
 type Roster = {
   dataVersion: string; target: number; totalUnits: number; outcomeBackedUnits: number;
-  unclassifiedUnits: number; shortfall: number; items: RosterItem[];
+  unclassifiedUnits: number; shortfall: number; items: RosterItem[]; candidates?: RosterItem[];
 };
 type Filter = "all" | "outcome" | "missing" | "unclassified";
 
@@ -39,11 +40,11 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
       .catch(reason => { if (!controller.signal.aborted) setError(reason.message || "试点清单读取失败"); });
     return () => controller.abort();
   }, [open, domainId, subdomainId, attempt]);
-  const items = useMemo(() => data?.items.filter(item => {
+  const items = useMemo(() => [...(data?.items || []), ...(data?.candidates || [])].filter(item => {
     const matches = `${item.teamName} ${item.institutionName} ${item.subdomainName} ${(item.teamAliases || []).join(" ")} ${(item.institutionAliases || []).join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
     return matches && (filter === "all" || filter === "outcome" && item.outcomeCount > 0
       || filter === "missing" && item.outcomeCount === 0 || filter === "unclassified" && !item.subdomainId);
-  }) || [], [data, query, filter]);
+  }), [data, query, filter]);
   const scopeName = subdomainName || domainName || "全部领域";
   return <section aria-label="试点团队与证据缺口" className="min-w-0 overflow-hidden rounded-[22px] border border-[#d7e5dc] bg-gradient-to-br from-[#f4faf6] via-white to-[#f6fbff] shadow-[0_10px_28px_-25px_rgba(20,79,62,0.55)]">
     <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
@@ -70,6 +71,10 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
           ["成果待补", data.totalUnits - data.outcomeBackedUnits], ["距 20 支", data.shortfall],
         ].map(([label, count]) => <div key={label} className="rounded-xl border border-[#dce9e0] bg-[#f7fbf8] p-3"><p className="text-xs text-[#5d7869]">{label}</p><p className="mt-1 text-xl font-bold text-[#19543f]">{count}</p></div>)}</div>
         <p className="mt-3 text-xs leading-5 text-[#65786c]">{subdomainId ? `当前细分领域已收录 ${data.totalUnits} 支。` : `当前大类有 ${data.unclassifiedUnits} 支尚未归入细分领域。`}身份和成果统计来自当前已发布资料；仅有来源校验不代表专家签署。</p>
+        {!!data.candidates?.length && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#eadcb6] bg-gradient-to-r from-[#fff9ec] to-[#fffdf7] px-3.5 py-3">
+          <p className="text-xs leading-5 text-[#795a26]"><strong className="text-sm">{data.candidates.length} 支待复核候选</strong><span className="ml-2">研究方向与本领域有关，附机构官网原文；尚未计入上方 {data.totalUnits} 支或成果统计。</span></p>
+          <button type="button" onClick={() => { setFilter("unclassified"); setQuery(""); }} className="min-h-9 rounded-lg border border-[#dbc38d] bg-white px-3 text-xs font-semibold text-[#77551d] hover:bg-[#fff3d5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#9b722c]">查看候选团队 <ArrowRight className="ml-1 inline size-3.5" aria-hidden="true" /></button>
+        </div>}
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <label className="relative min-w-0 flex-1"><span className="sr-only">在试点清单中查找团队</span><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#78998a]" aria-hidden="true" />
             <input value={query} onChange={event => setQuery(event.target.value)} placeholder="查找团队、机构或细分领域" aria-label="在试点清单中查找团队" className="min-h-11 w-full rounded-xl border border-[#c9ded1] bg-white py-2 pl-9 pr-3 text-sm text-[#244839] outline-none focus-visible:border-[#18765a] focus-visible:ring-2 focus-visible:ring-[#18765a]/20" /></label>
@@ -77,12 +82,13 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
             <option value="all">全部团队</option><option value="outcome">有成果依据</option><option value="missing">成果待补</option><option value="unclassified">细分领域待确认</option>
           </select>
         </div>
-        <p role="status" className="mt-3 text-xs text-[#698071]">当前筛选显示 {items.length} 支 · 资料版本 {data.dataVersion}</p>
-        <div className="mt-2 max-h-[520px] space-y-2 overflow-y-auto pr-1">{items.map(item => <article key={item.teamId} className="rounded-xl border border-[#e1ebe4] bg-white p-3.5">
+        <p role="status" className="mt-3 text-xs text-[#698071]">当前筛选显示 {items.length} 支{data.candidates?.length ? `（其中 ${items.filter(item => item.candidateStatus).length} 支待复核候选）` : ""} · 资料版本 {data.dataVersion}</p>
+        <div className="mt-2 max-h-[520px] space-y-2 overflow-y-auto pr-1">{items.map(item => <article key={item.teamId} className={`rounded-xl border p-3.5 ${item.candidateStatus ? "border-[#ecd9ad] bg-[#fffdf6]" : "border-[#e1ebe4] bg-white"}`}>
           <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0 flex-1"><button type="button" onClick={() => onOpenTeam(item.teamId)} className="inline-flex min-h-9 max-w-full items-center gap-1 text-left text-sm font-semibold text-[#174f3b] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#18765a]"><span className="break-words">{item.teamName}</span><ArrowRight className="size-3.5 shrink-0" aria-hidden="true" /></button><p className="text-xs leading-5 text-[#698071]">{item.institutionName} · {item.subdomainName || "细分领域待确认"}</p></div>
-            <span className={item.outcomeCount ? "rounded-lg bg-[#e8f6ed] px-2 py-1 text-xs font-semibold text-[#28714c]" : "rounded-lg bg-[#fff4df] px-2 py-1 text-xs font-semibold text-[#8c621f]"}>{item.outcomeCount ? `${item.outcomeCount} 条成果依据` : "成果待补"}</span></div>
+            <span className={item.candidateStatus ? "rounded-lg bg-[#fff0ca] px-2 py-1 text-xs font-semibold text-[#79591d]" : item.outcomeCount ? "rounded-lg bg-[#e8f6ed] px-2 py-1 text-xs font-semibold text-[#28714c]" : "rounded-lg bg-[#fff4df] px-2 py-1 text-xs font-semibold text-[#8c621f]"}>{item.candidateStatus ? "归类待复核" : item.outcomeCount ? `${item.outcomeCount} 条成果依据` : "成果待补"}</span></div>
+          {item.candidateStatus && <p className="mt-1 text-xs leading-5 text-[#795a26]">方向线索：{item.candidateReason} · 成果 {item.outcomeCount ? `${item.outcomeCount} 条待核` : "待补"}</p>}
           {!!((item.teamAliases || []).length || (item.institutionAliases || []).length) && <p className="mt-1 break-words text-[11px] leading-5 text-[#608071]">{(item.teamAliases || []).length ? `团队曾用名：${(item.teamAliases || []).join("、")}` : ""}{(item.teamAliases || []).length && (item.institutionAliases || []).length ? " · " : ""}{(item.institutionAliases || []).length ? `机构关联名称：${(item.institutionAliases || []).join("、")}` : ""}</p>}
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6d8176]"><span>公开引文 {item.claimCount} 条</span><span>人工审核 {item.humanReviewedClaimCount} 条</span>{item.identitySourceUrl && <a href={item.identitySourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 font-semibold text-[#176e50] hover:underline">身份来源 <ExternalLink className="size-3" aria-hidden="true" /></a>}</div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6d8176]"><span>公开引文 {item.claimCount} 条</span><span>人工审核 {item.humanReviewedClaimCount} 条</span>{item.identitySourceUrl && <a href={item.candidateSourceUrl || item.identitySourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 font-semibold text-[#176e50] hover:underline">{item.candidateStatus ? "机构官网原文" : "身份来源"} <ExternalLink className="size-3" aria-hidden="true" /></a>}</div>
           {canReview && !!item.classificationSources?.length && <button type="button" onClick={() => setReviewTeamId(current => current === item.teamId ? "" : item.teamId)} aria-expanded={reviewTeamId === item.teamId} className="mt-2 min-h-9 rounded-lg border border-[#c4ddcb] bg-[#f3faf5] px-3 text-xs font-semibold text-[#237149] hover:bg-[#e7f5eb]">{reviewTeamId === item.teamId ? "收起分类复核" : "复核细分领域"}</button>}
           {canReview && reviewTeamId === item.teamId && !!item.classificationSources?.length && <ClassificationReviewPanel key={item.teamId} team={{ ...item, classificationSources: item.classificationSources }} subdomains={subdomains} sourceVersion={data.dataVersion} onClose={() => setReviewTeamId("")} onSaved={async () => { setAttempt(value => value + 1); await onDataUpdated?.(); }} />}
         </article>)}{!items.length && <p className="rounded-xl border border-dashed border-[#c9ded1] p-5 text-center text-sm text-[#688071]">当前筛选没有团队；可调整关键词或状态。</p>}</div>

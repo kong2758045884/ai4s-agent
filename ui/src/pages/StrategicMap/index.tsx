@@ -35,6 +35,7 @@ import {
   RefreshCcw,
   Save,
   ScanSearch,
+  Sparkles,
   Trash2,
   UsersRound,
   X,
@@ -80,6 +81,7 @@ import AssessmentWorkbench from "./AssessmentWorkbench";
 import { readInternalTeam, useStrategicAccess, type InternalTeam } from "@/services/strategicAccess";
 import EvidenceSearch from "./EvidenceSearch";
 import PilotRoster from "./PilotRoster";
+import FeatureDemo, { type DemoDestination } from "./FeatureDemo";
 import SourceCoverage from "./SourceCoverage";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
@@ -438,6 +440,7 @@ export default function StrategicMap() {
       || (FUSION_ENABLED && initialContext.route === "workspace" && !initialContext.domainId && !initialContext.subdomainId
         ? "recommend" : "teams"),
   );
+  const [demoOpen, setDemoOpen] = useState(() => new URLSearchParams(location.search).get("smDemo") === "1");
   const navigationType = useNavigationType();
   const [taskDraft, setTaskDraft] = useState("");
   const [recommendationRun, setRecommendationRun] = useState<RecommendationRun | null>(null);
@@ -1145,6 +1148,7 @@ export default function StrategicMap() {
           <p className="order-3 w-full text-[13px] font-medium tracking-[0.02em] text-slate-400 sm:order-none sm:w-auto sm:min-w-[250px] sm:flex-1 sm:text-[15px] md:text-[17px]">
             {loading ? "以成果为依据，发现国内科研力量" : `${domains.reduce((total, domain) => total + domain.teams.length, 0)} 个有来源的科研单元 · ${domains.length} 个研究领域`}
           </p>
+          {ASSESSMENT_ENABLED && <button type="button" onClick={() => setDemoOpen(true)} className="order-2 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-[#b9ded8] bg-[#eaf7f4] px-3 text-xs font-bold text-[#176d67] shadow-sm hover:bg-[#d7eee9] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176d67] sm:order-none"><Sparkles className="size-4" aria-hidden="true" />功能演示</button>}
           <div className="strategic-map-view-tabs flex max-w-full shrink-0 items-center overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1">
             {FUSION_ENABLED && <button type="button" aria-pressed={workspaceMode === "recommend"} onClick={() => setWorkspaceMode("recommend")}
               className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${workspaceMode === "recommend" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
@@ -1606,10 +1610,10 @@ export default function StrategicMap() {
                     后台正在核验公开证据，已保存候选保持可浏览
                   </div>
                 ) : null}
-                {ASSESSMENT_ENABLED && <div className="mb-3">
+                {ASSESSMENT_ENABLED && <div id="strategic-evidence-search" className="mb-3">
                   <EvidenceSearch domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
                 </div>}
-                {ASSESSMENT_ENABLED && <div className="mb-3">
+                {ASSESSMENT_ENABLED && <div id="strategic-pilot-roster" className="mb-3">
                   <PilotRoster domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} canReview={access.canReview} subdomains={activeDomain.subdomains} onDataUpdated={refreshMapAfterGraph} />
                 </div>}
                 {!loading && ASSESSMENT_ENABLED && <details className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -2273,6 +2277,19 @@ export default function StrategicMap() {
           {error}
         </div>
       ) : null}
+      {demoOpen && <FeatureDemo onClose={() => setDemoOpen(false)} onNavigate={(destination: DemoDestination) => {
+        setDemoOpen(false);
+        if (destination === "pilot") {
+          const domain = domains.find(item => item.id === "domain_22924cc35a604e09be55c917feb51db7");
+          const subdomain = domain?.subdomains.find(item => item.id === "subdomain_9320b214075f454f82e1d9558b110be0");
+          if (domain && subdomain) applySelection({ domainId: domain.id, subdomainId: subdomain.id, teamId: "" });
+        }
+        setWorkspaceMode(destination === "search" || destination === "pilot" ? "teams" : destination);
+        if (destination === "search" || destination === "pilot") {
+          switchMobilePanel("teams", true);
+          window.setTimeout(() => document.getElementById(destination === "search" ? "strategic-evidence-search" : "strategic-pilot-roster")?.scrollIntoView({ behavior: "smooth", block: "start" }), 180);
+        }
+      }} />}
       {editor ? (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#12324a]/25 p-4 backdrop-blur-[2px]">
           <form

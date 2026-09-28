@@ -1,4 +1,4 @@
-from ai4s_tool.api.source_coverage import pilot_roster, summarize
+from ai4s_tool.api.source_coverage import pilot_candidate_leads, pilot_roster, summarize
 from ai4s_tool.api import task_recommendations as tasks
 from tests.test_strategic_assessments import app_client
 
@@ -68,3 +68,21 @@ def test_public_pilot_roster_honors_scope_and_omits_private_fields(app_client):
     assert response.json()["totalUnits"] == 1
     assert "PRIVATE" not in response.text
     assert client.get("/strategic-map/intelligence/pilot-roster?domain_id=quantum").json()["items"] == []
+
+
+def test_protein_candidate_requires_saved_official_evidence_and_pending_classification():
+    domain = "domain_22924cc35a604e09be55c917feb51db7"
+    subdomain = "subdomain_9320b214075f454f82e1d9558b110be0"
+    team = {"id": "team_0bd6a5a348c66005e5e077f6", "teamName": "章新政研究组",
+            "institutionName": "中国科学院生物物理研究所", "domainId": domain, "subdomainId": None}
+    source = "https://www.ibp.cas.cn/rc/zxz/202411/t20241107_7435201.html"
+    claims = [("direction", team["id"], "r", "description", "研究方向", "蛋白质复合物结构",
+               source, "")]
+    candidates = pilot_candidate_leads([team], claims, domain, subdomain)
+    assert len(candidates) == 1
+    assert candidates[0]["candidateStatus"] == "awaiting_review"
+    assert candidates[0]["candidateSourceUrl"] == source
+    assert candidates[0]["outcomeCount"] == 0
+    assert pilot_candidate_leads([team], [], domain, subdomain) == []
+    assert pilot_candidate_leads([{**team, "subdomainId": subdomain}], claims, domain, subdomain) == []
+    assert pilot_candidate_leads([team], claims, domain, "other") == []
