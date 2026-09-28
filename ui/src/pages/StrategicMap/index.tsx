@@ -2286,7 +2286,13 @@ export default function StrategicMap() {
         if (destination === "pilot") {
           const domain = domains.find(item => item.id === "domain_22924cc35a604e09be55c917feb51db7");
           const subdomain = domain?.subdomains.find(item => item.id === "subdomain_9320b214075f454f82e1d9558b110be0");
-          if (domain && subdomain) applySelection({ domainId: domain.id, subdomainId: subdomain.id, teamId: "" });
+          // Keep the requested field while the catalogue loads; the snapshot
+          // resolver will validate these IDs once the published taxonomy arrives.
+          applySelection({
+            domainId: domain?.id || "domain_22924cc35a604e09be55c917feb51db7",
+            subdomainId: subdomain?.id || "subdomain_9320b214075f454f82e1d9558b110be0",
+            teamId: "",
+          });
         }
         setWorkspaceMode(destination === "search" || destination === "pilot" ? "teams" : destination);
         if (destination === "search" || destination === "pilot") {

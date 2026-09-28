@@ -54,7 +54,7 @@ export default function FeatureDemo({ onClose, onNavigate }: {
           </section>
           <section className="flex min-w-0 flex-col rounded-xl border border-[#d3e1e9] bg-white p-4 shadow-sm">
             <div className="flex items-center gap-2 text-[#145f80]"><FileSearch className="size-5" aria-hidden="true" /><h3 className="text-base font-bold">团队资料</h3></div>
-            <p className="mt-2 flex-1 text-sm leading-6 text-[#557082]">查团队、别名、研究方向和成果引文；档案与当前任务判断共用团队编号。</p>
+            <p className="mt-2 flex-1 text-sm leading-6 text-[#557082]">查团队、别名、研究方向和成果引文，并从档案追溯到研判依据。</p>
             <p className="mt-3 text-xs font-medium text-[#708797]">团队档案 · 资料检索 · 来源查看</p>
             <button type="button" onClick={() => onNavigate("search")} className="mt-4 inline-flex min-h-11 items-center justify-between rounded-lg border border-[#9fc5d8] bg-white px-3.5 text-sm font-semibold text-[#176587] hover:bg-[#eef6fa] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#176587]">查看团队资料<ArrowRight className="size-4" aria-hidden="true" /></button>
           </section>
@@ -67,7 +67,7 @@ export default function FeatureDemo({ onClose, onNavigate }: {
         </div>
 
         <section aria-label="研判流程" className="rounded-xl border border-[#d3e1e9] bg-white p-4 sm:p-5">
-          <div className="flex items-center gap-2 text-[#164e6a]"><BookOpen className="size-5" aria-hidden="true" /><h3 className="font-bold">一次研判如何形成结论</h3></div>
+          <div className="flex items-center gap-2 text-[#164e6a]"><BookOpen className="size-5" aria-hidden="true" /><h3 className="font-bold">一次研判如何开展</h3></div>
           <p className="mt-1 text-xs leading-5 text-[#617d8d]">沿同一任务查看条件、推荐与依据；保存后可回看记录，并比较后续版本的变化。</p>
           <ol className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{workflow.map((step, index) => <li key={step} className="flex min-w-0 items-center gap-3 rounded-lg border border-[#e0eaf0] bg-[#f8fbfd] p-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#176587] text-xs font-bold text-white">{index + 1}</span><span className="min-w-0 text-sm font-medium text-[#27495d]">{step}</span></li>)}</ol>
         </section>
