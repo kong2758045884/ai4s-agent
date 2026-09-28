@@ -7,7 +7,6 @@ import AssessmentInvestigation from "./AssessmentInvestigation";
 import ClaimSourceDetails from "./ClaimSourceDetails";
 import ClaimReviewEditor from "./ClaimReviewEditor";
 import { primaryButton as primary, secondaryButton as button } from "./controls";
-import SourceCoverage from "./SourceCoverage";
 import CombinationCoverage from "./CombinationCoverage";
 import DomainQuickSearch from "./DomainQuickSearch";
 
@@ -219,7 +218,8 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         {historical && <p className="font-medium text-amber-700">正在查看历史快照，修改条件将生成新的版本。</p>}
         {step !== "results" && run && <p>下方正在编辑新条件，已有结果仍按原范围保存。</p>}
       </section>}
-      {step === "input" && <section className={panel}>
+      {step === "input" && <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <section className={panel}>
         <p className="text-xs font-medium tracking-widest text-blue-700">AI4S · 以证据支持研判</p><h2 className="mt-2 text-2xl font-semibold">从一个任务，或一个领域开始</h2>
         <div className="my-5 flex rounded-xl bg-slate-100 p-1" aria-label="研判模式">{([{ id: "task", name: "任务选队" }, { id: "domain", name: "领域观察" }] as const).map(item => <button key={item.id} aria-pressed={mode === item.id}
           className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold ${mode === item.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`} onClick={() => setMode(item.id)}>{item.name}</button>)}</div>
@@ -240,8 +240,17 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           {catalogueReady && (mode === "task" ? taskDraft.trim().length < 2 : !domainScope.domainIds.length) && <p className="text-sm text-slate-600">{mode === "task" ? "填写至少两个字的研究任务后，即可解析条件。" : "请选择一个观察领域后继续。"}</p>}
           {run && <button className={button} onClick={() => setStep("results")}>返回已保存的结果</button>}
         </div>
-      </section>}
-      {step === "input" && <SourceCoverage />}
+      </section>
+      <aside className={`${panel} self-start border-[#d7e4ed] bg-[#f8fbfd]`} aria-label="本次研判将形成的内容">
+        <h3 className="text-base font-semibold text-[#1c4f6a]">这次研判将形成</h3>
+        <p className="mt-2 text-xs leading-5 text-[#637f90]">{mode === "task" ? "先确认任务条件，再查看有依据的结果。" : "先选择领域，再查看已收录的力量分布。"}</p>
+        <ol className="mt-4 space-y-3 text-sm leading-6 text-[#365b70]">{(mode === "task"
+          ? ["可修改的任务条件", "有依据的候选名单", "团队能力对照", "待核验事项"]
+          : ["研究方向与能力分布", "关注团队线索", "代表成果与近期变化", "转为具体任务的入口"]
+        ).map((item, index) => <li key={item} className="flex items-start gap-2"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#e6f1f7] text-xs font-semibold text-[#176587]">{index + 1}</span><span>{item}</span></li>)}</ol>
+        <p className="mt-4 border-t border-[#dbe8ef] pt-3 text-xs leading-5 text-[#6a8190]">资料不足或合作条件未确认时，会保留明确的待核验状态。</p>
+      </aside>
+      </div>}
       {step === "confirm" && interpretation && <section className={panel} aria-label="任务条件确认">
         <h2 className="text-xl font-semibold">先确认系统理解的任务</h2><p className="mt-2 text-sm leading-6 text-slate-500">{interpretation.notice}</p>
         <blockquote className="mt-4 rounded-lg bg-slate-50 p-4 text-sm leading-6">{interpretation.taskText}</blockquote>

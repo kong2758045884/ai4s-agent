@@ -15,6 +15,7 @@ import {
 import {
   ArrowRight,
   Atom,
+  BookOpen,
   BrainCircuit,
   CalendarDays,
   CheckCircle2,
@@ -35,7 +36,6 @@ import {
   RefreshCcw,
   Save,
   ScanSearch,
-  Sparkles,
   Trash2,
   UsersRound,
   X,
@@ -435,12 +435,15 @@ export default function StrategicMap() {
   // filtered URL must not silently turn a team view into a graph view; only
   // the explicit header tabs are allowed to change the workspace mode.
   const [workspaceMode, setWorkspaceMode] = useState<StrategicMapWorkspaceMode>(
-    (initialContext.mode && (FUSION_ENABLED || ["teams", "graph"].includes(initialContext.mode))
+    (ASSESSMENT_ENABLED && new URLSearchParams(location.search).get("smDemo") === "1" ? "recommend" : undefined)
+      || (initialContext.mode && (FUSION_ENABLED || ["teams", "graph"].includes(initialContext.mode))
       ? initialContext.mode : undefined)
       || (FUSION_ENABLED && initialContext.route === "workspace" && !initialContext.domainId && !initialContext.subdomainId
         ? "recommend" : "teams"),
   );
   const [demoOpen, setDemoOpen] = useState(() => new URLSearchParams(location.search).get("smDemo") === "1");
+  const demoTriggerRef = useRef<HTMLButtonElement>(null);
+  const closeDemo = useCallback(() => { setDemoOpen(false); demoTriggerRef.current?.focus(); }, []);
   const navigationType = useNavigationType();
   const [taskDraft, setTaskDraft] = useState("");
   const [recommendationRun, setRecommendationRun] = useState<RecommendationRun | null>(null);
@@ -456,7 +459,8 @@ export default function StrategicMap() {
     // a mode from the URL; a delayed replace must not undo a tab click.
     if (navigationType !== "POP") return;
     const requested = readStrategicMapNavigationContext(location.pathname, location.search)?.mode;
-    if (requested && (FUSION_ENABLED || requested === "teams" || requested === "graph")) setWorkspaceMode(requested);
+    if (new URLSearchParams(location.search).get("smDemo") !== "1"
+        && requested && (FUSION_ENABLED || requested === "teams" || requested === "graph")) setWorkspaceMode(requested);
     const context = readStrategicMapNavigationContext(location.pathname, location.search);
     if (context?.mode === "graph" && context.assessmentId) setAssessmentGraphTeamId(context.teamId);
     setAssessmentContext(current => current.taskId === (context?.assessmentId || "") && current.runId === (context?.assessmentRunId || "") ? current : { taskId: context?.assessmentId || "", runId: context?.assessmentRunId || "" });
@@ -1148,7 +1152,7 @@ export default function StrategicMap() {
           <p className="order-3 w-full text-[13px] font-medium tracking-[0.02em] text-slate-400 sm:order-none sm:w-auto sm:min-w-[250px] sm:flex-1 sm:text-[15px] md:text-[17px]">
             {loading ? "以成果为依据，发现国内科研力量" : `${domains.reduce((total, domain) => total + domain.teams.length, 0)} 个有来源的科研单元 · ${domains.length} 个研究领域`}
           </p>
-          {ASSESSMENT_ENABLED && <button type="button" onClick={() => setDemoOpen(true)} className="order-2 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl border border-[#b9ded8] bg-[#eaf7f4] px-3 text-xs font-bold text-[#176d67] shadow-sm hover:bg-[#d7eee9] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176d67] sm:order-none"><Sparkles className="size-4" aria-hidden="true" />功能演示</button>}
+          {ASSESSMENT_ENABLED && <button ref={demoTriggerRef} type="button" onClick={() => setDemoOpen(true)} className="order-2 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#d2e1ea] bg-white px-3 text-xs font-semibold text-[#386981] hover:border-[#9fc5d8] hover:bg-[#f2f8fb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176587] sm:order-none"><BookOpen className="size-4" aria-hidden="true" />页面导览</button>}
           <div className="strategic-map-view-tabs flex max-w-full shrink-0 items-center overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1">
             {FUSION_ENABLED && <button type="button" aria-pressed={workspaceMode === "recommend"} onClick={() => setWorkspaceMode("recommend")}
               className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${workspaceMode === "recommend" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
@@ -2277,7 +2281,7 @@ export default function StrategicMap() {
           {error}
         </div>
       ) : null}
-      {demoOpen && <FeatureDemo onClose={() => setDemoOpen(false)} onNavigate={(destination: DemoDestination) => {
+      {demoOpen && <FeatureDemo onClose={closeDemo} onNavigate={(destination: DemoDestination) => {
         setDemoOpen(false);
         if (destination === "pilot") {
           const domain = domains.find(item => item.id === "domain_22924cc35a604e09be55c917feb51db7");

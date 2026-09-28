@@ -1,46 +1,81 @@
-import { useEffect, useState } from "react";
-import { ArrowRight, BookOpenCheck, Database, FlaskConical, Network, Search, Sparkles, X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { ArrowRight, BookOpen, Database, FileSearch, FlaskConical, Network, Radio, X } from "lucide-react";
 
 export type DemoDestination = "recommend" | "search" | "pilot" | "graph" | "intelligence";
 
-const features: { number: string; title: string; detail: string; destination: DemoDestination; action: string; icon: typeof Search; tone: string }[] = [
-  { number: "01", title: "描述科研任务", detail: "从目标和必要条件出发，查看逐条解析、推荐理由与缺口。", destination: "recommend", action: "打开研判工作台", icon: FlaskConical, tone: "bg-[#e7eefc] text-[#355eaf]" },
-  { number: "02", title: "搜索公开证据", detail: "按团队、成果、时间和来源状态检索，直达原文与团队档案。", destination: "search", action: "体验证据搜索", icon: Search, tone: "bg-[#e2f4f1] text-[#18776b]" },
-  { number: "03", title: "核对蛋白方向试点", detail: "查看已收录团队和 4 支机构官网支持的待复核候选，逐支追溯依据。", destination: "pilot", action: "查看试点清单", icon: BookOpenCheck, tone: "bg-[#fff0d7] text-[#956117]" },
-  { number: "04", title: "比较与保存研判", detail: "按必要条件比较多支团队，保存证据版本与未确认事项。", destination: "recommend", action: "体验比较流程", icon: Database, tone: "bg-[#e9e9fa] text-[#6355ad]" },
-  { number: "05", title: "探索关系图谱", detail: "查看团队、证据和任务之间的关系，沿来源继续核查。", destination: "graph", action: "打开关系图谱", icon: Network, tone: "bg-[#e6f2fb] text-[#276d9a]" },
-  { number: "06", title: "观察情报变化", detail: "追踪已保存研判的变化、调查进度与证据缺口。", destination: "intelligence", action: "打开情报观察", icon: Sparkles, tone: "bg-[#f5eafa] text-[#8a4c9b]" },
+const workflow = [
+  { code: "P01", title: "输入任务或领域" },
+  { code: "P02", title: "确认任务条件" },
+  { code: "P03 / P04", title: "查看力量与推荐" },
+  { code: "P05 / P06", title: "查原文与团队档案" },
+  { code: "P07 / P08", title: "比较、保存与跟进" },
+  { code: "P09 / P10", title: "补证、观察变化" },
 ];
 
-export default function FeatureDemo({ onClose, onNavigate }: { onClose: () => void; onNavigate: (destination: DemoDestination) => void }) {
-  const [active, setActive] = useState(0);
+export default function FeatureDemo({ onClose, onNavigate }: {
+  onClose: () => void;
+  onNavigate: (destination: DemoDestination) => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { onClose(); return; }
+      if (event.key !== "Tab") return;
+      const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
+      if (!buttons?.length) return;
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
-  const feature = features[active];
-  return <div className="fixed inset-0 z-[80] overflow-y-auto bg-[#102837]/70 p-2 backdrop-blur-[6px] sm:p-5" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div role="dialog" aria-modal="true" aria-labelledby="feature-demo-title" className="mx-auto min-h-[min(740px,95vh)] w-full max-w-[1100px] overflow-hidden rounded-[26px] bg-[#f8fbfc] shadow-[0_35px_100px_rgba(3,20,30,0.4)]">
-      <div className="relative overflow-hidden bg-[radial-gradient(circle_at_80%_20%,#2b6570_0%,transparent_45%),linear-gradient(120deg,#122a3a,#193c48)] px-5 pb-8 pt-6 text-white sm:px-9 sm:pb-10 sm:pt-8">
-        <div className="absolute -right-10 -top-20 size-64 rounded-full border border-white/10" aria-hidden="true" />
-        <div className="relative flex items-start justify-between gap-3"><span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold tracking-[0.08em]"><Sparkles className="size-3.5" />AI4S · PRODUCT TOUR</span><button type="button" onClick={onClose} aria-label="关闭功能演示" className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/10 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"><X className="size-5" /></button></div>
-        <h2 id="feature-demo-title" className="relative mt-5 max-w-[760px] text-3xl font-bold leading-tight tracking-tight sm:text-[42px]">从科研问题，到有依据的团队研判</h2>
-        <p className="relative mt-3 max-w-[700px] text-sm leading-7 text-[#d7e8e9] sm:text-base">六个可点击的入口，带你走完整条核心路径。试点候选与专家签署状态会按真实资料显示，演示不预填科研结论。</p>
-        <div className="relative mt-5 flex flex-wrap gap-2 text-xs text-[#d3e8e7]"><span className="rounded-full bg-white/10 px-3 py-1.5">任务解析与推荐</span><span className="rounded-full bg-white/10 px-3 py-1.5">来源可追溯</span><span className="rounded-full bg-white/10 px-3 py-1.5">历史与变化</span></div>
-      </div>
-      <div className="grid gap-5 p-4 sm:p-7 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="grid gap-2 sm:grid-cols-2">{features.map((item, index) => <button key={item.number} type="button" onClick={() => setActive(index)} aria-pressed={active === index} className={`group min-w-0 rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#287c83] ${active === index ? "border-[#4c9e9e] bg-white shadow-[0_10px_25px_-18px_#1b5d63]" : "border-[#e0e9ea] bg-white/75 hover:border-[#9ac9c9] hover:bg-white"}`}>
-          <div className="flex items-start justify-between gap-2"><span className={`flex size-10 items-center justify-center rounded-xl ${item.tone}`}><item.icon className="size-5" aria-hidden="true" /></span><span className="text-xs font-bold text-[#91a3a8]">{item.number} / 06</span></div>
-          <h3 className="mt-3 text-sm font-bold text-[#173c45] sm:text-base">{item.title}</h3><p className="mt-1.5 text-xs leading-5 text-[#637b82]">{item.detail}</p>
-        </button>)}</div>
-        <aside className="flex flex-col rounded-2xl border border-[#cce2e2] bg-[#e9f5f3] p-5 lg:sticky lg:top-0">
-          <span className="text-xs font-bold tracking-[0.16em] text-[#28736e]">当前演示 · {feature.number} / 06</span>
-          <span className={`mt-6 flex size-14 items-center justify-center rounded-2xl ${feature.tone}`}><feature.icon className="size-7" aria-hidden="true" /></span>
-          <h3 className="mt-5 text-2xl font-bold text-[#163d42]">{feature.title}</h3><p className="mt-3 flex-1 text-sm leading-7 text-[#527078]">{feature.detail}</p>
-          <button type="button" onClick={() => onNavigate(feature.destination)} className="mt-7 inline-flex min-h-12 w-full items-center justify-between rounded-xl bg-[#176d70] px-4 text-sm font-bold text-white shadow-[0_8px_20px_-12px_#176d70] hover:bg-[#10585b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176d70]">{feature.action}<ArrowRight className="size-4" aria-hidden="true" /></button>
-          <p className="mt-3 text-xs leading-5 text-[#68848a]">将进入实际功能页面；部分数据仍等待人工核验。</p>
-        </aside>
+
+  return <div className="fixed inset-0 z-[80] overflow-y-auto bg-[#0d3047]/55 p-2 sm:p-5" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="feature-demo-title" className="mx-auto w-full max-w-[1040px] overflow-hidden rounded-2xl border border-[#cbdde8] bg-[#f6f9fc] shadow-[0_24px_72px_rgba(10,37,55,0.28)]">
+      <header className="border-b border-[#d5e2e9] bg-white px-4 py-4 sm:px-7">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0"><p className="text-xs font-semibold tracking-[0.1em] text-[#176587]">AI4S 战略图谱 · 页面导览</p>
+            <h2 id="feature-demo-title" className="mt-1 text-xl font-bold text-[#143e57] sm:text-2xl">按老师文档走一遍研判主流程</h2>
+            <p className="mt-1 text-xs leading-5 text-[#5d7686] sm:text-sm">按 P01–P14 原型说明页面归属；点击入口进入当前已实现的页面。</p></div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="关闭页面导览" className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-[#cadce6] text-[#42677a] hover:bg-[#edf5f9] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#176587]"><X className="size-5" /></button>
+        </div>
+      </header>
+
+      <div className="space-y-5 p-4 sm:p-7">
+        <div className="grid gap-3 md:grid-cols-3" aria-label="文档规定的三个主模块">
+          <section className="flex min-w-0 flex-col rounded-xl border border-[#b6d5e4] bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-[#145f80]"><FlaskConical className="size-5" aria-hidden="true" /><h3 className="text-base font-bold">研判工作台</h3></div>
+            <p className="mt-2 flex-1 text-sm leading-6 text-[#557082]">按任务找团队，或按领域看力量；确认条件后查看推荐、原文、比较与跟进。</p>
+            <p className="mt-3 text-xs font-medium text-[#708797]">P01–P09 · P11 关系下钻</p>
+            <button type="button" onClick={() => onNavigate("recommend")} className="mt-4 inline-flex min-h-11 items-center justify-between rounded-lg bg-[#176587] px-3.5 text-sm font-semibold text-white hover:bg-[#104d69] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176587]">打开研判工作台<ArrowRight className="size-4" aria-hidden="true" /></button>
+          </section>
+          <section className="flex min-w-0 flex-col rounded-xl border border-[#d3e1e9] bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-[#145f80]"><FileSearch className="size-5" aria-hidden="true" /><h3 className="text-base font-bold">团队资料</h3></div>
+            <p className="mt-2 flex-1 text-sm leading-6 text-[#557082]">查团队、别名、研究方向和成果引文；档案与当前任务判断共用团队编号。</p>
+            <p className="mt-3 text-xs font-medium text-[#708797]">P06 档案 · P12 检索 · P13 授权维护</p>
+            <button type="button" onClick={() => onNavigate("search")} className="mt-4 inline-flex min-h-11 items-center justify-between rounded-lg border border-[#9fc5d8] bg-white px-3.5 text-sm font-semibold text-[#176587] hover:bg-[#eef6fa] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#176587]">查看团队资料<ArrowRight className="size-4" aria-hidden="true" /></button>
+          </section>
+          <section className="flex min-w-0 flex-col rounded-xl border border-[#d3e1e9] bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-[#145f80]"><Radio className="size-5" aria-hidden="true" /><h3 className="text-base font-bold">情报观察</h3></div>
+            <p className="mt-2 flex-1 text-sm leading-6 text-[#557082]">看已关注研判的变化、明确方向的日报，以及机构影响力与历史报告。</p>
+            <p className="mt-3 text-xs font-medium text-[#708797]">P10 动态与报告</p>
+            <button type="button" onClick={() => onNavigate("intelligence")} className="mt-4 inline-flex min-h-11 items-center justify-between rounded-lg border border-[#9fc5d8] bg-white px-3.5 text-sm font-semibold text-[#176587] hover:bg-[#eef6fa] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#176587]">查看情报观察<ArrowRight className="size-4" aria-hidden="true" /></button>
+          </section>
+        </div>
+
+        <section aria-label="老师文档的研判流程" className="rounded-xl border border-[#d3e1e9] bg-white p-4 sm:p-5">
+          <div className="flex items-center gap-2 text-[#164e6a]"><BookOpen className="size-5" aria-hidden="true" /><h3 className="font-bold">一次研判如何形成结论</h3></div>
+          <p className="mt-1 text-xs leading-5 text-[#617d8d]">文档要求保持同一研判上下文；新证据核验后形成新版本，旧结论可回看。尚未完成的环节以实施计划为准。</p>
+          <ol className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{workflow.map((step, index) => <li key={step.code} className="flex min-w-0 items-start gap-3 rounded-lg border border-[#e0eaf0] bg-[#f8fbfd] p-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#176587] text-xs font-bold text-white">{index + 1}</span><span className="min-w-0"><span className="block text-xs font-semibold text-[#3980a0]">{step.code}</span><span className="block text-sm font-medium text-[#27495d]">{step.title}</span></span></li>)}</ol>
+        </section>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d4e2ea] bg-[#eaf3f8] p-4">
+          <p className="max-w-[700px] text-xs leading-6 text-[#506d7e]"><strong className="text-[#254d63]">资料边界：</strong>蛋白质结构与设计试点当前正式收录 16 支，另有 4 支机构官网支持的待复核候选；候选不能算作专家验收。文档中的其余未完成项仍按实施计划推进。</p>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onNavigate("pilot")} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#9fc5d8] bg-white px-3 text-xs font-semibold text-[#176587] hover:bg-[#f5fbff]"><Database className="size-4" />核对试点团队</button><button type="button" onClick={() => onNavigate("graph")} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#9fc5d8] bg-white px-3 text-xs font-semibold text-[#176587] hover:bg-[#f5fbff]"><Network className="size-4" />查看相关关系</button></div>
+        </div>
       </div>
     </div>
   </div>;
