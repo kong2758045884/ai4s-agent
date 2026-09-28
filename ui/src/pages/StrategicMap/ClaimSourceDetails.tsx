@@ -25,6 +25,9 @@ export default function ClaimSourceDetails({ citation }: { citation: Recommendat
   ];
   return <section aria-label="来源与核验记录" className="space-y-3">
     <dl className="grid grid-cols-1 gap-3 rounded-xl bg-slate-50 p-4 text-xs sm:grid-cols-2">{cells.map(([label, text]) => <div key={label} className="min-w-0"><dt className="text-slate-500">{label}</dt><dd className="mt-1 break-words leading-5 text-slate-800">{text}</dd></div>)}</dl>
+    {located && value.sourceContext && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 text-xs leading-6"><h3 className="font-semibold text-blue-950">采集时保存的正文定位</h3>
+      <p className="mt-2 break-words whitespace-pre-wrap text-slate-700">{value.sourceContext.before && "…"}{value.sourceContext.before}<mark className="rounded bg-amber-100 px-0.5 text-slate-900">{value.sourceContext.matched}</mark>{value.sourceContext.after}{value.sourceContext.after && "…"}</p>
+      <p className="mt-2 text-slate-500">高亮片段对应本次研判保存的提取正文及上方字符位置；不代表当前网页仍保持相同内容。</p></div>}
     <div className="grid gap-2 text-xs sm:grid-cols-3">
       <div className="rounded-lg border border-slate-200 p-3"><h3 className="font-semibold">来源校验</h3><p className="mt-1">{value.sourceCheck.status === "quote_mismatch" ? "引文与保存正文不一致" : "已有规则检查记录"}</p><p className="mt-1 break-words text-slate-500">{methods[value.sourceCheck.method] || value.sourceCheck.method || "检查方法未记录"}</p><p className="mt-1 text-slate-500">{value.sourceCheck.checkedAt || "时间未记录"}</p></div>
       <div className="rounded-lg border border-slate-200 p-3"><h3 className="font-semibold">AI 复核</h3><p className="mt-1">{value.modelReview.status === "reviewed" ? "已有独立复核记录" : "此来源未使用 AI 复核"}</p><p className="mt-1 break-words text-slate-500">{value.modelReview.reviewedAt || "—"}</p></div>

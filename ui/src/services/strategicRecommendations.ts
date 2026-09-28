@@ -10,6 +10,7 @@ export type ClaimProvenance = {
   contentHash: string;
   quoteHash: string;
   locator: { status: string; start: number | null; end: number | null; basis: string };
+  sourceContext?: { before: string; matched: string; after: string } | null;
   sourceCheck: { method: string; checkedAt: string; status: string };
   modelReview: { status: string; version: string; reviewedAt: string };
   humanReview: { status: string; reviewedAt: string; reviewer: string; decision?: string; scope?: string; reason?: string;

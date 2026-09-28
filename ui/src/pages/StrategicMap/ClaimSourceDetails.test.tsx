@@ -15,6 +15,7 @@ describe("saved source checks", () => {
       version: "v1", sourceRunId: "r1", sourceTitle: "成果页面", sourceType: "official_institution",
       publishedAt: "2026-09-01", fetchedAt: "2026-09-20", contentHash: "hash", quoteHash: "quote",
       locator: { status: "exact", start: 4, end: 6, basis: "saved_extracted_text" },
+      sourceContext: { before: "前文", matched: "原文", after: "后文" },
       sourceCheck: { method: "official-directory-citation-rule", checkedAt: "2026-09-21", status: "recorded" },
       modelReview: { status: "not_used", version: "", reviewedAt: "" },
       humanReview: { status: "not_recorded", reviewer: "", reviewedAt: "" },
@@ -22,6 +23,10 @@ describe("saved source checks", () => {
     } }} />);
     expect(html).toContain("2026-09-20");
     expect(html).toContain("第 5–6 字符");
+    expect(html).toContain("采集时保存的正文定位");
+    expect(html).toContain("<mark");
+    expect(html).toContain("前文");
+    expect(html).toContain("后文");
     expect(html).toContain("此来源未使用 AI 复核");
     expect(html).toContain("未记录人工审核");
     expect(html).not.toContain("已有独立复核记录");

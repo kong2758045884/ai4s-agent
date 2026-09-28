@@ -5,7 +5,7 @@ import hashlib
 from datetime import datetime
 from urllib.parse import urlsplit
 
-VERSION = "claim-provenance-v1"
+VERSION = "claim-provenance-v2"
 
 
 def stamp(value):
@@ -29,13 +29,26 @@ def locate(text, quote):
             "end": positions[start + len(compact_quote) - 1] + 1, "basis": "saved_extracted_text"}
 
 
+def context(text, locator, flank=120):
+    """Freeze a bounded passage from the same extracted body as the offsets."""
+    if locator["status"] not in {"exact", "whitespace_normalized"}:
+        return None
+    start, end = locator["start"], locator["end"]
+    if start is None or end is None or not 0 <= start < end <= len(text):
+        return None
+    return {"before": text[max(0, start - flank):start], "matched": text[start:end],
+            "after": text[end:end + flank]}
+
+
 def _base(url, quote, *, run_id, title="", published_at="", fetched_at="", checked_at="", text="", method="", source_type=""):
     official = (urlsplit(url).hostname or "").endswith((".edu.cn", ".cas.cn"))
+    locator = locate(text, quote)
     return {"version": VERSION, "sourceRunId": run_id, "sourceTitle": title,
         "sourceType": source_type or ("official_institution" if official else "publication_or_webpage"),
         "publishedAt": stamp(published_at), "fetchedAt": stamp(fetched_at),
         "contentHash": hashlib.sha256(text.encode()).hexdigest() if text else "",
-        "quoteHash": hashlib.sha256(quote.encode()).hexdigest(), "locator": locate(text, quote),
+        "quoteHash": hashlib.sha256(quote.encode()).hexdigest(), "locator": locator,
+        "sourceContext": context(text, locator),
         "sourceCheck": {"method": method, "checkedAt": stamp(checked_at), "status": "recorded"},
         "modelReview": {"status": "not_used", "version": "", "reviewedAt": ""},
         "humanReview": {"status": "not_recorded", "reviewedAt": "", "reviewer": ""},

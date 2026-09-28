@@ -14,6 +14,9 @@ def test_offsets_refer_to_full_saved_body_even_with_whitespace():
     assert text[value["start"]:value["end"]] == "团队发表\n蛋白质  论文"
     assert source.locate(text, "没有出现的成果")["status"] == "not_found"
     assert source.locate("", "只有引文")["start"] is None
+    excerpt = source.context(text, value, flank=3)
+    assert excerpt == {"before": "摘要。", "matched": "团队发表\n蛋白质  论文", "after": "。附录"}
+    assert excerpt["before"] + excerpt["matched"] + excerpt["after"] == text
 
 
 def test_new_directory_citations_retain_actual_page_metadata_without_human_review():
@@ -31,12 +34,14 @@ def test_new_directory_citations_retain_actual_page_metadata_without_human_revie
     assert result["humanReview"]["status"] == "not_recorded"
     assert result["modelReview"]["status"] == "not_used"
     assert result["linkCheck"]["status"] == "not_checked"
+    assert result["sourceContext"] is None  # Directory retained the offset, not the full body.
 
 
 def test_legacy_quotes_do_not_fabricate_locations_or_dates():
     result = source.from_observation({"id": "old", "status": "official_directory", "payload": {}},
                                      {"url": "https://example.edu.cn", "quote": "历史片段"})
     assert result["locator"]["status"] == "body_not_retained"
+    assert result["sourceContext"] is None
     assert result["contentHash"] == result["fetchedAt"] == result["sourceCheck"]["checkedAt"] == ""
     public, claims = project(team(), [observation()])
     assert all(public["claimProvenance"][claim[0]]["humanReview"]["status"] == "not_recorded" for claim in claims)
@@ -60,6 +65,7 @@ def test_outcome_check_carries_ownership_and_does_not_relabel_claim_as_page_titl
     assert value["sourceTitle"] == ""
     assert value["ownershipCheck"]["teamId"] == "t1"
     assert value["locator"]["status"] == "exact"
+    assert value["sourceContext"] == {"before": "2026年", "matched": "团队甲发表成果", "after": "。"}
     assert value["humanReview"]["status"] == "not_recorded"
 
 
