@@ -37,4 +37,25 @@ describe("P09 investigation without a connected collection provider", () => {
     expect(html).toContain("检索结果仅供核对");
     expect(html).not.toContain("明确启动联网补证");
   });
+
+  it("reads an older saved run without a criterion matrix", () => {
+    const run = {
+      taskId: "old-task",
+      runId: "old-run",
+      taskText: "蛋白质结构",
+      scope: {
+        mode: "auto",
+        domainIds: [],
+        domesticOnly: true
+      },
+      criteria: [{
+        id: "old-criterion",
+        text: "结构分析",
+        necessity: "required"
+      }],
+      items: [{ teamId: "old-team" }]
+    } as unknown as AssessmentRun;
+    const html = renderToStaticMarkup(<AssessmentInvestigation run={run} historical onOpenRun={() => {}} onOpenTeam={() => {}} />);
+    expect(html).toContain('value="蛋白质结构"');
+  });
 });

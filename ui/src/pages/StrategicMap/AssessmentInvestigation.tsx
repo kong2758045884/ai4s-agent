@@ -53,7 +53,7 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun, on
     finally { if (current.current === context) setBusy(false); }
   }
   const missing = (run.criteria || []).filter(criterion => criterion.necessity === "required" &&
-    run.items.some(item => item.criteriaMatrix.some(row => row.criterionId === criterion.id && row.status !== "supported")));
+    run.items.some(item => item.criteriaMatrix?.some(row => row.criterionId === criterion.id && row.status !== "supported")));
   const searchQuery = missing[0]?.text || run.taskText || "";
   const singleDomain = run.scope.domainIds.length === 1 ? run.scope.domainIds[0] : "";
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6" aria-label="补充调查">
