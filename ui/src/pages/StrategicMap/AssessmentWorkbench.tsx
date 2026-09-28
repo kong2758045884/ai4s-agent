@@ -9,6 +9,7 @@ import ClaimReviewEditor from "./ClaimReviewEditor";
 import { primaryButton as primary, secondaryButton as button } from "./controls";
 import SourceCoverage from "./SourceCoverage";
 import CombinationCoverage from "./CombinationCoverage";
+import DomainQuickSearch from "./DomainQuickSearch";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -226,6 +227,8 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           <label className="block text-sm font-medium">{mode === "task" ? "描述研究目标、必要能力和限制" : "观察重点（选填）"}<textarea className={`${input} mt-2 min-h-28 resize-y`} rows={4} maxLength={mode === "task" ? 2000 : 500}
             aria-label={mode === "task" ? "研判任务输入" : "领域观察草稿"} value={mode === "task" ? taskDraft : domainDraft} onChange={e => mode === "task" ? setTaskDraft(e.target.value) : setDomainDraft(e.target.value)}
             placeholder={mode === "task" ? "例如：寻找能够开展蛋白质结构预测的国内团队，要求有对应成果原文；优先提供开源模型。" : "例如：关注该领域的能力分布和近期成果"} /></label>
+          {mode === "domain" && <DomainQuickSearch domains={domains} selectedDomainId={domainScope.domainIds[0] || ""}
+            onSelect={match => { setDomainScope({ ...domainScope, mode: "selected", domainIds: [match.domainId], subdomainId: match.subdomainId }); confirmRequest.current = requestId(); }} />}
           {scopePicker(mode === "task" ? taskScope : domainScope, mode === "task" ? setTaskScope : setDomainScope, mode === "task")}
           <div className="flex flex-wrap items-end gap-4"><label className="text-sm">{mode === "task" ? "推荐数量" : "关注数量"}<input className={`${input} mt-1 max-w-24`} type="number" min={1} max={20} value={limit} onChange={e => setLimit(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
             {mode === "domain" && <label className="text-sm">近期窗口<select className={`${input} mt-1`} value={windowDays} onChange={e => setWindowDays(Number(e.target.value))}>{[30, 90, 180, 365].map(n => <option key={n} value={n}>{n} 天</option>)}</select></label>}

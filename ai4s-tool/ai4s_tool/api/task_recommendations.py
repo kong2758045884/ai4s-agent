@@ -48,6 +48,7 @@ _CONCEPT_EQUIVALENTS = (
 _CACHE_LOCK = threading.RLock()
 _EVIDENCE_CACHE: tuple[str, tuple[list[dict[str, Any]], list[tuple[str, ...]], str]] | None = None
 _LEAD_CACHE: tuple[str, list[dict[str, Any]]] | None = None
+ALIAS_VERSION = "evidence-backed-alias-v1"
 
 
 class TaskRequest(BaseModel):
@@ -141,13 +142,36 @@ def _candidate_signature() -> str:
         return "|".join(values)
 
 
+def _trusted_aliases(team: dict[str, Any], observations: list[dict]) -> tuple[list[str], list[str]]:
+    """Expose only explicit, evidenced rename history and controlled institution names."""
+    team_aliases, institution_aliases = [], []
+    for alias, canonical in strategic_map._INSTITUTION_ALIASES.items():
+        if canonical == team.get("institutionName"):
+            institution_aliases.append(alias)
+    for entry in observations:
+        payload = entry.get("payload") or {}
+        reviewed = (payload.get("run") or {}).get("reviewed") or {}
+        if (entry.get("status") != "verified" or not payload.get("published")
+                or reviewed.get("entity_relation") != "rename"
+                or not reviewed.get("entity_citations")):
+            continue
+        before = payload.get("before") or {}
+        previous_team = str(before.get("teamName") or "").strip()
+        previous_institution = str(before.get("institutionName") or "").strip()
+        if previous_team and previous_team != team.get("teamName") and previous_team != strategic_map._UNKNOWN_TEAM_LABEL:
+            team_aliases.append(previous_team)
+        if previous_institution and previous_institution != team.get("institutionName"):
+            institution_aliases.append(previous_institution)
+    return list(dict.fromkeys(team_aliases)), list(dict.fromkeys(institution_aliases))
+
+
 def _catalogue_evidence(*, reviewed=True) -> tuple[list[dict[str, Any]], list[tuple[str, ...]], str]:
     """All published identity-backed teams, independent of recommendation gates."""
     global _EVIDENCE_CACHE
     from .verified_team_catalogue import project, VERSION
     from .team_research_store import HISTORY
     from sqlalchemy import inspect, select
-    signature = VERSION + f"|reviews={reviewed}|" + _candidate_signature()
+    signature = VERSION + ALIAS_VERSION + f"|reviews={reviewed}|" + _candidate_signature()
     with _CACHE_LOCK:
         if _EVIDENCE_CACHE and _EVIDENCE_CACHE[0] == signature:
             return _EVIDENCE_CACHE[1]
@@ -172,12 +196,16 @@ def _catalogue_evidence(*, reviewed=True) -> tuple[list[dict[str, Any]], list[tu
             if projected is None:
                 continue
             payload, run_claims = projected
+            team_aliases, institution_aliases = _trusted_aliases(payload, observations.get(team.id, []))
+            payload["teamAliases"] = team_aliases
+            payload["institutionAliases"] = institution_aliases
+            payload["aliases"] = [*team_aliases, *institution_aliases]
             payload["domainName"] = domains.get(team.domain_id, "")
             payload["subdomainName"] = domains.get(team.subdomain_id, "")
             candidates.append(payload)
             claims.extend(run_claims)
-            versions.append(f"{team.id}:{team.updated_at}:{team.score_version}:{payload['catalogueSourceRunId']}")
-    version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
+            versions.append(f"{team.id}:{team.updated_at}:{team.score_version}:{payload['catalogueSourceRunId']}:{','.join(payload['aliases'])}")
+    version = hashlib.sha256((VERSION + ALIAS_VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
     from .strategic_outcomes import valid_source
     ids = {team["id"] for team in candidates}
     team_map = {team["id"]: team for team in candidates}
@@ -189,7 +217,7 @@ def _catalogue_evidence(*, reviewed=True) -> tuple[list[dict[str, Any]], list[tu
                     claims.append((row["id"], row["team_id"], row["batch_id"], "outcome", row["title"], row["quote"], row["url"], row["published_at"]))
                     team_map[row["team_id"]].setdefault("claimProvenance", {})[row["id"]] = from_outcome(row)
                     versions.append(f"outcome:{row['id']}:{row['content_hash']}")
-            version = hashlib.sha256((VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
+            version = hashlib.sha256((VERSION + ALIAS_VERSION + "\n" + "\n".join(sorted(versions))).encode()).hexdigest()[:16]
         if reviewed:
             from .claim_reviews import overlay
             candidates, claims, version = overlay(candidates, claims, version, conn)
@@ -515,9 +543,10 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
             for team in scoped.values():
                 title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
                 directions = " ".join(str(value) for value in team.get("researchDirections") or [])
-                aliases = " ".join(str(value) for value in team.get("aliases") or [])
+                team_aliases = " ".join(str(value) for value in team.get("teamAliases") or [])
+                institution_aliases = " ".join(str(value) for value in team.get("institutionAliases") or [])
                 description = team.get("description") or team.get("focus") or ""
-                haystack = f"{title} {directions} {aliases} {description}"
+                haystack = f"{title} {directions} {team_aliases} {institution_aliases} {description}"
                 if not strategic_text.search_match(query, haystack):
                     continue
                 official = team.get("catalogueBasis") == "official_directory"
@@ -526,7 +555,7 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                 reason = next((label for value, label in (
                     (team.get("teamName", ""), "团队名称"),
                     (team.get("institutionName", ""), "所属机构"),
-                    (aliases, "登记别名"), (directions, "研究方向"),
+                    (team_aliases, "团队曾用名"), (institution_aliases, "机构别名"), (directions, "研究方向"),
                 ) if value and strategic_text.search_match(query, value)), "团队档案")
                 results.append({"type": "team_profile", "id": team["id"], "teamId": team["id"],
                     "title": title, "snippet": strategic_text.snippet(query, description or directions or title),
@@ -540,7 +569,9 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                 if not team:
                     continue
                 title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
-                haystack = f"{title} {claim[4]} {claim[5]}"
+                team_aliases = " ".join(str(value) for value in team.get("teamAliases") or [])
+                institution_aliases = " ".join(str(value) for value in team.get("institutionAliases") or [])
+                haystack = f"{title} {team_aliases} {institution_aliases} {claim[4]} {claim[5]}"
                 if not strategic_text.search_match(query, haystack):
                     continue
                 provenance = team.get("claimProvenance", {}).get(claim[0], {})
@@ -557,6 +588,7 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                 reason = next((label for value, label in (
                     (team.get("teamName", ""), "团队名称"),
                     (team.get("institutionName", ""), "所属机构"),
+                    (team_aliases, "团队曾用名"), (institution_aliases, "机构别名"),
                     (claim[4], "成果或能力描述"),
                 ) if value and strategic_text.search_match(query, value)), "原文引文")
                 results.append({"type": "team_claim", "id": claim[0], "teamId": claim[1],

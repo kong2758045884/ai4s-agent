@@ -104,7 +104,7 @@ def test_search_all_59_rows_pagination_and_subdomain_isolation(storage, monkeypa
 def test_search_filters_profiles_sources_dates_and_rejects_changed_snapshot(storage, monkeypatch):
     state = evidence(monkeypatch)
     team = state['teams'][0]
-    team.update(aliases=['蛋白结构组'], researchDirections=['蛋白质设计'],
+    team.update(teamAliases=['蛋白结构组'], institutionAliases=[], researchDirections=['蛋白质设计'],
                 catalogueBasis='official_directory',
                 claimProvenance={
                     'official': {'sourceType': 'official_institution',
@@ -124,7 +124,7 @@ def test_search_filters_profiles_sources_dates_and_rejects_changed_snapshot(stor
     all_items = tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all')
     assert [(item['type'], item['id']) for item in all_items['items']] == [
         ('team_profile', 't'), ('team_claim', 'official'), ('team_claim', 'paper')]
-    assert all_items['items'][0]['matchReason'] == '登记别名'
+    assert all_items['items'][0]['matchReason'] == '团队曾用名'
     assert all_items['items'][1]['humanReviewStatus'] == 'reviewed'
     assert all_items['snapshotId'] and all_items['pageSize'] == 20
 
@@ -140,6 +140,33 @@ def test_search_filters_profiles_sources_dates_and_rejects_changed_snapshot(stor
         tasks.intelligence_search(q='蛋白', page=2, size=20, entity_type='all',
                                   snapshot_id=all_items['snapshotId'])
     assert changed.value.status_code == 409
+
+
+def test_aliases_require_evidenced_rename_and_keep_canonical_team_id(monkeypatch):
+    team = {'id': 'team-1', 'teamName': '新名称', 'institutionName': '哈尔滨工业大学',
+            'domainId': 'ai', 'subdomainId': None, 'description': '机器人研究'}
+    approved = {'status': 'verified', 'payload': {'published': True,
+        'before': {'teamName': '旧名称', 'institutionName': '旧机构名'},
+        'run': {'reviewed': {'entity_relation': 'rename', 'entity_citations': [{'url': 'https://example.edu.cn/name'}]}}}}
+    unapproved = {'status': 'verified', 'payload': {'published': False,
+        'before': {'teamName': '未发布的别名'},
+        'run': {'reviewed': {'entity_relation': 'rename', 'entity_citations': [{'url': 'https://example.edu.cn/name'}]}}}}
+    disputed = {'status': 'verified', 'payload': {'published': True,
+        'before': {'teamName': '未证明同一主体'},
+        'run': {'reviewed': {'entity_relation': 'different', 'entity_citations': [{'url': 'https://example.edu.cn/name'}]}}}}
+    team_names, institutions = tasks._trusted_aliases(team, [approved, unapproved, disputed])
+    assert team_names == ['旧名称']
+    assert institutions == ['哈工大', '旧机构名']
+    team.update(teamAliases=team_names, institutionAliases=institutions)
+    claim = ('claim-1', 'team-1', 'run-1', 'outcome', '机器人', '机器人研究成果',
+             'https://example.edu.cn/paper', '')
+    monkeypatch.setattr(tasks, '_validate_scope', lambda *_: None)
+    monkeypatch.setattr(tasks, '_catalogue_evidence', lambda: ([team], [claim], 'alias-v1'))
+    for query in ('新名称', '旧名称', '哈工大'):
+        found = tasks.intelligence_search(q=query, entity_type='all', page=1, size=20)
+        assert found['total'] == 2
+        assert {item['teamId'] for item in found['items']} == {'team-1'}
+    assert tasks.intelligence_search(q='未证明同一主体', entity_type='all', page=1, size=20)['total'] == 0
 
 
 def test_explicit_investigation_duplicate_retry_restart_and_failed_results_retained(storage, monkeypatch):
