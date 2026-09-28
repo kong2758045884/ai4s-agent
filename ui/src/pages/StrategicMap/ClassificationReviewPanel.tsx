@@ -52,7 +52,7 @@ export default function ClassificationReviewPanel({ team, subdomains, sourceVers
     finally { setBusy(false); }
   };
   return <section aria-label="团队细分领域复核" className="mt-3 rounded-2xl border border-[#b8d8c6] bg-[#f7fcf8] p-4 shadow-sm">
-    <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold tracking-[0.1em] text-[#347356]">REVIEW WORKFLOW</p><h4 className="mt-1 text-sm font-semibold text-[#194732]">复核细分领域 · {team.teamName}</h4><p className="mt-1 text-xs text-[#63816f]">{team.institutionName} · 仅有审核权限的账号可提交，操作者和依据会留痕。</p></div>
+    <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold tracking-[0.08em] text-[#347356]">分类审核</p><h4 className="mt-1 text-sm font-semibold text-[#194732]">复核细分领域 · {team.teamName}</h4><p className="mt-1 text-xs text-[#63816f]">{team.institutionName} · 仅有审核权限的账号可提交，操作者和依据会留痕。</p></div>
       <button type="button" onClick={onClose} aria-label="关闭分类复核" className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[#c9e2d2] text-[#486d56] hover:bg-white"><X className="size-4" /></button></div>
     {error && <p role="alert" className="mt-3 rounded-lg border border-[#edcec3] bg-[#fff8f5] p-2 text-xs text-[#a34f40]">{error}</p>}
     {!current && !error && <p role="status" className="mt-3 flex items-center gap-2 text-xs text-[#63816f]"><LoaderCircle className="size-4 animate-spin" />正在读取审核记录…</p>}

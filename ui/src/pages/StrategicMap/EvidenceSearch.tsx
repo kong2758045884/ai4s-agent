@@ -66,7 +66,7 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
       <div className="flex items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#d4ecfc] text-[#1768a2]"><Search className="size-5" aria-hidden="true" /></span>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#2c6f9e]">TEAM & EVIDENCE SEARCH</p>
+          <p className="text-[11px] font-semibold tracking-[0.08em] text-[#2c6f9e]">团队资料</p>
           <h3 className="mt-0.5 text-lg font-semibold text-[#102d47]">检索团队资料与成果原文</h3>
           <p className="mt-1 text-xs leading-5 text-[#59758c]">查团队、机构、研究方向和已入库引文。当前范围：{scope === "all" ? "全部领域" : subdomainName || domainName || "当前领域"}。</p>
         </div>

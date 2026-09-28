@@ -89,9 +89,9 @@ export default function RecommendationWorkspace({
     <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-6 text-slate-900 shadow-sm sm:px-7 sm:py-7">
       <div className="relative flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold tracking-[.24em] text-slate-400">AI4S · RESEARCH TEAMS</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[30px]">输入任务，找到能承担它的国内团队</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">先检索本地团队资料与成果，不调用付费服务；推荐依据可直接查看原文。</p>
+          <p className="text-[11px] font-semibold tracking-[.08em] text-slate-400">团队推荐</p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[30px]">输入任务，查看相关国内团队</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">依据已收录的团队资料与成果进行初步匹配，并可查看相关原文。</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
           当前范围 <strong className="block text-sm font-medium text-slate-700">{scope === "all" ? "全部领域" : (subdomainName || domainName)}</strong>

@@ -797,21 +797,21 @@ export default function GraphWorkspace({
       />
 
       <div className="strategic-graph-stats absolute left-6 top-6 z-[2] w-[272px] rounded-[38px] border border-[#eceaf3] bg-white/95 px-7 py-6 shadow-[0_18px_48px_rgba(59,47,91,.08)] backdrop-blur">
-        <div className="text-[10px] font-bold tracking-[0.28em] text-[#8993ad]">
-          STATISTICS
+        <div className="text-[11px] font-bold tracking-[0.08em] text-[#8993ad]">
+          图谱概况
         </div>
         <div className="mt-6 grid grid-cols-2 gap-x-7 gap-y-7">
           {[
-            [sourceNodeCount, "NODES"],
-            [sourceEdgeCount, "EDGES"],
-            [averageDegree, "AVERAGE NODE DEGREE"],
-            [aggregated.collapsedGroups.length, "AGGREGATES"],
+            [sourceNodeCount, "节点"],
+            [sourceEdgeCount, "关系"],
+            [averageDegree, "平均关联数"],
+            [aggregated.collapsedGroups.length, "已折叠群组"],
           ].map(([value, label]) => (
             <div key={String(label)}>
               <div className="text-[28px] font-bold leading-none text-[#1f2638]">
                 {value}
               </div>
-              <div className="mt-3 text-[9px] font-bold leading-4 tracking-[0.22em] text-[#8993ad]">
+              <div className="mt-3 text-[11px] font-bold leading-4 tracking-[0.08em] text-[#8993ad]">
                 {label}
               </div>
             </div>
