@@ -93,15 +93,18 @@ def test_search_all_59_rows_pagination_and_subdomain_isolation(storage, monkeypa
     rows = [(f'c-{i}', 't', 'r', 'outcome', '天气预报', f'中国科学院天气预报证据{i}', f'https://example.edu.cn/{i}', '') for i in range(59)]
     monkeypatch.setattr(tasks, '_catalogue_evidence', lambda: (state['teams'], rows, 'v1'))
     found = []
+    snapshot_id = None
     for page in range(1, 4):
-        result = tasks.intelligence_search(q='中科院 预测', domain_id='life', subdomain_id='protein', page=page, size=20, verified_only=True)
+        result = tasks.intelligence_search(q='中科院 预测', domain_id='life', subdomain_id='protein', page=page, size=20,
+                                           verified_only=True, snapshot_id=snapshot_id)
+        snapshot_id = result['snapshotId']
         assert result['total'] == 59
         found.extend(row['id'] for row in result['items'])
     assert len(found) == len(set(found)) == 59
     assert tasks.intelligence_search(q='天气', domain_id='life', subdomain_id='other', page=1, size=20, verified_only=True)['total'] == 0
 
 
-def test_search_filters_profiles_sources_dates_and_rejects_changed_snapshot(storage, monkeypatch):
+def test_search_filters_profiles_sources_dates_and_preserves_saved_snapshot(storage, monkeypatch):
     state = evidence(monkeypatch)
     team = state['teams'][0]
     team.update(teamAliases=['蛋白结构组'], institutionAliases=[], researchDirections=['蛋白质设计'],
@@ -135,14 +138,52 @@ def test_search_filters_profiles_sources_dates_and_rejects_changed_snapshot(stor
     reviewed = tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all',
                                          source_status='human_reviewed')
     assert [item['id'] for item in reviewed['items']] == ['official']
+    current['version'] = 'v2'
+    claims.append(('new', 't', 'r', 'outcome', '蛋白质新增论文', '新增原文',
+                   'https://example.edu.cn/new', '2026-07-01'))
+    old_page = tasks.intelligence_search(q='蛋白', page=2, size=20, entity_type='all',
+                                         snapshot_id=all_items['snapshotId'])
+    assert old_page['total'] == 3 and old_page['items'] == []
+    assert old_page['dataVersion'] == 'v1' and old_page['snapshotId'] == all_items['snapshotId']
+    assert tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all')['total'] == 4
     with pytest.raises(HTTPException) as changed:
-        current['version'] = 'v2'
-        tasks.intelligence_search(q='蛋白', page=2, size=20, entity_type='all',
+        tasks.intelligence_search(q='蛋白', page=2, size=10, entity_type='all',
                                   snapshot_id=all_items['snapshotId'])
     assert changed.value.status_code == 409
+    claims.remove(claims[0])
+    with pytest.raises(HTTPException, match='核验状态已改变') as withdrawn:
+        tasks.intelligence_search(q='蛋白', page=2, size=20, entity_type='all',
+                                  snapshot_id=all_items['snapshotId'])
+    assert withdrawn.value.status_code == 409
 
 
-def test_aliases_require_evidenced_rename_and_keep_canonical_team_id(monkeypatch):
+def test_search_snapshot_rechecks_review_state(storage, monkeypatch):
+    state = evidence(monkeypatch)
+    team = state['teams'][0]
+    team['claimProvenance'] = {'c': {'humanReview': {'status': 'reviewed', 'decision': 'supported'}}}
+    monkeypatch.setattr(tasks, '_catalogue_evidence', lambda: (state['teams'], state['claims'], state['version']))
+    first = tasks.intelligence_search(q='蛋白质', page=1, size=20, entity_type='team_claim')
+    team['claimProvenance']['c']['humanReview']['decision'] = 'conditional'
+    with pytest.raises(HTTPException, match='核验状态已改变'):
+        tasks.intelligence_search(q='蛋白质', page=1, size=20, entity_type='team_claim',
+                                  snapshot_id=first['snapshotId'])
+
+
+def test_search_snapshot_survives_new_connection_and_expires(storage, monkeypatch):
+    state = evidence(monkeypatch)
+    monkeypatch.setattr(tasks, '_catalogue_evidence', lambda: (state['teams'], state['claims'], state['version']))
+    first = tasks.intelligence_search(q='蛋白质', page=1, size=20, entity_type='all')
+    assert first['snapshotAt'] < first['expiresAt']
+    assert tasks.intelligence_search(q='蛋白质', page=1, size=20, entity_type='all',
+                                     snapshot_id=first['snapshotId'])['items'] == first['items']
+    monkeypatch.setattr(tasks.time, 'time', lambda: first['expiresAt'] + 1)
+    with pytest.raises(HTTPException, match='过期') as expired:
+        tasks.intelligence_search(q='蛋白质', page=2, size=20, entity_type='all',
+                                  snapshot_id=first['snapshotId'])
+    assert expired.value.status_code == 409
+
+
+def test_aliases_require_evidenced_rename_and_keep_canonical_team_id(storage, monkeypatch):
     team = {'id': 'team-1', 'teamName': '新名称', 'institutionName': '哈尔滨工业大学',
             'domainId': 'ai', 'subdomainId': None, 'description': '机器人研究'}
     approved = {'status': 'verified', 'payload': {'published': True,

@@ -2,12 +2,30 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ExternalLink, FileText, LoaderCircle, Search } from "lucide-react";
 import { recommendationApi, type IntelligenceSearchOptions, type IntelligenceSearchResult } from "@/services/strategicRecommendations";
 
-type Props = { domainId: string; subdomainId: string; domainName: string; subdomainName: string; onOpenTeam: (id: string) => void;
-  initialQuery?: string; initialEntityType?: "all" | "team_profile" | "team_claim" };
+type Props = {
+  domainId: string;
+  subdomainId: string;
+  domainName: string;
+  subdomainName: string;
+  onOpenTeam: (id: string) => void;
+  initialQuery?: string;
+  initialEntityType?: "all" | "team_profile" | "team_claim";
+};
 type EntityType = NonNullable<IntelligenceSearchOptions["entityType"]>;
 type SourceStatus = NonNullable<IntelligenceSearchOptions["sourceStatus"]>;
 const types: { value: EntityType; label: string }[] = [
-  { value: "all", label: "全部资料" }, { value: "team_profile", label: "团队档案" }, { value: "team_claim", label: "成果依据" },
+  {
+    value: "all",
+    label: "全部资料",
+  },
+  {
+    value: "team_profile",
+    label: "团队档案",
+  },
+  {
+    value: "team_claim",
+    label: "成果依据",
+  },
 ];
 
 export default function EvidenceSearch({ domainId, subdomainId, domainName, subdomainName, onOpenTeam, initialQuery = "", initialEntityType = "all" }: Props) {
@@ -20,6 +38,7 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
   const [items, setItems] = useState<IntelligenceSearchResult[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [page, setPage] = useState(1);
+  const [snapshotAt, setSnapshotAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const active = useRef<AbortController | null>(null);
@@ -30,9 +49,14 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
     sequence.current++;
     active.current?.abort();
     snapshot.current = "";
-    setItems([]); setTotal(null); setPage(1); setBusy(false); setError("");
+    setItems([]); setTotal(null); setPage(1); setSnapshotAt(null); setBusy(false); setError("");
   };
-  useEffect(() => { invalidate(); return () => { sequence.current++; active.current?.abort(); }; }, [domainId, subdomainId]);
+  useEffect(() => {
+    invalidate();
+    const requestSequence = sequence;
+    const activeRequest = active;
+    return () => { requestSequence.current++; activeRequest.current?.abort(); };
+  }, [domainId, subdomainId]);
 
   const load = async (requestedPage = 1) => {
     if (query.trim().length < 2) return;
@@ -43,19 +67,24 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
     setBusy(true); setError("");
     try {
       const data = await recommendationApi.search(query.trim(), scope === "current" ? domainId : "", requestedPage, {
-        subdomainId: scope === "current" ? subdomainId : "", entityType, sourceStatus, dateFrom, dateTo,
-        snapshotId: requestedPage > 1 ? snapshot.current : "", signal: controller.signal,
+        subdomainId: scope === "current" ? subdomainId : "",
+        entityType,
+        sourceStatus,
+        dateFrom,
+        dateTo,
+        snapshotId: requestedPage > 1 ? snapshot.current : "",
+        signal: controller.signal,
       });
       if (controller.signal.aborted || sequence.current !== id) return;
       if (requestedPage > 1 && snapshot.current && snapshot.current !== data.snapshotId) {
         invalidate(); setError("资料已更新，请重新检索以查看完整结果。"); return;
       }
-      snapshot.current = data.snapshotId;
+      snapshot.current = data.snapshotId; setSnapshotAt(data.snapshotAt);
       setItems(data.items); setTotal(data.total); setPage(requestedPage);
     } catch (reason) {
       if (!controller.signal.aborted && sequence.current === id) {
         const message = reason instanceof Error ? reason.message : String(reason);
-        if (message.includes("资料已更新")) { invalidate(); setError(message); }
+        if (message.includes("重新检索")) { invalidate(); setError(message); }
         else setError(message);
       }
     } finally { if (sequence.current === id) setBusy(false); }
@@ -115,7 +144,7 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
     <div className="p-4 sm:p-5">
       {error && <div role="alert" className="rounded-xl border border-[#f0c6c0] bg-[#fff8f6] p-3 text-sm text-[#9a4538]">{error}<button type="button" onClick={() => void load(page)} className="ml-2 font-semibold underline">重新检索</button></div>}
       {total === null && !error && <div className="flex items-center gap-3 py-2 text-sm text-[#6b8395]"><FileText className="size-5 text-[#89a9c1]" aria-hidden="true" />输入至少两个字，按下“检索”查看有来源的资料。</div>}
-      {total !== null && <p role="status" className="mb-3 text-xs font-medium text-[#58758b]">找到 {total} 条资料{total > 0 ? " · 第 " + ((page - 1) * 20 + 1) + "–" + Math.min(page * 20, total) + " 条" : "；试试其他关键词、资料类型或全部领域"}</p>}
+      {total !== null && <div role="status" className="mb-3 text-xs font-medium text-[#58758b]"><p>找到 {total} 条资料{total > 0 ? " · 第 " + ((page - 1) * 20 + 1) + "–" + Math.min(page * 20, total) + " 条" : "；试试其他关键词、资料类型或全部领域"}</p>{snapshotAt && total > 20 && <p className="mt-1 font-normal text-[#7890a0]">这组结果保存于 {new Date(snapshotAt * 1000).toLocaleString("zh-CN")}；翻页时总数保持一致。查看新增资料请重新检索。</p>}</div>}
       <div className="space-y-2" aria-busy={busy}>{items.map(item => <article key={item.type + ":" + item.id} className="rounded-xl border border-[#e0eaf1] bg-white p-3.5 transition hover:border-[#a8cde7] hover:shadow-[0_5px_18px_-13px_rgba(23,104,162,0.65)]">
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className={item.type === "team_profile" ? "rounded-md bg-[#ecf5fc] px-2 py-0.5 font-semibold text-[#236991]" : "rounded-md bg-[#eef7f2] px-2 py-0.5 font-semibold text-[#26734d]"}>{item.type === "team_profile" ? "团队档案" : "成果依据"}</span>

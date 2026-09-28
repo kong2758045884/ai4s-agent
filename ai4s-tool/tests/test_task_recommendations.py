@@ -105,13 +105,18 @@ def test_search_includes_team_directory_without_unrelated_single_token_hits(tmp_
     assert found["items"][0]["reviewNotice"]
 
 
-def test_public_search_catalogue_and_graph_use_current_reviewed_evidence_only(monkeypatch):
+def test_public_search_catalogue_and_graph_use_current_reviewed_evidence_only(tmp_path, monkeypatch):
     teams = [{"id": "approved", "institutionName": "大学甲", "teamName": "量子计算组",
               "domainId": "quantum", "domainName": "量子科技", "description": "有原文的量子计算成果"}]
     claims = [_claim("approved", "量子计算论文", "团队发表量子计算论文")]
     monkeypatch.setattr(task, "_validate_scope", lambda *_: None)
     monkeypatch.setattr(task, "_catalogue_evidence", lambda: (teams, claims, "approved-v1"))
-    monkeypatch.setattr(task, "_db", lambda **_: (_ for _ in ()).throw(AssertionError("must not read stale index or raw profiles")))
+    db = tmp_path / "public-search.db"
+    def local_db(*, write=False):
+        connection = sqlite3.connect(db if write else f"file:{db}?mode=ro", uri=not write)
+        connection.row_factory = sqlite3.Row
+        return connection
+    monkeypatch.setattr(task, "_db", local_db)
     assert task.verified_teams()["teamIds"] == ["approved"]
     result = task.intelligence_search(q="量子计算", page=1, size=10)
     assert len(result["items"]) == 1 and result["items"][0]["type"] == "team_claim"

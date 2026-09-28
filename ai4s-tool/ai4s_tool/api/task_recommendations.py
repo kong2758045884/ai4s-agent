@@ -12,8 +12,10 @@ import os
 import re
 import sqlite3
 import threading
+import time
 import unicodedata
 import uuid
+import zlib
 from contextlib import closing
 from datetime import date, datetime, timezone
 from typing import Any, Literal
@@ -50,6 +52,8 @@ _CACHE_LOCK = threading.RLock()
 _EVIDENCE_CACHE: tuple[str, tuple[list[dict[str, Any]], list[tuple[str, ...]], str]] | None = None
 _LEAD_CACHE: tuple[str, list[dict[str, Any]]] | None = None
 ALIAS_VERSION = "evidence-backed-alias-v1"
+SEARCH_SNAPSHOT_TTL = 24 * 60 * 60
+SEARCH_SNAPSHOT_LIMIT = 500
 
 
 class TaskRequest(BaseModel):
@@ -520,6 +524,90 @@ def _literal_alias(query: str, aliases: list[str]) -> str | None:
     return None
 
 
+def _search_snapshot_schema(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS strategic_search_snapshot (
+        id TEXT PRIMARY KEY, query_hash TEXT NOT NULL, created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL, data_version TEXT NOT NULL, result_blob BLOB NOT NULL,
+        source_hashes_blob BLOB NOT NULL
+    )""")
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(strategic_search_snapshot)")}
+    if "source_hashes_blob" not in columns:
+        conn.execute("ALTER TABLE strategic_search_snapshot ADD COLUMN source_hashes_blob BLOB NOT NULL DEFAULT X''")
+        conn.execute("DELETE FROM strategic_search_snapshot")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_strategic_search_snapshot_expiry ON strategic_search_snapshot(expires_at)")
+
+
+def _search_query_hash(query: str, domain_id: str | None, subdomain_id: str | None,
+                       entity_type: str, source_status: str, date_from: date | None,
+                       date_to: date | None, size: int) -> str:
+    options = {"query": query, "domainId": domain_id, "subdomainId": subdomain_id,
+               "entityType": entity_type, "sourceStatus": source_status,
+               "dateFrom": str(date_from or ""), "dateTo": str(date_to or ""), "size": size}
+    return hashlib.sha256(json.dumps(options, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _search_source_hash(item: dict[str, Any], teams: dict[str, dict[str, Any]],
+                        claims: dict[str, tuple[str, ...]]) -> str | None:
+    team = teams.get(item["teamId"])
+    if not team:
+        return None
+    identity = {key: team.get(key) for key in ("teamName", "institutionName", "teamAliases",
+                                                 "institutionAliases", "researchDirections", "description",
+                                                 "focus", "sourceUrls", "catalogueBasis")}
+    claim = claims.get(item["id"]) if item["type"] == "team_claim" else None
+    if item["type"] == "team_claim" and not claim:
+        return None
+    provenance = (team.get("claimProvenance") or {}).get(item["id"], {}) if claim else {}
+    relevant = {"identity": identity, "claim": claim,
+                "sourceType": provenance.get("sourceType"),
+                "publishedAt": provenance.get("publishedAt"),
+                "humanReview": provenance.get("humanReview")}
+    return hashlib.sha256(json.dumps(relevant, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _saved_search_page(snapshot_id: str, query_hash: str, page: int, size: int,
+                       teams: list[dict[str, Any]], claims: list[tuple[str, ...]]) -> dict[str, Any]:
+    with closing(_db()) as conn:
+        if not _has_table(conn, "strategic_search_snapshot"):
+            raise HTTPException(409, "检索记录已过期，请重新检索")
+        row = conn.execute("SELECT * FROM strategic_search_snapshot WHERE id=?", (snapshot_id,)).fetchone()
+    if not row or row["query_hash"] != query_hash or row["expires_at"] <= int(time.time()):
+        raise HTTPException(409, "检索记录已过期或筛选条件已改变，请重新检索")
+    results = json.loads(zlib.decompress(row["result_blob"]))
+    team_map = {team["id"]: team for team in teams}
+    claim_map = {claim[0]: claim for claim in claims}
+    saved_hashes = json.loads(zlib.decompress(row["source_hashes_blob"]))
+    if len(saved_hashes) != len(results) or any(
+        _search_source_hash(item, team_map, claim_map) != saved_hashes[index]
+        for index, item in enumerate(results)
+    ):
+        raise HTTPException(409, "资料来源或核验状态已改变，请重新检索")
+    return {"items": results[(page - 1) * size:page * size], "total": len(results),
+            "page": page, "size": size, "pageSize": size, "dataVersion": row["data_version"],
+            "snapshotId": snapshot_id, "snapshotAt": row["created_at"], "expiresAt": row["expires_at"]}
+
+
+def _save_search_snapshot(query_hash: str, version: str, results: list[dict[str, Any]],
+                          teams: list[dict[str, Any]], claims: list[tuple[str, ...]]) -> tuple[str, int, int]:
+    now = int(time.time())
+    snapshot_id = uuid.uuid4().hex
+    blob = zlib.compress(json.dumps(results, ensure_ascii=False, separators=(",", ":")).encode())
+    team_map = {team["id"]: team for team in teams}
+    claim_map = {claim[0]: claim for claim in claims}
+    hashes = [_search_source_hash(item, team_map, claim_map) for item in results]
+    hash_blob = zlib.compress(json.dumps(hashes, separators=(",", ":")).encode())
+    with closing(_db(write=True)) as conn, conn:
+        _search_snapshot_schema(conn)
+        conn.execute("DELETE FROM strategic_search_snapshot WHERE expires_at<=?", (now,))
+        conn.execute("""INSERT INTO strategic_search_snapshot
+            (id,query_hash,created_at,expires_at,data_version,result_blob,source_hashes_blob) VALUES(?,?,?,?,?,?,?)""",
+            (snapshot_id, query_hash, now, now + SEARCH_SNAPSHOT_TTL, version, blob, hash_blob))
+        conn.execute("""DELETE FROM strategic_search_snapshot WHERE id IN (
+            SELECT id FROM strategic_search_snapshot ORDER BY created_at DESC, id DESC
+            LIMIT -1 OFFSET ?)""", (SEARCH_SNAPSHOT_LIMIT,))
+    return snapshot_id, now, now + SEARCH_SNAPSHOT_TTL
+
+
 @router.get("/intelligence/search")
 def intelligence_search(q: str = Query(min_length=2, max_length=100),
                         domain_id: str | None = None, page: int = Query(1, ge=1),
@@ -540,14 +628,12 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
         # Use the current reviewed evidence set, including on the first search
         # and after withdrawal; a stale persisted index must not republish facts.
         teams, claims, version = _catalogue_evidence()
-        snapshot = hashlib.sha256(json.dumps({
-            "version": version, "query": query, "domainId": domain_id,
-            "subdomainId": subdomain_id, "entityType": entity_type,
-            "sourceStatus": source_status, "dateFrom": str(date_from or ""),
-            "dateTo": str(date_to or ""),
-        }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:24]
-        if snapshot_id and snapshot_id != snapshot:
-            raise HTTPException(409, "资料已更新，请重新检索后翻页")
+        query_hash = _search_query_hash(query, domain_id, subdomain_id, entity_type,
+                                        source_status, date_from, date_to, size)
+        if snapshot_id:
+            saved = _saved_search_page(snapshot_id, query_hash, page, size, teams, claims)
+            saved["query"] = query
+            return saved
         scoped = {team["id"]: team for team in teams
                   if (not domain_id or team["domainId"] == domain_id)
                   and (not subdomain_id or team.get("subdomainId") == subdomain_id)}
@@ -618,9 +704,11 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                     "verificationStatus": "verified",
                     "verificationMethod": "来源与引文校验；已有人审" if reviewed else "来源与引文校验；未有人审"})
         results.sort(key=lambda row: (row["title"], 0 if row["type"] == "team_profile" else 1, row["id"]))
+        snapshot, created_at, expires_at = _save_search_snapshot(query_hash, version, results, teams, claims)
         return {"items": results[(page - 1) * size:page * size], "total": len(results),
                 "page": page, "size": size, "pageSize": size, "query": query,
-                "dataVersion": version, "snapshotId": snapshot}
+                "dataVersion": version, "snapshotId": snapshot,
+                "snapshotAt": created_at, "expiresAt": expires_at}
     results: list[dict[str, Any]] = []
     with closing(_db()) as conn:
         profile_rows = conn.execute("""SELECT t.id,t.institution_name,t.team_name,t.domain_id,

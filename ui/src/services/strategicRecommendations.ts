@@ -172,7 +172,7 @@ export const recommendationApi = {
     if (options?.dateFrom) params.set("date_from", options.dateFrom);
     if (options?.dateTo) params.set("date_to", options.dateTo);
     if (options?.snapshotId) params.set("snapshot_id", options.snapshotId);
-    return request<{ items: IntelligenceSearchResult[]; total: number; page: number; size: number; pageSize: number; dataVersion: string; snapshotId: string }>(`/intelligence/search?${params}`, { signal: options?.signal });
+    return request<{ items: IntelligenceSearchResult[]; total: number; page: number; size: number; pageSize: number; dataVersion: string; snapshotId: string; snapshotAt: number; expiresAt: number }>(`/intelligence/search?${params}`, { signal: options?.signal });
   },
   daily: (day: string) => request<IntelligenceDaily>(`/intelligence/daily/${encodeURIComponent(day)}`),
   verifiedDaily: (day: string) => request<{
