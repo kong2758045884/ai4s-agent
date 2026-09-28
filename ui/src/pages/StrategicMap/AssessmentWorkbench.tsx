@@ -254,11 +254,17 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
       {step === "confirm" && interpretation && <section className={panel} aria-label="任务条件确认">
         <h2 className="text-xl font-semibold">先确认系统理解的任务</h2><p className="mt-2 text-sm leading-6 text-slate-500">{interpretation.notice}</p>
         <blockquote className="mt-4 rounded-lg bg-slate-50 p-4 text-sm leading-6">{interpretation.taskText}</blockquote>
-        <div className="mt-4 space-y-3">{interpretation.criteria.map((criterion, index) => <div key={criterion.id} className="grid min-w-0 gap-2 rounded-xl border border-slate-200 p-3 sm:grid-cols-[140px_1fr_110px]">
+        <div className="mt-4 grid gap-2 sm:grid-cols-3" aria-label="条件分类摘要">{[
+          ["必须核对", interpretation.criteria.filter(item => item.necessity === "required").length],
+          ["优先考虑", interpretation.criteria.filter(item => item.necessity === "preferred").length],
+          ["排除或待澄清", interpretation.criteria.filter(item => item.necessity === "excluded" || item.necessity === "informational").length],
+        ].map(([label, count]) => <div key={label} className="rounded-lg border border-[#d8e5ee] bg-[#f7fbfd] px-3 py-2"><span className="text-xs text-[#607d8e]">{label}</span><strong className="ml-2 text-base text-[#1a5f83]">{count}</strong></div>)}</div>
+        <p className="mt-3 text-xs leading-5 text-[#637c8c]">逐项修改后再生成结果；找不到直接依据的必要条件会标为证据不足。</p>
+        <div className="mt-3 space-y-3">{interpretation.criteria.map((criterion, index) => <div key={criterion.id} role="group" aria-label={`条件${index + 1}`} className={`grid min-w-0 gap-2 rounded-xl border p-3 sm:grid-cols-[140px_1fr_110px] ${criterion.necessity === "required" ? "border-[#bfd8e8] bg-[#f9fcfe]" : "border-slate-200 bg-white"}`}>
           <select className={input} aria-label={`条件${index + 1}类型`} value={criterion.kind} onChange={e => editCriterion(index, { kind: e.target.value as Criterion["kind"] })}>{Object.entries(labels).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
           <textarea className={input} rows={2} aria-label={`条件${index + 1}内容`} value={criterion.text} onChange={e => editCriterion(index, { text: e.target.value, sourceSpan: null })} />
           <select className={input} aria-label={`条件${index + 1}要求`} value={criterion.necessity} onChange={e => editCriterion(index, { necessity: e.target.value as Criterion["necessity"] })}>{Object.entries(necessityLabels).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
-          <p className="text-xs text-slate-500 sm:col-span-3">{criterion.sourceSpan ? `原文第 ${criterion.sourceSpan.start + 1}–${criterion.sourceSpan.end} 字` : "用户编辑的条件"}{criterion.kind === "constraint" || criterion.kind === "unresolved" ? " · 必要条件未有直接证据时不算满足" : ""}</p>
+          <p className="break-words text-xs leading-5 text-slate-500 sm:col-span-3">{criterion.sourceSpan ? `对应原文：“${criterion.sourceSpan.text}”（第 ${criterion.sourceSpan.start + 1}–${criterion.sourceSpan.end} 字）` : "用户新增或修改的条件"}{criterion.kind === "constraint" || criterion.kind === "unresolved" ? " · 必要条件未有直接证据时不算满足" : ""}</p>
           <label className="flex min-h-11 items-center gap-2 text-xs sm:col-span-3">多个要素的关系<select className="min-h-11 rounded-lg border border-slate-200 px-2" value={criterion.operator || "all"} onChange={e => editCriterion(index, { operator: e.target.value as "all" | "any" })}><option value="all">需要全部具备</option><option value="any">满足其中一项即可</option></select></label>
           {!!criterion.unresolvedTerms?.length && <p className="text-xs text-amber-700 sm:col-span-3">尚未识别的表述：{criterion.unresolvedTerms.join("、")}。请确认含义，必要条件未有依据时不通过。</p>}
         </div>)}</div>

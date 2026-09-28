@@ -10,13 +10,13 @@ from pydantic import BaseModel, Field
 
 from . import strategic_text as text
 
-VERSION = "assessment-criteria-v1"
+VERSION = "assessment-criteria-v2"
 _EXCLUDE = re.compile(r"不考虑|排除|不要|不包括|不涉及|不需要|不含")
 _PREFER = re.compile(r"优先|最好|偏好|尽量|倾向")
 _MUST = re.compile(r"必须|务必|至少|不得|只接受|仅限|要求|需要|具备|支持|能够|能承担")
 _CONSTRAINT = re.compile(r"(?:\d+(?:\.\d+)?\s*(?:%|％|天|周|个月|月|年|万元|万|元|人|小时|分钟|秒|ms|nm|mpa|k|°c|℃))|期限|预算|交付|精度|准确率|样本量|可投入|设备|算力", re.I)
 _ORGANIZATION = re.compile(r"牵头|联合|协作|独立承担|单一团队|多个团队|分工")
-_SPLIT = re.compile(r"[^，,。；;！？!?\n]+?(?=并且|同时|而且|并具备|并支持|且具备|且支持|[，,。；;！？!?\n]|$)")
+_SPLIT = re.compile(r"[^，,。；;！？!?\n]+?(?=并且|同时|而且|并具备|并支持|且具备|且支持|并(?=进行|开展|完成|提供)|且(?=有|需|可|能|要求)|[，,。；;！？!?\n]|$)")
 _EXTRA_FILLER = re.compile(r"我想|我们想|我要|我需要|请您|您|帮忙|谢谢|一下|想要|完成|能够开展|能不能|成果原文|成果支撑|有对应|有相关|对应|相关|科学目标|研究目标|必要能力|并且|同时|而且|并具备|并支持|且具备|且支持|采用|包括|含有|至少|必须|务必")
 _DOMAIN_TERMS = {
     "科学通用底座": r"科学计算|科学数据|高性能计算|知识图谱|开放科学|数值模拟",
