@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpenText, Check, Download, ExternalLink, FolderOpen, LoaderCircle, Network, Plus, Save, X } from "lucide-react";
-import { assessmentApi, requestId, type Assessment, type AssessmentRun, type AssessmentScope, type AssessmentSummary, type Criterion, type FollowUp, type Interpretation } from "@/services/strategicAssessments";
+import { assessmentApi, requestId, type Assessment, type AssessmentRun, type AssessmentScope, type AssessmentSummary, type CombinationRole, type Criterion, type FollowUp, type Interpretation } from "@/services/strategicAssessments";
 import type { StrategicDomain } from "@/services/strategicMap";
 import type { RecommendationCitation } from "@/services/strategicRecommendations";
 import AssessmentInvestigation from "./AssessmentInvestigation";
@@ -167,6 +167,12 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     await operation(async () => { if (!recordRef.current) return;
       adopt(await assessmentApi.patch(recordRef.current.taskId, recordRef.current.revision, changes)); });
   }
+  function updateRole(teamId: string, change: Partial<CombinationRole>) {
+    setRoles(values => {
+      const saved = values.find(value => value.teamId === teamId) || { teamId, role: "", rationale: "", claimIds: [] };
+      return [...values.filter(value => value.teamId !== teamId), { ...saved, ...change }];
+    });
+  }
   function fresh() {
     if (busy) return;
     sequence.current++; recordRef.current = null; setRecord(null); setRun(null); setTaskDraft(""); setDomainDraft("");
@@ -323,9 +329,11 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
                 {row?.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, criterion.text, statuses[row.status])}>{c.text} ↗</button> : null; })}</div>; })}</div></details>)}</div>
             <h4 className="mt-5 font-semibold">讨论候选分工</h4><p className="mt-1 text-xs text-slate-500">这是待沟通方案；尚未确认资源、协作接口和协调成本，不代表已经分派任务。</p>
             <CombinationCoverage criteria={run.criteria || []} teams={compared} />
-            <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 建议角色<input disabled={historical} className={`${input} mt-1`} placeholder={suggestedRole(item, run.criteria || [])?.text || "请基于证据填写待讨论角色"} value={role?.role || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: e.target.value, rationale: role?.rationale || "" }])} /></label>
-              <label className="text-xs">分工依据和协作缺口<input disabled={historical} className={`${input} mt-1`} value={role?.rationale || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: role?.role || "", rationale: e.target.value }])} /></label></div>; })}</div>
-            <button className={`${primary} mt-3`} disabled={busy || historical || compared.some(i => !roles.find(r => r.teamId === i.teamId)?.role.trim())} onClick={() => void patchState({ combination: roles.filter(r => compared.some(i => i.teamId === r.teamId)) })}><Save className="size-4" />保存候选组合</button>
+            <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid min-w-0 gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 拟议角色<input disabled={historical} className={`${input} mt-1`} placeholder={suggestedRole(item, run.criteria || [])?.text || "请基于证据填写待讨论角色"} value={role?.role || ""} onChange={e => updateRole(item.teamId, { role: e.target.value })} /></label>
+              <label className="text-xs">分工依据和协作缺口<input disabled={historical} className={`${input} mt-1`} placeholder="写明成果能支持的环节及尚待确认的边界" value={role?.rationale || ""} onChange={e => updateRole(item.teamId, { rationale: e.target.value })} /></label>
+              <fieldset className="min-w-0 sm:col-span-2"><legend className="text-xs font-medium">选择该团队本次研判的成果依据</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{item.citations.filter(c => c.kind === "outcome" && c.id).map(c => <label key={c.id} className="flex min-w-0 items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs"><input type="checkbox" className="mt-0.5 shrink-0" disabled={historical} checked={!!role?.claimIds?.includes(c.id!)} onChange={e => updateRole(item.teamId, { claimIds: e.target.checked ? [...new Set([...(role?.claimIds || []), c.id!])] : (role?.claimIds || []).filter(id => id !== c.id) })} /><span className="min-w-0 break-words text-slate-700"><strong className="text-blue-700">证据 {c.id!.slice(0, 12)}…</strong><span className="mt-1 block line-clamp-2">{c.text}</span></span></label>)}</div></fieldset></div>; })}</div>
+            <p className="mt-2 text-xs text-slate-500">填写每支团队的角色、分工说明并勾选至少一条当前成果依据后，才能保存内部候选方案。</p>
+            <button className={`${primary} mt-3`} disabled={busy || historical || compared.some(i => { const role = roles.find(r => r.teamId === i.teamId); return !role?.role.trim() || !role.rationale.trim() || !role.claimIds?.length; })} onClick={() => void patchState({ combination: roles.filter(r => compared.some(i => i.teamId === r.teamId)) })}><Save className="size-4" />保存候选组合</button>
           </section>}
         </>}
         {record && <section className={panel}><h3 className="font-semibold">跟进与内部记录</h3><p className="mt-1 text-xs text-slate-500">只对当前访客可见；公开证据导出不包含这些内容。</p>

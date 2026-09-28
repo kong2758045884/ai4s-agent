@@ -78,11 +78,12 @@ def test_private_save_resume_compare_and_export_do_not_leak(app_client):
     assert run["items"][0]["criteriaMatrix"][0]["claimIds"] == ["c1"]
     response = client.patch(f"/strategic-map/assessments/{record['taskId']}", json={
         "requestId": "patch-001", "expectedRevision": record["revision"], "comparedTeamIds": ["t1"],
-        "internalNotes": "只限内部讨论的备注", "combination": [{"teamId": "t1", "role": "蛋白质分析", "rationale": "c1成果"}],
+        "internalNotes": "只限内部讨论的备注", "combination": [{"teamId": "t1", "role": "蛋白质分析", "rationale": "c1成果", "claimIds": ["c1"]}],
         "followUps": [{"id": "f1", "teamId": "t1", "claimIds": ["c1"], "question": "能否提供实验数据", "owner": "内部负责人"}]})
     assert response.status_code == 200, response.text
     restored = client.get(f"/strategic-map/assessments/{record['taskId']}").json()["data"]
     assert restored["state"]["comparedTeamIds"] == ["t1"]
+    assert restored["state"]["combination"][0]["claimIds"] == ["c1"]
     assert restored["state"]["domainDraft"] == "量子观察"
     export = client.get(f"/strategic-map/assessments/{record['taskId']}/export")
     assert "只限内部" not in export.text and "内部负责人" not in export.text
@@ -108,6 +109,32 @@ def test_duplicate_submit_and_optimistic_conflict(app_client):
     with db() as conn:
         assert conn.execute("SELECT COUNT(*) FROM strategic_assessment_run").fetchone()[0] == 1
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_combination_requires_current_comparison_and_its_team_outcome(app_client):
+    client, _, _, _ = app_client
+    record = confirm(client, create(client)).json()["data"]
+    path = f"/strategic-map/assessments/{record['taskId']}"
+    common = {"expectedRevision": record["revision"], "combination": [
+        {"teamId": "t1", "role": "蛋白质分析", "rationale": "成果原文支持", "claimIds": ["c1"]}]}
+    no_comparison = client.patch(path, json={"requestId": "role-no-comparison", **common})
+    assert no_comparison.status_code == 422
+    for key, role in enumerate((
+        {"teamId": "t1", "role": "蛋白质分析", "rationale": "成果原文支持", "claimIds": ["foreign"]},
+        {"teamId": "t1", "role": "蛋白质分析", "rationale": " ", "claimIds": ["c1"]},
+        {"teamId": "t1", "role": "蛋白质分析", "rationale": "成果原文支持", "claimIds": []},
+    )):
+        response = client.patch(path, json={"requestId": f"invalid-role-{key}", "expectedRevision": record["revision"],
+            "comparedTeamIds": ["t1"], "combination": [role]})
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "INVALID_COMBINATION_EVIDENCE"
+    saved = client.patch(path, json={"requestId": "valid-role", "comparedTeamIds": ["t1"], **common})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["data"]["state"]["combination"][0]["claimIds"] == ["c1"]
+    cleared = client.patch(path, json={"requestId": "remove-compared-role", "expectedRevision": saved.json()["data"]["revision"],
+        "comparedTeamIds": []})
+    assert cleared.status_code == 200
+    assert cleared.json()["data"]["state"]["combination"] == []
 
 
 def test_source_metadata_is_frozen_with_the_claim_not_replaced_on_history_read(app_client):

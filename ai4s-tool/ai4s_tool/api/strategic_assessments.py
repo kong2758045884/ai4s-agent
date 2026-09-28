@@ -164,6 +164,7 @@ class Role(BaseModel):
     teamId: str = Field(min_length=1, max_length=80)
     role: str = Field(min_length=1, max_length=150)
     rationale: str = Field(default="", max_length=1000)
+    claimIds: list[str] = Field(default_factory=list, max_length=10)
 
 
 class PatchAssessment(Mutation):
@@ -341,6 +342,15 @@ def patch_assessment(task_id: str, body: PatchAssessment, owner: str = Depends(c
         if body.combination is not None and (len({r.teamId for r in body.combination}) != len(body.combination) or
                                              any(r.teamId not in team_ids for r in body.combination)):
             problem(422, "INVALID_COMBINATION", "组合中的角色必须对应当前推荐的不同团队")
+        if body.combination is not None:
+            compared = set(selected if selected is not None else state.get("comparedTeamIds", []))
+            sources = {item["teamId"]: {c["id"] for c in item["citations"] if c["kind"] == "outcome"}
+                       for item in current.get("items", [])}
+            for role in body.combination:
+                if (role.teamId not in compared or not role.role.strip() or not role.rationale.strip() or
+                    not role.claimIds or len(set(role.claimIds)) != len(role.claimIds) or
+                    not set(role.claimIds) <= sources[role.teamId]):
+                    problem(422, "INVALID_COMBINATION_EVIDENCE", "分工须来自已比较团队，填写依据并选择该团队本次研判的成果引文")
         if body.followUps is not None:
             if len({f.id for f in body.followUps}) != len(body.followUps):
                 problem(422, "DUPLICATE_FOLLOWUP", "跟进编号不能重复")
@@ -358,6 +368,9 @@ def patch_assessment(task_id: str, body: PatchAssessment, owner: str = Depends(c
         for key in ("taskDraft", "domainDraft", "comparedTeamIds", "combination", "followUps", "internalNotes", "taskScope", "domainScope", "requestedLimit", "windowDays"):
             if key in payload:
                 state[key] = payload[key]
+        if selected is not None and body.combination is None:
+            # A removed comparison cannot retain an unseen saved role.
+            state["combination"] = [role for role in state.get("combination", []) if role["teamId"] in selected]
         if state.get("activeRunId") and any(k in payload for k in ("comparedTeamIds", "combination")):
             conn.execute("INSERT OR REPLACE INTO strategic_assessment_run_selection VALUES(?,?)", (
                 state["activeRunId"], _json({k: state[k] for k in ("comparedTeamIds", "combination")})))
