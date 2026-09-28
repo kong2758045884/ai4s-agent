@@ -50,7 +50,7 @@ export default function FollowUpTimeline({ taskId, revision, onOpenRun }: { task
         <p className="text-xs font-medium text-slate-500">记录修订 {event.revision} · {new Date(event.createdAt).toLocaleString("zh-CN")}</p>
         {event.changes.map(change => { const value = change.after || change.before; return <div key={change.followUpId} className="mt-3 min-w-0 border-t border-slate-100 pt-3 first:border-0 first:pt-0">
           <p className="font-semibold text-slate-900">{kinds[change.kind]} · {value?.question || change.followUpId}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">变更项：{change.changedFields.map(field => fields[field] || field).join("、")} · 当前记录状态：{value ? statuses[value.status] : "已移除"}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">变更项：{change.changedFields.map(field => fields[field] || field).join("、")} · 当前记录状态：{change.kind === "removed" ? "已移除" : value ? statuses[value.status] : "待确认"}</p>
           {value && <div className="mt-2 grid gap-1 text-xs leading-5 text-slate-700 sm:grid-cols-2"><p>验证方式：{value.method || "待补"}</p><p>负责人：{value.owner || "待指定"}</p><p>计划日期：{value.dueDate || "未定"}</p><p>验证结果：{value.result || "待记录"}</p></div>}
           {change.evidence.length > 0 && <div className="mt-2 space-y-2">{change.evidence.map(ref => <div key={ref.claimId} className="min-w-0 rounded-lg bg-blue-50/60 p-2 text-xs leading-5">
             <p className="break-all text-blue-900">证据 {ref.claimId} {ref.inputVersion ? `· 研判条件 v${ref.inputVersion}` : ""}</p>
