@@ -9,7 +9,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-VERSION = "task-elements-v3"
+VERSION = "task-elements-v4"
 ALIASES = {
     "中科院": "中国科学院", "中国科大": "中国科学技术大学", "中科大": "中国科学技术大学",
     "哈工大": "哈尔滨工业大学", "北大": "北京大学", "浙大": "浙江大学",
@@ -125,7 +125,10 @@ def evaluate_task(parsed: dict, team: dict, claims: list[tuple]) -> tuple[int, l
                         *(str(c[4]) + " " + str(c[5]) for c in claims)])
     if any(term in normalize(context) for term in parsed["excluded"]):
         return 0, [], []
-    matched = {term: [c for c in claims if term in normalize(str(c[4]) + " " + str(c[5]))] for term in wanted}
+    # A profile or research-direction citation is a recall lead, not proof that
+    # the team achieved a required task capability. Formal matches use outcomes.
+    matched = {term: [c for c in claims if c[3] == "outcome" and
+                term in normalize(str(c[4]) + " " + str(c[5]))] for term in wanted}
     groups = parsed.get("groups")
     if groups:
         if any(not (any(matched[t] for t in g["terms"]) if g["operator"] == "any" else all(matched[t] for t in g["terms"])) for g in groups):

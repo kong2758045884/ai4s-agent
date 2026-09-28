@@ -39,3 +39,16 @@ def test_unknown_constraints_are_not_claimed_as_satisfied():
     parsed = text.parse_task("量子计算，三个月交付")
     assert "三个月交付" in parsed["unresolved"]
     assert result("量子计算，三个月交付")[0] == 0
+
+
+def test_profile_description_cannot_complete_missing_outcome_capability():
+    team = {"teamName": "量子组", "domainName": "量子科技", "researchDirections": ["量子计算", "量子模拟"]}
+    claims = [
+        ("o1", "t1", "r1", "outcome", "量子计算论文", "团队发表量子计算论文", "https://example.org/paper", ""),
+        ("d1", "t1", "r1", "description", "量子模拟方向", "团队介绍提及量子模拟", "https://example.org/profile", ""),
+    ]
+    assert text.evaluate_task(text.parse_task("量子计算与模拟"), team, claims)[0] == 0
+    score, citations, criteria = text.evaluate_task(text.parse_task("量子计算"), team, claims)
+    assert score > 0
+    assert [c["id"] for c in citations] == ["o1"]
+    assert criteria == [{"requirement": "量子计算", "matched": True, "citations": ["o1"]}]
