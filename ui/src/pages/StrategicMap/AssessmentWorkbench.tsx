@@ -13,7 +13,7 @@ import { shortageStages, suggestedRole } from "./assessmentPresentation";
 import FollowUpTimeline from "./FollowUpTimeline";
 import VersionComparison from "./VersionComparison";
 
-type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
+type Props = { domains: StrategicDomain[]; catalogueReady: boolean; catalogueError: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
   onOpenRelations: (teamId: string) => void };
 const AUTO: AssessmentScope = { mode: "auto", domainIds: [], domesticOnly: true };
@@ -22,8 +22,12 @@ const panel = "rounded-2xl border border-slate-200 bg-white p-4 sm:p-6";
 const labels = { goal: "研究目标", capability: "必要能力", outcome: "成果要求", constraint: "明确限制", preference: "偏好", exclusion: "排除条件", organization: "组织方式", unresolved: "含义待确认" };
 const necessityLabels = { required: "必要", preferred: "优先", excluded: "排除", informational: "仅说明" };
 const statuses = { supported: "有依据", insufficient: "依据不足", conditional: "条件性支持", not_met: "不满足", not_observed: "未观察到排除项" };
+const readableError = (reason: unknown, fallback: string) => {
+  const message = reason instanceof Error ? reason.message : String(reason || "");
+  return !message || /Network Error|Failed to fetch|Unexpected end of JSON input|Load failed/i.test(message) ? fallback : message;
+};
 
-export default function AssessmentWorkbench({ domains, catalogueReady, taskId, runId, onContextChange, onOpenTeam, onOpenRelations }: Props) {
+export default function AssessmentWorkbench({ domains, catalogueReady, catalogueError, taskId, runId, onContextChange, onOpenTeam, onOpenRelations }: Props) {
   const [record, setRecord] = useState<Assessment | null>(null);
   const recordRef = useRef<Assessment | null>(null);
   const [run, setRun] = useState<AssessmentRun | null>(null);
@@ -79,9 +83,9 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     setSaveStatus("已保存");
   }
 
-  async function refreshList(page = listPage) {
+  async function refreshList(page = listPage, showError = tab === "mine") {
     try { const value = await assessmentApi.list(page); setList(value.items); setListTotal(value.total); }
-    catch (reason) { setError(String(reason instanceof Error ? reason.message : reason)); }
+    catch (reason) { if (showError) setError(readableError(reason, "我的研判暂时无法读取，请稍后重试。")); }
   }
   useEffect(() => { void refreshList(listPage); }, [listPage]);
 
@@ -95,7 +99,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
       if (seq !== sequence.current) return;
       loadedContext.current = key; adopt(value, true); setRun(valueRun || null); setStep(valueRun ? "results" : "input"); setTab("new");
       if (valueRun?.runId !== value.state.activeRunId) setRoles(valueRun?.selection?.combination || []);
-    }).catch(reason => { if (!controller.signal.aborted) setError(String(reason.message || reason)); })
+    }).catch(reason => { if (!controller.signal.aborted) setError(readableError(reason, "研判记录暂时无法读取，请稍后重试。")); })
       .finally(() => { if (seq === sequence.current) { setBusy(false); busyRef.current = false; } });
     return () => { controller.abort(); sequence.current++; };
   }, [taskId, runId]);
@@ -104,7 +108,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError("");
     try { await fn(); }
-    catch (reason) { setError(String(reason instanceof Error ? reason.message : reason)); setSaveStatus("保存失败，草稿保留在当前页面"); }
+    catch (reason) { setError(readableError(reason, "操作暂时失败，请稍后重试。")); setSaveStatus("保存失败，草稿保留在当前页面"); }
     finally { busyRef.current = false; setBusy(false); }
   }
 
@@ -201,14 +205,14 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           domainIds: allowAuto ? value.domainIds.includes(domain.id) ? value.domainIds.filter(id => id !== domain.id) : [...value.domainIds, domain.id] : [domain.id] })} />{domain.name}</label>)}</div>}
       {value.domainIds.length === 1 && <select className={input} aria-label="研判子领域" value={value.subdomainId || ""} onChange={e => change({ ...value, subdomainId: e.target.value || null })}>
         <option value="">全部子领域</option>{domains.find(d => d.id === value.domainIds[0])?.subdomains.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-      <p className="text-xs leading-5 text-slate-500">仅中国内地科研机构及具体科研单元。普通解析与推荐使用已有资料。</p>
+      <p className="text-sm leading-6 text-slate-600"><span className="font-medium text-slate-800">团队范围：</span>中国内地科研机构及具体科研单元 <span className="text-slate-500">· 使用已入库资料</span></p>
     </fieldset>;
   }
 
   return <main className="assessment-workbench min-w-0 flex-1 space-y-4 overflow-y-auto pb-5 lg:min-h-0" aria-label="研判工作台">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <nav className="flex gap-1" aria-label="研判入口"><button className={button} onClick={fresh} disabled={busy}><Plus className="size-4" />新建研判</button>
-        <button className={button} onClick={() => { setTab(tab === "mine" ? "new" : "mine"); void refreshList(); }}><FolderOpen className="size-4" />我的研判</button></nav>
+        <button className={button} onClick={() => { const next = tab === "mine" ? "new" : "mine"; setTab(next); if (next === "mine") void refreshList(listPage, true); }}><FolderOpen className="size-4" />我的研判</button></nav>
       <span role="status" className="text-xs text-slate-500">{busy ? "处理中…" : saveStatus}</span>
     </div>
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><p>{error}</p>
@@ -228,48 +232,47 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         {historical && <p className="font-medium text-amber-700">正在查看历史快照，修改条件将生成新的版本。</p>}
         {step !== "results" && run && <p>下方正在编辑新条件，已有结果仍按原范围保存。</p>}
       </section>}
-      {step === "input" && <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-      <section className={panel}>
-        <p className="text-xs font-medium tracking-widest text-blue-700">AI4S · 以证据支持研判</p><h2 className="mt-2 text-2xl font-semibold">从一个任务，或一个领域开始</h2>
-        <div className="my-5 flex rounded-xl bg-slate-100 p-1" aria-label="研判模式">{([{ id: "task", name: "任务选队" }, { id: "domain", name: "领域观察" }] as const).map(item => <button key={item.id} aria-pressed={mode === item.id}
-          className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold ${mode === item.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`} onClick={() => setMode(item.id)}>{item.name}</button>)}</div>
-        <div className="space-y-5">
-          <label className="block text-sm font-medium">{mode === "task" ? "描述研究目标、必要能力和限制" : "观察重点（选填）"}<textarea className={`${input} mt-2 min-h-28 resize-y`} rows={4} maxLength={mode === "task" ? 2000 : 500}
-            aria-label={mode === "task" ? "研判任务输入" : "领域观察草稿"} value={mode === "task" ? taskDraft : domainDraft} onChange={e => mode === "task" ? setTaskDraft(e.target.value) : setDomainDraft(e.target.value)}
-            placeholder={mode === "task" ? "例如：寻找能够开展蛋白质结构预测的国内团队，要求有对应成果原文；优先提供开源模型。" : "例如：关注该领域的能力分布和近期成果"} /></label>
-          {mode === "domain" && <DomainQuickSearch domains={domains} selectedDomainId={domainScope.domainIds[0] || ""}
+      {step === "input" && <div className="grid min-w-0 gap-4 min-[1200px]:grid-cols-[minmax(0,1fr)_240px]">
+      <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <h2 className="text-xl font-semibold text-slate-950">{mode === "task" ? "按任务找团队" : "按领域看力量"}</h2>
+        <div className="mt-3 flex rounded-xl bg-slate-100 p-1" aria-label="研判模式">{([{ id: "task", name: "任务选队" }, { id: "domain", name: "领域观察" }] as const).map(item => <button key={item.id} aria-pressed={mode === item.id}
+          className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold ${mode === item.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`} onClick={() => setMode(item.id)}>{item.name}</button>)}</div>
+        <div className="mt-4 space-y-3 sm:space-y-4">
+          {mode === "task" && <label className="block text-sm font-medium">描述要完成的科研任务<textarea className={`${input} mt-2 min-h-20 resize-y sm:min-h-28`} rows={3} maxLength={2000}
+            aria-label="研判任务输入" value={taskDraft} onChange={e => setTaskDraft(e.target.value)}
+            placeholder="写明研究目标、必要能力、已有成果要求和限制条件" /></label>}
+          {mode === "domain" && catalogueReady && <DomainQuickSearch domains={domains} selectedDomainId={domainScope.domainIds[0] || ""}
             onSelect={match => { setDomainScope({ ...domainScope, mode: "selected", domainIds: [match.domainId], subdomainId: match.subdomainId }); confirmRequest.current = requestId(); }} />}
-          {scopePicker(mode === "task" ? taskScope : domainScope, mode === "task" ? setTaskScope : setDomainScope, mode === "task")}
-          <div className="flex flex-wrap items-end gap-4"><label className="text-sm">{mode === "task" ? "推荐数量" : "关注数量"}<input className={`${input} mt-1 max-w-24`} type="number" min={1} max={20} value={limit} onChange={e => setLimit(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
+          {catalogueReady && scopePicker(mode === "task" ? taskScope : domainScope, mode === "task" ? setTaskScope : setDomainScope, mode === "task")}
+          {mode === "domain" && <label className="block text-sm font-medium">观察重点（选填）<textarea className={`${input} mt-2 min-h-20 resize-y`} rows={2} maxLength={500}
+            aria-label="领域观察草稿" value={domainDraft} onChange={e => setDomainDraft(e.target.value)} placeholder="例如：关注该领域的能力分布和近期成果" /></label>}
+          <div className="flex flex-wrap items-end gap-3"><label className="text-sm">{mode === "task" ? "推荐数量（1–20）" : "关注数量（1–20）"}<input className={`${input} mt-1 max-w-28`} type="number" min={1} max={20} value={limit} onChange={e => setLimit(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
             {mode === "domain" && <label className="text-sm">近期窗口<select className={`${input} mt-1`} value={windowDays} onChange={e => setWindowDays(Number(e.target.value))}>{[30, 90, 180, 365].map(n => <option key={n} value={n}>{n} 天</option>)}</select></label>}
             <button className={primary} disabled={busy || !catalogueReady || (mode === "task" ? taskDraft.trim().length < 2 || taskScope.mode === "selected" && !taskScope.domainIds.length : !domainScope.domainIds.length)} onClick={() => void start()}>
-              {busy || !catalogueReady ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}{mode === "task" ? "解析任务并确认条件" : "查看领域力量分布"}</button>
+              {busy || !catalogueReady ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}{mode === "task" ? "确认任务条件" : "查看力量分布"}</button>
             <button className={button} disabled={busy} onClick={() => void operation(async () => { await saveDraft(); })}><Save className="size-4" />保存草稿</button>
           </div>
-          {!catalogueReady && <p role="status" className="text-sm text-slate-600">正在加载领域资料，加载完成后即可继续。</p>}
+          {!catalogueReady && <p role={catalogueError ? "alert" : "status"} className={`text-sm ${catalogueError ? "text-red-700" : "text-slate-600"}`}>{catalogueError ? "领域资料读取失败，暂不能生成结果。草稿和已有研判仍可查看，请刷新后重试。" : "正在加载领域资料，加载完成后即可继续。"}</p>}
           {catalogueReady && (mode === "task" ? taskDraft.trim().length < 2 : !domainScope.domainIds.length) && <p className="text-sm text-slate-600">{mode === "task" ? "填写至少两个字的研究任务后，即可解析条件。" : "请选择一个观察领域后继续。"}</p>}
           {run && <button className={button} onClick={() => setStep("results")}>返回已保存的结果</button>}
         </div>
       </section>
-      <aside className={`${panel} self-start border-[#d7e4ed] bg-[#f8fbfd]`} aria-label="本次研判将形成的内容">
-        <h3 className="text-base font-semibold text-[#1c4f6a]">这次研判将形成</h3>
-        <p className="mt-2 text-xs leading-5 text-[#637f90]">{mode === "task" ? "先确认任务条件，再查看有依据的结果。" : "先选择领域，再查看已收录的力量分布。"}</p>
-        <ol className="mt-4 space-y-3 text-sm leading-6 text-[#365b70]">{(mode === "task"
-          ? ["可修改的任务条件", "有依据的候选名单", "团队能力对照", "待核验事项"]
-          : ["研究方向与能力分布", "关注团队线索", "代表成果与近期变化", "转为具体任务的入口"]
-        ).map((item, index) => <li key={item} className="flex items-start gap-2"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#e6f1f7] text-xs font-semibold text-[#176587]">{index + 1}</span><span>{item}</span></li>)}</ol>
-        <p className="mt-4 border-t border-[#dbe8ef] pt-3 text-xs leading-5 text-[#6a8190]">资料不足或合作条件未确认时，会保留明确的待核验状态。</p>
+      <aside className="hidden self-start rounded-2xl border border-slate-200 bg-white p-4 min-[1200px]:block" aria-label="最近研判">
+        <div className="flex items-center justify-between gap-2"><h3 className="text-base font-semibold">最近研判</h3><button className="min-h-11 text-sm text-blue-700" onClick={() => { setTab("mine"); void refreshList(listPage, true); }}>查看全部</button></div>
+        {list.length ? <div className="mt-2 space-y-1">{list.slice(0, 3).map(value => <button key={value.taskId} className="w-full min-w-0 rounded-lg px-2 py-3 text-left hover:bg-slate-50" onClick={() => { loadedContext.current = ""; onContextChange(value.taskId, ""); }}><span className="block break-words text-sm font-medium leading-5 text-slate-800">{value.title}</span><span className="mt-1 block text-xs text-slate-500">{value.mode === "task" ? "任务研判" : "领域观察"} · {new Date(value.updatedAt).toLocaleDateString("zh-CN")}</span></button>)}</div>
+          : <p className="mt-3 text-sm leading-6 text-slate-600">保存的研判会显示在这里，便于返回继续查看。</p>}
+        <p className="mt-3 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500">资料不足和合作条件未确认时，结果会保留待核验状态。</p>
       </aside>
       </div>}
       {step === "confirm" && interpretation && <section className={panel} aria-label="任务条件确认">
-        <h2 className="text-xl font-semibold">先确认系统理解的任务</h2><p className="mt-2 text-sm leading-6 text-slate-500">{interpretation.notice}</p>
+        <h2 className="text-xl font-semibold">确认任务条件</h2><p className="mt-2 text-sm leading-6 text-slate-600">{interpretation.notice}</p>
         <blockquote className="mt-4 rounded-lg bg-slate-50 p-4 text-sm leading-6">{interpretation.taskText}</blockquote>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3" aria-label="条件分类摘要">{[
+        <div className="mt-4 flex flex-wrap gap-2" aria-label="条件分类摘要">{[
           ["必须核对", interpretation.criteria.filter(item => item.necessity === "required").length],
           ["优先考虑", interpretation.criteria.filter(item => item.necessity === "preferred").length],
           ["排除或待澄清", interpretation.criteria.filter(item => item.necessity === "excluded" || item.necessity === "informational").length],
-        ].map(([label, count]) => <div key={label} className="rounded-lg border border-[#d8e5ee] bg-[#f7fbfd] px-3 py-2"><span className="text-xs text-[#607d8e]">{label}</span><strong className="ml-2 text-base text-[#1a5f83]">{count}</strong></div>)}</div>
-        <p className="mt-3 text-xs leading-5 text-[#637c8c]">逐项修改后再生成结果；找不到直接依据的必要条件会标为证据不足。</p>
+        ].map(([label, count]) => <span key={label} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700">{label} <strong className="text-blue-800">{count}</strong></span>)}</div>
+        <p className="mt-3 text-sm leading-6 text-slate-600">逐项核对后生成结果；没有直接依据的必要条件会标为证据不足。</p>
         <div className="mt-3 space-y-3">{interpretation.criteria.map((criterion, index) => <div key={criterion.id} role="group" aria-label={`条件${index + 1}`} className={`grid min-w-0 gap-2 rounded-xl border p-3 sm:grid-cols-[140px_1fr_110px] ${criterion.necessity === "required" ? "border-[#bfd8e8] bg-[#f9fcfe]" : "border-slate-200 bg-white"}`}>
           <select className={input} aria-label={`条件${index + 1}类型`} value={criterion.kind} onChange={e => editCriterion(index, { kind: e.target.value as Criterion["kind"] })}>{Object.entries(labels).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
           <textarea className={input} rows={2} aria-label={`条件${index + 1}内容`} value={criterion.text} onChange={e => editCriterion(index, { text: e.target.value, sourceSpan: null })} />
@@ -296,22 +299,16 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           {record.runs.map(r => <option key={r.runId} value={r.runId}>条件 v{r.inputVersion} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
         {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}{run.changes.coverageChanged ? " · 范围或证据覆盖发生变化" : ""}</div>}
         <VersionComparison run={run.runId === record?.state.activeRunId ? { ...run, selection: { comparedTeamIds: record.state.comparedTeamIds, combination: record.state.combination } } : run} onOpenRun={id => onContextChange(run.taskId, id)} />
-        {!run.observation && <div id="assessment-investigation"><AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} onOpenTeam={onOpenTeam} /></div>}
         {run.observation ? <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["收录科研单元", run.observation.totalUnits], ["已有成果证据", run.observation.outcomeBackedUnits], ["身份资料已收录，成果尚缺", run.observation.identityOnlyUnits]].map(([label, value]) => <div className={panel} key={label}><strong className="text-3xl">{value}</strong><p className="mt-2 text-sm text-slate-500">{label}</p></div>)}</div>
-          <section className={panel}><h3 className="font-semibold">研究方向分布</h3><p className="mt-1 text-xs leading-5 text-slate-500">同一团队可能涉及多个方向，总数始终按唯一团队编号去重。</p><div className="mt-3 flex flex-wrap gap-2">{run.observation.directions.map(d => <span key={d.name} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">{d.name} · {d.teamCount}</span>)}</div></section>
+          <section className={panel}><h3 className="text-base font-semibold">研究方向分布</h3><p className="mt-1 text-xs leading-5 text-slate-500">同一团队可能涉及多个方向，总数始终按唯一团队编号去重。</p><div className="mt-3 flex flex-wrap gap-2">{run.observation.directions.map(d => <span key={d.name} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">{d.name} · {d.teamCount}</span>)}</div></section>
           <p className="text-sm leading-6 text-slate-500">{run.observation.notice}</p>
-          {run.observation.units.map(unit => <article className={panel} key={unit.teamId}><h3 className="font-semibold">{unit.teamName}</h3><p className="mt-1 text-sm text-slate-500">{unit.institutionName}</p><p className="mt-3 text-sm">{unit.reason} · 成果 {unit.outcomeCount} 条 · 近 {run.observation!.windowDays} 天 {unit.recentOutcomeCount} 条</p>
+          {run.observation.units.map(unit => <article className={panel} key={unit.teamId}><h3 className="text-lg font-semibold">{unit.teamName}</h3><p className="mt-1 text-sm text-slate-500">{unit.institutionName}</p><p className="mt-3 text-sm">{unit.reason} · 成果 {unit.outcomeCount} 条 · 近 {run.observation!.windowDays} 天 {unit.recentOutcomeCount} 条</p>
             <div className="my-3 space-y-2">{unit.citations.map(c => <button className="block min-h-11 text-left text-sm text-blue-700" key={c.id} onClick={() => openEvidence(c, unit.teamName)}>{c.text} ↗</button>)}</div>
             <button className={button} onClick={() => onOpenTeam(unit.teamId)}>查看团队档案</button></article>)}
           <button className={primary} onClick={() => { setTaskScope(run.scope); setMode("task"); setStep("input"); }}>沿用观察范围，转为任务选队<ArrowRight className="size-4" /></button>
         </> : <>
-          <section className={`${panel} flex flex-wrap items-center gap-5`}><p><strong className="text-3xl">{run.items.length}</strong><span className="ml-2 text-sm">支有据候选 / 目标 {run.requestedLimit} 支</span></p><p className="text-xs text-slate-500">范围内 {run.eligibleTeamCount} 支已有团队级成果证据</p></section>
-          {run.shortfall > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-sm leading-6"><h3 className="font-semibold text-amber-950">推荐数量与缺口</h3><p className="mt-1">当前可推荐 {run.items.length} 支，距目标差 {run.shortfall} 支；没有放宽必要条件或补入无依据团队。</p>
-            {shortageStages(run).length > 0 && <ul className="mt-3 grid gap-2 sm:grid-cols-3">{shortageStages(run).map(stage => <li key={stage.title} className="rounded-lg border border-amber-200 bg-white p-3"><strong className="text-amber-950">{stage.title}</strong><p className="mt-1 text-xs leading-5 text-slate-600">{stage.detail}</p></li>)}</ul>}
-            {run.unresolvedConditions?.map(c => <p key={c.criterionId}>• {c.text}：{c.reason}</p>)}
-            {!run.coverage && <p className="mt-2 text-slate-600">此历史版本未保存分层统计，请结合原条件和证据逐项核对。</p>}
-            <div className="mt-3 flex flex-wrap gap-2"><button className={button} onClick={() => setStep("input")}>修改条件或扩大范围</button><button className={button} onClick={() => document.getElementById("assessment-investigation")?.scrollIntoView({ behavior: "smooth", block: "start" })}>查看补充调查</button></div></section>}
+          <section className={`${panel} flex flex-wrap items-center gap-5`}><p><strong className="text-3xl">{run.items.length}</strong><span className="ml-2 text-sm">支有据候选 / 目标 {run.requestedLimit} 支</span></p><p className="text-sm text-slate-600">范围内 {run.eligibleTeamCount} 支已有团队级成果证据{run.shortfall > 0 && <span className="ml-2 font-medium text-amber-800">· 还缺 {run.shortfall} 支有据候选</span>}</p></section>
           <div className="grid min-w-0 gap-4 xl:grid-cols-2">{run.items.map((item, index) => { const role = suggestedRole(item, run.criteria || []); return <article className={`${panel} min-w-0`} key={item.teamId}>
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-medium text-blue-700">候选 {index + 1}</p><h3 className="mt-1 text-lg font-semibold">{item.teamName}</h3><p className="mt-1 text-sm text-slate-500">{item.institutionName}</p></div>
               <label className="flex min-h-11 shrink-0 items-center gap-2 text-xs"><input type="checkbox" checked={comparedIds.includes(item.teamId)}
@@ -326,12 +323,19 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
             <details className="mt-3 rounded-lg bg-slate-50 p-3"><summary className="min-h-8 cursor-pointer text-xs font-medium">查看独立评分与版本</summary><p className="mt-2 text-xs leading-6">任务匹配 {item.taskMatchScore} · 团队原分 {item.teamScore ?? "暂无"} · {item.institutionImpact}<br />任务版本 {item.matchVersion}；任务分按证据60%、方向25%、成果覆盖15%计算，未与机构或团队分相加。</p></details>
             <div className="mt-4 flex flex-wrap gap-2"><button className={button} onClick={() => onOpenTeam(item.teamId)}>团队档案<ArrowRight className="size-4" /></button><button className={button} onClick={() => onOpenRelations(item.teamId)}><Network className="size-4" />相关关系</button>
               <button className={button} disabled={historical} onClick={() => openFollowUp(item.teamId)}>记录跟进</button></div>
-          </article>; })}</div>
+           </article>; })}</div>
+          {run.shortfall > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-sm leading-6"><h3 className="text-base font-semibold text-amber-950">数量与依据缺口</h3><p className="mt-1">当前可推荐 {run.items.length} 支，必要条件没有放宽；未证实能力仍待核验。</p>
+            <details className="mt-2"><summary className="min-h-11 cursor-pointer text-sm font-medium text-amber-950">查看数量缺口与条件明细</summary>
+              {shortageStages(run).length > 0 && <ul className="mt-2 grid gap-2 sm:grid-cols-3">{shortageStages(run).map(stage => <li key={stage.title} className="rounded-lg border border-amber-200 bg-white p-3"><strong className="text-amber-950">{stage.title}</strong><p className="mt-1 text-xs leading-5 text-slate-600">{stage.detail}</p></li>)}</ul>}
+              {run.unresolvedConditions?.map(c => <p key={c.criterionId}>• {c.text}：{c.reason}</p>)}
+              {!run.coverage && <p className="mt-2 text-slate-600">此历史版本未保存分层统计，请结合原条件和证据逐项核对。</p>}
+            </details>
+            <div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={() => setStep("input")}>修改条件或扩大范围</button><button className={button} onClick={() => { const details = document.getElementById("assessment-investigation") as HTMLDetailsElement | null; if (details) { details.open = true; details.scrollIntoView({ behavior: "smooth", block: "start" }); } }}>检索补充依据</button></div></section>}
           {compared.length >= 2 && <section className={panel} aria-label="团队逐项比较"><h3 className="text-lg font-semibold">按同一任务条件比较</h3><p className="mt-1 text-xs leading-5 text-slate-500">全部依据来自当前保存的推荐快照；缺少依据不等于能力为零。</p>
             <div className="mt-4 space-y-3">{run.criteria?.map(criterion => <details className="rounded-xl border border-slate-200 p-3" open key={criterion.id}><summary className="min-h-11 cursor-pointer text-sm font-semibold">{criterion.text}</summary>
               <div className="grid gap-3 md:grid-cols-3">{compared.map(item => { const row = item.criteriaMatrix.find(c => c.criterionId === criterion.id); return <div className="rounded-lg bg-slate-50 p-3" key={item.teamId}><h4 className="text-sm font-semibold">{item.teamName}</h4><p className="mt-2 text-xs">{row ? statuses[row.status] : "依据不足"}</p>
                 {row?.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, criterion.text, statuses[row.status])}>{c.text} ↗</button> : null; })}</div>; })}</div></details>)}</div>
-            <h4 className="mt-5 font-semibold">讨论候选分工</h4><p className="mt-1 text-xs text-slate-500">这是待沟通方案；尚未确认资源、协作接口和协调成本，不代表已经分派任务。</p>
+            <h4 className="mt-5 text-base font-semibold">讨论候选分工</h4><p className="mt-1 text-xs text-slate-500">这是待沟通方案；尚未确认资源、协作接口和协调成本，不代表已经分派任务。</p>
             <CombinationCoverage criteria={run.criteria || []} teams={compared} />
             <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid min-w-0 gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 拟议角色<input disabled={historical} className={`${input} mt-1`} placeholder={suggestedRole(item, run.criteria || [])?.text || "请基于证据填写待讨论角色"} value={role?.role || ""} onChange={e => updateRole(item.teamId, { role: e.target.value })} /></label>
               <label className="text-xs">分工依据和协作缺口<input disabled={historical} className={`${input} mt-1`} placeholder="写明成果能支持的环节及尚待确认的边界" value={role?.rationale || ""} onChange={e => updateRole(item.teamId, { rationale: e.target.value })} /></label>
@@ -340,7 +344,8 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
             <button className={`${primary} mt-3`} disabled={busy || historical || compared.some(i => { const role = roles.find(r => r.teamId === i.teamId); return !role?.role.trim() || !role.rationale.trim() || !role.claimIds?.length; })} onClick={() => void patchState({ combination: roles.filter(r => compared.some(i => i.teamId === r.teamId)) })}><Save className="size-4" />保存候选组合</button>
           </section>}
         </>}
-        {record && <section className={panel}><h3 className="font-semibold">跟进与内部记录</h3><p className="mt-1 text-xs text-slate-500">只对当前访客可见；公开证据导出不包含这些内容。</p>
+        {!run.observation && <details id="assessment-investigation" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><summary className="min-h-11 cursor-pointer text-base font-semibold leading-[44px] text-slate-900">补充查证 · 库内检索</summary><div className="mt-3"><AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} onOpenTeam={onOpenTeam} /></div></details>}
+        {record && <section className={panel}><h3 className="text-base font-semibold">跟进与内部记录</h3><p className="mt-1 text-xs text-slate-500">只对当前访客可见；公开证据导出不包含这些内容。</p>
           <div className="mt-3 space-y-2">{record.state.followUps.map(f => <div className="rounded-lg bg-slate-50 p-3 text-sm" key={f.id}><p>{f.question}</p><p className="mt-1 text-xs text-slate-500">{f.method} · {f.owner || "负责人未指定"} · {f.dueDate || "日期未定"} · {({ open: "未开始", in_progress: "进行中", done: "已完成", cancelled: "取消" })[f.status]}</p>
             <p className="mt-1 text-xs text-slate-600">对原判断的影响：{({ supported: "进一步支持", limited: "需缩小适用范围", contradicted: "存在反证，待重评", unchanged: "未改变" })[f.judgment!] || "待核验"}</p>
             <button className={`${button} mt-2`} disabled={historical} onClick={() => { setFollowDraft(f); followDialog.current?.showModal(); }}>更新跟进</button></div>)}</div>
@@ -351,15 +356,18 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     </>}
     <dialog ref={evidenceDialog} onClose={() => setEvidence(null)} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(680px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
       <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">判断依据与原文</h2><button className={button} aria-label="关闭证据详情" onClick={() => evidenceDialog.current?.close()}><X className="size-4" /></button></div>
-      {evidence && <div className="mt-4 space-y-4 text-sm leading-6"><p>所属科研单元：<strong>{evidence.team}</strong></p>
-        {evidence.requirement && <p className="rounded-xl bg-blue-50 p-3">对应任务条件：{evidence.requirement}<br />本次判断：{evidence.support}</p>}
-        <p>{evidence.citation.text}</p><blockquote className="rounded-xl border-l-4 border-blue-300 bg-slate-50 p-4 whitespace-pre-wrap">{evidence.citation.quote}</blockquote>
-        <p className="break-all text-xs text-slate-500">引文编号：{evidence.citation.id} · 保存于研判 {run?.inputVersionId}</p>
+      {evidence && <div className="mt-4 space-y-5 text-sm leading-6">
+        <section aria-label="本次判断"><h3 className="text-base font-semibold text-slate-900">本次判断</h3><p className="mt-2">科研单元：<strong>{evidence.team}</strong></p>
+          {evidence.requirement && <p className="mt-2 rounded-xl bg-blue-50 p-3">对应任务条件：{evidence.requirement}<br />判断状态：{evidence.support}</p>}
+          <p className="mt-2">{evidence.citation.text}</p></section>
+        <section aria-label="保存的原文"><h3 className="text-base font-semibold text-slate-900">原文与来源</h3><blockquote className="mt-2 rounded-xl border-l-4 border-blue-300 bg-slate-50 p-4 whitespace-pre-wrap">{evidence.citation.quote}</blockquote>
+          <p className="mt-2 break-all text-xs text-slate-500">引文编号：{evidence.citation.id} · 保存于研判 {run?.inputVersionId}</p>
+          <p className="mt-2 text-slate-600">以上是本次研判保存的引文。适用范围限于原文中的主体和成果；人员投入、资源可用性与交付承诺需另行确认。</p>
+          <a className={`${button} mt-3 break-all`} href={evidence.citation.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4 shrink-0" />打开来源原文</a><p className="mt-2 break-all text-xs text-slate-500">{evidence.citation.url}</p>
+          <p className="text-xs text-slate-500">若原链接无法访问，可保留此引文快照并记录核验事项；当前未实时检测链接可用性。</p></section>
         <ClaimSourceDetails citation={evidence.citation} />
         {evidence.citation.id && <ClaimReviewEditor key={evidence.citation.id} claimId={evidence.citation.id} />}
-        <p>以上是本次研判保存的引文。适用范围限于原文中的主体和成果；人员投入、资源可用性与交付承诺需另行确认。</p>
-        <a className={`${button} break-all`} href={evidence.citation.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4 shrink-0" />打开来源原文</a><p className="break-all text-xs text-slate-500">{evidence.citation.url}</p>
-        <p className="text-xs text-slate-500">若原链接无法访问，可保留此引文快照并记录核验事项；当前未实时检测链接可用性。</p></div>}
+      </div>}
     </dialog>
     <dialog ref={followDialog} onClose={() => setFollowDraft(null)} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(640px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
       <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">记录跟进事项</h2><button className={button} aria-label="关闭跟进编辑" onClick={() => followDialog.current?.close()}><X className="size-4" /></button></div>

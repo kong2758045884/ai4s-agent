@@ -55,10 +55,31 @@
     .strategic-map-mobile-navigation {
       display: block !important;
       flex-shrink: 0;
+      position: relative;
       border: 1px solid #d1dce7;
       border-radius: 12px;
       background: white;
-      padding: 8px 12px 12px;
+      padding: 4px 12px;
+    }
+    .strategic-map-mobile-navigation summary::marker {
+      color: #236ca8;
+    }
+    .strategic-map-mobile-filter-content {
+      position: absolute;
+      z-index: 25;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: min(70dvh, 520px);
+      overflow-y: auto;
+      border: 1px solid #cbdbe7;
+      border-radius: 12px;
+      background: white;
+      padding: 12px;
+      box-shadow: 0 16px 36px #15344c22;
+    }
+    .strategic-map-mobile-filter-content > .grid {
+      margin-top: 10px;
     }
     .strategic-map-mobile-navigation button,
     .strategic-map-mobile-navigation select,

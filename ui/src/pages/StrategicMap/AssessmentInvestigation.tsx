@@ -58,7 +58,7 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun, on
   const singleDomain = run.scope.domainIds.length === 1 ? run.scope.domainIds[0] : "";
   const canCollect = !!overview?.configured && !!overview?.canStart && !historical;
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6" aria-label="补充调查">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">缺少成果或任务依据？</h3><p className="mt-1 text-xs leading-5 text-slate-500">先核对已入库的团队与成果资料；可用的联网调查另行启动，现有推荐名单始终保留。</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-base font-semibold">缺少成果或任务依据？</h3><p className="mt-1 text-xs leading-5 text-slate-500">先核对已入库的团队与成果资料；可用的联网调查另行启动，现有推荐名单始终保留。</p></div>
       <div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => setShowLocalSearch(value => !value)}><Search className="size-4" />{showLocalSearch ? "收起库内检索" : "检索库内资料"}</button>
       {canCollect && <button className={button} disabled={active(job) || busy} onClick={() => { idempotencyKey.current = requestId(); dialog.current?.showModal(); }}><Globe className="size-4" />联网补充资料</button>}</div></div>
     <p className="mt-2 text-xs leading-5 text-slate-500">{overview?.configured ? overview.configurationNotice : overview ? "当前仅能检索已入库资料；不会启动外网采集，也不会据此自动改写推荐。" : "正在确认联网配置；库内检索已可使用。"}{historical && " · 历史版本只读"}</p>

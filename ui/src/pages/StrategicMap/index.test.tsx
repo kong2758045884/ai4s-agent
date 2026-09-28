@@ -12,7 +12,7 @@ describe("StrategicMap", () => {
       </MemoryRouter>,
     );
 
-    expect(html).toContain("AI4S战略力量图谱");
+    expect(html).toContain("AI4S战略图谱");
     expect(html).toContain("国内科研团队库");
     expect(html).toContain("科学通用底座");
     expect(html).toContain("研判工作台");

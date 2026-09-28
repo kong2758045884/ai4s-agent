@@ -88,6 +88,8 @@ request.interceptors.response.use(
     const message = showMessage();
     if (error.response) {
       const { status, data: resData } = error.response;
+      const responseMessage = typeof resData?.msg === 'string' ? resData.msg
+        : typeof resData?.info === 'string' ? resData.info : '';
 
       switch (status) {
         case 401:
@@ -95,19 +97,19 @@ request.interceptors.response.use(
           noAuth(resData.redirectUrl);
           break;
         case 403:
-          message?.error(error.message || '没有权限访问');
+          message?.error(responseMessage || '当前账号没有权限执行此操作');
           break;
         case 404:
-          message?.error(error.message || '请求的资源不存在');
+          message?.error(responseMessage || '请求的资料不存在或已不可用');
           break;
         case 500:
-          message?.error(error.message || '服务器内部错误');
+          message?.error('服务暂时不可用，请稍后重试');
           break;
         default:
-          message?.error(error.message || `请求失败，状态码: ${status}`);
+          message?.error(responseMessage || `请求失败（${status}），请稍后重试`);
       }
     } else if (error.request) {
-      message?.error(error.message || '网络错误，请检查网络连接');
+      message?.error({ content: '网络连接异常，请稍后重试', key: 'network-connection' });
     } else {
       message?.error('请求配置错误');
     }

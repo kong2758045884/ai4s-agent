@@ -411,6 +411,7 @@ export default function StrategicMap() {
     provider: "多源公开证据",
   });
   const [loading, setLoading] = useState(true);
+  const [catalogueStatus, setCatalogueStatus] = useState<"loading" | "ready" | "error">("loading");
   const [syncing, setSyncing] = useState(false);
   const [nationwideSyncing, setNationwideSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -470,6 +471,7 @@ export default function StrategicMap() {
     initialContext.mobilePanel ?? "teams",
   );
   const [mobileManageOpen, setMobileManageOpen] = useState(false);
+  const mobileFilterRef = useRef<HTMLDetailsElement>(null);
   const mobileListScrollRef = useRef(initialContext.mobileListScroll ?? 0);
   const pendingPanelScrollRef = useRef<number | null>(null);
   const selectionRef = useRef<StrategicMapSelection>({
@@ -526,13 +528,13 @@ export default function StrategicMap() {
     ? { ...publicSelectedTeam, ...internalTeam.fields } : publicSelectedTeam;
   useEffect(() => {
     setInternalTeam(null);
-    if (!access.canEdit || publicSelectedTeam.id === EMPTY_TEAM.id) return;
+    if (!access.canEdit || catalogueStatus !== "ready" || publicSelectedTeam.id === EMPTY_TEAM.id) return;
     const controller = new AbortController();
-    void readInternalTeam(publicSelectedTeam.id, controller.signal).then(setInternalTeam).catch(reason => {
-      if (!controller.signal.aborted) setError(String(reason));
+    void readInternalTeam(publicSelectedTeam.id, controller.signal).then(setInternalTeam).catch(() => {
+      if (!controller.signal.aborted) setError("内部团队资料暂时无法读取，请稍后重试。");
     });
     return () => controller.abort();
-  }, [access.canEdit, publicSelectedTeam.id, publicSelectedTeam.updatedAt]);
+  }, [access.canEdit, catalogueStatus, publicSelectedTeam.id, publicSelectedTeam.updatedAt]);
   const activeSubdomain = activeDomain.subdomains.find(
     (subdomain) => subdomain.id === activeSubdomainId,
   );
@@ -739,9 +741,10 @@ export default function StrategicMap() {
           ),
         );
         setSource(snapshot.source);
+        setCatalogueStatus("ready");
         setError("");
       })
-      .catch((reason) => {
+      .catch(() => {
         if (!disposed) {
           const requested = selectionRef.current;
           applySelection(
@@ -751,11 +754,8 @@ export default function StrategicMap() {
               !requested.teamId,
             ),
           );
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "读取战略图谱失败，当前显示本地缓存",
-          );
+          setError("领域资料暂时无法读取，请刷新后重试。已有研判记录仍可查看。");
+          setCatalogueStatus("error");
         }
       })
       .finally(() => {
@@ -1144,28 +1144,28 @@ export default function StrategicMap() {
 
   return (
     <div className="strategic-map flex h-full min-h-0 w-full min-w-0 flex-col overflow-x-hidden overflow-y-hidden bg-[#fafafa] text-slate-900">
-      <header className="strategic-map-header shrink-0 border-b border-slate-200 bg-white px-4 py-3 text-slate-900 sm:px-5 sm:py-4 md:px-7">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-8 gap-y-2 sm:gap-x-16 sm:gap-y-3">
-          <h1 className="shrink-0 text-[20px] font-semibold tracking-[0.02em] sm:text-[22px] md:text-[25px]">
-            AI4S战略力量图谱
+      <header className="strategic-map-header shrink-0 border-b border-slate-200 bg-white px-4 py-2 text-slate-900 sm:px-5 md:px-7">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-2 sm:gap-x-5">
+          <h1 className="shrink-0 text-[18px] font-semibold tracking-[0.01em] sm:text-[20px]">
+            AI4S战略图谱
           </h1>
-          <p className="order-3 w-full text-[13px] font-medium tracking-[0.02em] text-slate-400 sm:order-none sm:w-auto sm:min-w-[250px] sm:flex-1 sm:text-[15px] md:text-[17px]">
+          {workspaceMode !== "recommend" && <p className="hidden min-w-0 flex-1 text-sm text-slate-500 2xl:block">
             {loading ? "以成果为依据，发现国内科研力量" : `${domains.reduce((total, domain) => total + domain.teams.length, 0)} 个有来源的科研单元 · ${domains.length} 个研究领域`}
-          </p>
-          {ASSESSMENT_ENABLED && <button ref={demoTriggerRef} type="button" onClick={() => setDemoOpen(true)} className="order-2 inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#d2e1ea] bg-white px-3 text-xs font-semibold text-[#386981] hover:border-[#9fc5d8] hover:bg-[#f2f8fb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176587] sm:order-none"><BookOpen className="size-4" aria-hidden="true" />页面导览</button>}
-          <div className="strategic-map-view-tabs flex max-w-full shrink-0 items-center overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1">
+          </p>}
+          {ASSESSMENT_ENABLED && <button ref={demoTriggerRef} type="button" onClick={() => setDemoOpen(true)} className="order-2 ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-[#d2e1ea] bg-white px-3 text-sm font-medium text-[#386981] hover:border-[#9fc5d8] hover:bg-[#f2f8fb] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#176587] lg:order-3 lg:ml-0"><BookOpen className="size-4" aria-hidden="true" />使用帮助</button>}
+          <div className="strategic-map-view-tabs order-3 flex max-w-full shrink-0 items-center overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1 lg:order-2 lg:ml-auto">
             {FUSION_ENABLED && <button type="button" aria-pressed={workspaceMode === "recommend"} onClick={() => setWorkspaceMode("recommend")}
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${workspaceMode === "recommend" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
+              className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium ${workspaceMode === "recommend" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
               <ScanSearch className="size-4" />{ASSESSMENT_ENABLED ? "研判工作台" : "任务推荐"}
             </button>}
             <button
               type="button"
               aria-pressed={workspaceMode === "teams"}
               onClick={() => setWorkspaceMode("teams")}
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded px-3 text-xs font-semibold ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium ${
                 workspaceMode === "teams"
                   ? "bg-white text-blue-700 shadow-sm"
-                  : "text-slate-500"
+                  : "text-slate-600"
               }`}
             >
               <UsersRound className="size-4" />
@@ -1175,17 +1175,17 @@ export default function StrategicMap() {
               type="button"
               aria-pressed={workspaceMode === "graph"}
               onClick={() => setWorkspaceMode("graph")}
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded px-3 text-xs font-semibold ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium ${
                 workspaceMode === "graph"
                   ? "bg-white text-blue-700 shadow-sm"
-                  : "text-slate-500"
+                  : "text-slate-600"
               }`}
             >
               <Network className="size-4" />
               关系图谱
             </button>}
             {FUSION_ENABLED && <button type="button" aria-pressed={workspaceMode === "intelligence"} onClick={() => setWorkspaceMode("intelligence")}
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${workspaceMode === "intelligence" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
+              className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium ${workspaceMode === "intelligence" ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
               <CalendarDays className="size-4" />{ASSESSMENT_ENABLED ? "情报观察" : "动态情报"}
             </button>}
           </div>
@@ -1201,9 +1201,12 @@ export default function StrategicMap() {
           className="strategic-map-mobile-navigation"
           aria-label="领域筛选"
         >
+          <details ref={mobileFilterRef} onKeyDown={event => { if (event.key === "Escape") { mobileFilterRef.current?.removeAttribute("open"); mobileFilterRef.current?.querySelector("summary")?.focus(); } }}>
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-slate-800">领域筛选 · {activeDomain.label}</summary>
+          <div className="strategic-map-mobile-filter-content">
           <div className="flex items-center justify-between gap-2 text-sm font-semibold text-[#0f172a]">
-            <span>领域筛选</span>
-            <button
+            <span>选择范围</span>
+            {access.canMaintain && <button
               type="button"
               onClick={() => setMobileManageOpen((open) => !open)}
               aria-expanded={mobileManageOpen}
@@ -1211,7 +1214,7 @@ export default function StrategicMap() {
               className="px-2 text-xs text-[#236ca8]"
             >
               {mobileManageOpen ? "收起管理" : "管理领域"}
-            </button>
+            </button>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="min-w-0 text-xs text-[#607486]">
@@ -1220,11 +1223,11 @@ export default function StrategicMap() {
                 aria-label="选择领域"
                 value={(workspaceMode === "recommend" || workspaceMode === "intelligence") && recommendAcrossDomains ? "" : activeDomain.id}
                 onChange={(event) => {
-                  if (event.target.value === "" && (workspaceMode === "recommend" || workspaceMode === "intelligence")) { setRecommendAcrossDomains(true); return; }
+                  if (event.target.value === "" && (workspaceMode === "recommend" || workspaceMode === "intelligence")) { setRecommendAcrossDomains(true); mobileFilterRef.current?.removeAttribute("open"); return; }
                   const domain = domains.find(
                     (item) => item.id === event.target.value,
                   );
-                  if (domain) selectDomain(domain);
+                  if (domain) { selectDomain(domain); mobileFilterRef.current?.removeAttribute("open"); }
                 }}
                 className="mt-1 w-full min-w-0 rounded-lg border border-[#ccd9e4] bg-white px-2 text-base text-[#274158]"
               >
@@ -1242,7 +1245,7 @@ export default function StrategicMap() {
                 aria-label="选择子领域"
                 value={activeSubdomainId}
                 disabled={(workspaceMode === "recommend" || workspaceMode === "intelligence") && recommendAcrossDomains}
-                onChange={(event) => selectSubdomain(event.target.value)}
+                onChange={(event) => { selectSubdomain(event.target.value); mobileFilterRef.current?.removeAttribute("open"); }}
                 className="mt-1 w-full min-w-0 rounded-lg border border-[#ccd9e4] bg-white px-2 text-base text-[#274158]"
               >
                 <option value="">全部子领域</option>
@@ -1254,7 +1257,7 @@ export default function StrategicMap() {
               </select>
             </label>
           </div>
-          {mobileManageOpen ? (
+          {access.canMaintain && mobileManageOpen ? (
             <div
               id="mobile-domain-management"
               className="mt-3 border-t border-[#e6edf4] pt-2 text-xs text-[#236ca8]"
@@ -1263,13 +1266,13 @@ export default function StrategicMap() {
                 <span className="text-[#607486]">六大根领域已锁定</span>
               </div>
               <div className="flex flex-wrap gap-x-4">
-                <button
+                {access.canMaintain && <button
                   type="button"
                   onClick={() => startSubdomainEditor()}
-                  disabled={!access.canMaintain || loading || activeDomain.id === EMPTY_DOMAIN.id}
+                  disabled={loading || activeDomain.id === EMPTY_DOMAIN.id}
                 >
                   新增子领域
-                </button>
+                </button>}
                 {activeDomain.subdomains
                   .filter((item) => item.id === activeSubdomainId)
                   .map((subdomain) => (
@@ -1294,6 +1297,8 @@ export default function StrategicMap() {
               </div>
             </div>
           ) : null}
+          </div>
+          </details>
         </section>}
         {workspaceMode === "teams" ? (
           <nav className="strategic-map-mobile-tabs" aria-label="团队视图切换">
@@ -1446,7 +1451,7 @@ export default function StrategicMap() {
                     <button
                       type="button"
                       onClick={() => selectSubdomain(subdomain.id)}
-                      className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 pr-16 text-left text-[13px] ${activeSubdomainId === subdomain.id ? "bg-[#eef6fb] font-semibold text-[#236ca8]" : "text-[#607486] hover:bg-[#f5f8fb]"}`}
+                      className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] ${access.canMaintain ? "pr-16" : "pr-3"} ${activeSubdomainId === subdomain.id ? "bg-[#eef6fb] font-semibold text-[#236ca8]" : "text-[#607486] hover:bg-[#f5f8fb]"}`}
                     >
                       <DomainIcon
                         label={activeDomain.label}
@@ -1454,7 +1459,7 @@ export default function StrategicMap() {
                       />
                       <span className="block truncate">{subdomain.name}</span>
                     </button>
-                    <span className="absolute right-1 flex opacity-0 group-hover/sub:opacity-100">
+                    {access.canMaintain && <span className="absolute right-1 flex opacity-0 group-hover/sub:opacity-100">
                       <button
                         type="button"
                         disabled={!access.canMaintain}
@@ -1475,7 +1480,7 @@ export default function StrategicMap() {
                       >
                         <Trash2 className="size-3" />
                       </button>
-                    </span>
+                    </span>}
                   </div>
                 ))}
               </div>
@@ -1484,7 +1489,7 @@ export default function StrategicMap() {
         </aside>}
 
         {workspaceMode === "recommend" ? (
-          ASSESSMENT_ENABLED ? <AssessmentWorkbench domains={domains} catalogueReady={!loading && domains.length > 0} taskId={assessmentContext.taskId} runId={assessmentContext.runId}
+          ASSESSMENT_ENABLED ? <AssessmentWorkbench domains={domains} catalogueReady={catalogueStatus === "ready" && domains.length > 0} catalogueError={catalogueStatus === "error"} taskId={assessmentContext.taskId} runId={assessmentContext.runId}
             onContextChange={updateAssessmentContext} onOpenTeam={openTeamDetail}
             onOpenRelations={teamId => {
               setAssessmentGraphTeamId(teamId);
@@ -2276,7 +2281,7 @@ export default function StrategicMap() {
           </>
         )}
       </div>
-      {error ? (
+      {error && !(workspaceMode === "recommend" && catalogueStatus === "error") ? (
         <div className="absolute bottom-4 left-1/2 z-20 max-w-[min(640px,calc(100%-2rem))] -translate-x-1/2 rounded-lg border border-[#f1c6c6] bg-[#fff5f5] px-4 py-2.5 text-[12px] text-[#b44747] shadow-lg">
           {error}
         </div>
