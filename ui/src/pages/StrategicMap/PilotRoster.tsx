@@ -17,8 +17,10 @@ type Roster = {
 };
 type Filter = "all" | "outcome" | "missing" | "unclassified";
 
-export default function PilotRoster({ domainId, subdomainId, domainName, subdomainName, onOpenTeam,
-  canReview = false, subdomains = [], onDataUpdated }: {
+export default function PilotRoster({
+  domainId, subdomainId, domainName, subdomainName, onOpenTeam,
+  canReview = false, subdomains = [], onDataUpdated
+}: {
   domainId: string; subdomainId: string; domainName: string; subdomainName: string; onOpenTeam: (id: string) => void;
   canReview?: boolean; subdomains?: { id: string; name: string }[]; onDataUpdated?: () => void | Promise<void>;
 }) {
@@ -33,7 +35,10 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
     if (!open) return;
     const controller = new AbortController();
     setData(null); setError("");
-    const params = new URLSearchParams({ domain_id: domainId, subdomain_id: subdomainId });
+    const params = new URLSearchParams({
+      domain_id: domainId,
+      subdomain_id: subdomainId
+    });
     void fetch(`${normalizeToolBaseUrlForBrowser("")}/v1/strategic-map/intelligence/pilot-roster?${params}`, { signal: controller.signal })
       .then(async response => { if (!response.ok) throw Error("试点清单暂时不可用"); return response.json() as Promise<Roster>; })
       .then(value => { if (!controller.signal.aborted) setData(value); })
@@ -46,29 +51,29 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
       || filter === "missing" && item.outcomeCount === 0 || filter === "unclassified" && !item.subdomainId);
   }), [data, query, filter]);
   const scopeName = subdomainName || domainName || "全部领域";
-  return <section aria-label="试点团队与证据缺口" className="min-w-0 overflow-hidden rounded-[22px] border border-[#d7e5dc] bg-gradient-to-br from-[#f4faf6] via-white to-[#f6fbff] shadow-[0_10px_28px_-25px_rgba(20,79,62,0.55)]">
+  return <section aria-label="领域团队与资料覆盖" className="min-w-0 overflow-hidden rounded-[22px] border border-[#d7e5dc] bg-gradient-to-br from-[#f4faf6] via-white to-[#f6fbff] shadow-[0_10px_28px_-25px_rgba(20,79,62,0.55)]">
     <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
       <div className="flex min-w-0 items-start gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#dceee3] text-[#207254]"><ListFilter className="size-5" aria-hidden="true" /></span>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#327d61]">PILOT ROSTER</p>
-          <h3 className="mt-0.5 text-base font-semibold text-[#173a2d]">试点团队与证据缺口</h3>
-          <p className="mt-1 text-xs leading-5 text-[#60786b]">当前范围：{scopeName} · 按公开资料核对团队身份与成果，目标 20 支</p>
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#327d61]">团队资料</p>
+          <h3 className="mt-0.5 text-base font-semibold text-[#173a2d]">领域团队与资料覆盖</h3>
+          <p className="mt-1 text-xs leading-5 text-[#60786b]">当前范围：{scopeName} · 查看团队归属、成果依据与待核对资料</p>
         </div>
       </div>
       <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}
         className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#18765a] px-4 text-sm font-semibold text-white shadow-[0_6px_15px_-9px_rgba(24,118,90,0.9)] hover:bg-[#115e47] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18765a]">
-        {open ? "收起清单" : "查看试点清单"}<ArrowRight className={`size-4 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />
+        {open ? "收起团队清单" : "查看团队清单"}<ArrowRight className={`size-4 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />
       </button>
     </div>
     {open && <div className="border-t border-[#dcece2] bg-white/85 p-4 sm:p-5">
-      {!subdomainId && <p className="mb-3 rounded-xl border border-[#eedfba] bg-[#fffaf0] p-3 text-xs leading-5 text-[#82612f]">当前为大类范围。20 支试点验收需要先选择一个细分领域；未归类单位不能自动计入任一细分领域。</p>}
+      {!subdomainId && <p className="mb-3 rounded-xl border border-[#eedfba] bg-[#fffaf0] p-3 text-xs leading-5 text-[#82612f]">当前为大类范围。请选择细分领域查看对应团队；未归类单位不会计入该领域。</p>}
       {error && <p role="alert" className="text-sm text-[#a14b3f]">{error}。<button type="button" onClick={() => setAttempt(value => value + 1)} className="min-h-10 font-semibold underline">重试</button></p>}
       {!data && !error && <p role="status" className="flex items-center gap-2 text-sm text-[#638373]"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />正在核对已发布团队…</p>}
       {data && <>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[
           ["已收录单元", data.totalUnits], ["有成果依据", data.outcomeBackedUnits],
-          ["成果待补", data.totalUnits - data.outcomeBackedUnits], ["距 20 支", data.shortfall],
+          ["成果待补", data.totalUnits - data.outcomeBackedUnits], ["距离目标", data.shortfall],
         ].map(([label, count]) => <div key={label} className="rounded-xl border border-[#dce9e0] bg-[#f7fbf8] p-3"><p className="text-xs text-[#5d7869]">{label}</p><p className="mt-1 text-xl font-bold text-[#19543f]">{count}</p></div>)}</div>
         <p className="mt-3 text-xs leading-5 text-[#65786c]">{subdomainId ? `当前细分领域已收录 ${data.totalUnits} 支。` : `当前大类有 ${data.unclassifiedUnits} 支尚未归入细分领域。`}身份和成果统计来自当前已发布资料；仅有来源校验不代表专家签署。</p>
         {!!data.candidates?.length && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#eadcb6] bg-gradient-to-r from-[#fff9ec] to-[#fffdf7] px-3.5 py-3">
@@ -90,9 +95,12 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
           {!!((item.teamAliases || []).length || (item.institutionAliases || []).length) && <p className="mt-1 break-words text-[11px] leading-5 text-[#608071]">{(item.teamAliases || []).length ? `团队曾用名：${(item.teamAliases || []).join("、")}` : ""}{(item.teamAliases || []).length && (item.institutionAliases || []).length ? " · " : ""}{(item.institutionAliases || []).length ? `机构关联名称：${(item.institutionAliases || []).join("、")}` : ""}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6d8176]"><span>公开引文 {item.claimCount} 条</span><span>人工审核 {item.humanReviewedClaimCount} 条</span>{item.identitySourceUrl && <a href={item.candidateSourceUrl || item.identitySourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 font-semibold text-[#176e50] hover:underline">{item.candidateStatus ? "机构官网原文" : "身份来源"} <ExternalLink className="size-3" aria-hidden="true" /></a>}</div>
           {canReview && !!item.classificationSources?.length && <button type="button" onClick={() => setReviewTeamId(current => current === item.teamId ? "" : item.teamId)} aria-expanded={reviewTeamId === item.teamId} className="mt-2 min-h-9 rounded-lg border border-[#c4ddcb] bg-[#f3faf5] px-3 text-xs font-semibold text-[#237149] hover:bg-[#e7f5eb]">{reviewTeamId === item.teamId ? "收起分类复核" : "复核细分领域"}</button>}
-          {canReview && reviewTeamId === item.teamId && !!item.classificationSources?.length && <ClassificationReviewPanel key={item.teamId} team={{ ...item, classificationSources: item.classificationSources }} subdomains={subdomains} sourceVersion={data.dataVersion} onClose={() => setReviewTeamId("")} onSaved={async () => { setAttempt(value => value + 1); await onDataUpdated?.(); }} />}
+          {canReview && reviewTeamId === item.teamId && !!item.classificationSources?.length && <ClassificationReviewPanel key={item.teamId} team={{
+            ...item,
+            classificationSources: item.classificationSources
+          }} subdomains={subdomains} sourceVersion={data.dataVersion} onClose={() => setReviewTeamId("")} onSaved={async () => { setAttempt(value => value + 1); await onDataUpdated?.(); }} />}
         </article>)}{!items.length && <p className="rounded-xl border border-dashed border-[#c9ded1] p-5 text-center text-sm text-[#688071]">当前筛选没有团队；可调整关键词或状态。</p>}</div>
-        <p className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-[#6b8173]"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />清单仅说明已收录资料的覆盖程度；团队归属、成果适用性与 20 支试点结论仍须人工逐支复核。</p>
+        <p className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-[#6b8173]"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />本清单反映已收录资料的覆盖情况；团队归属和成果适用性仍需逐项核对。</p>
       </>}
     </div>}
   </section>;
