@@ -21,6 +21,14 @@ def entry(path):
     return match[1]
 
 
+def preserve_lazy_assets(previous, dist):
+    """Share immutable, content-hashed chunks without growing every release."""
+    for asset in (previous/'assets').glob('*'):
+        destination = dist/'assets'/asset.name
+        if asset.is_file() and not destination.exists():
+            os.link(asset, destination)
+
+
 def deploy(dist):
     dist = Path(dist).resolve()
     assert dist.is_relative_to(ROOT/'releases') and dist.name == 'dist'
@@ -62,11 +70,9 @@ location = /app {{
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
     backup = config.with_name('nginx-locations.before-canonical-'+stamp+'.conf')
     shutil.copy2(config, backup)
-    # Preserve other lazy chunks for an already-open conversation, but old entry
-    # bundles are served the recovery bridge instead of the obsolete application.
-    for asset in (previous/'assets').glob('*'):
-        destination = dist/'assets'/asset.name
-        if asset.is_file() and not destination.exists():shutil.copy2(asset, destination)
+    # Preserve lazy chunks for already-open conversations. Hard links keep the
+    # old content alive even after the previous release directory is archived.
+    preserve_lazy_assets(previous, dist)
     temporary = ROOT/'ui'/('dist.next-'+stamp)
     try:
         config.write_text(block+body)

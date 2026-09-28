@@ -226,7 +226,8 @@ def rollback(release):
     require_review_compatible(Path(environment()['STRATEGIC_MAP_DB_PATH']), Path(saved['frontend']).parents[1]/'tool')
     shutil.copy2(journal/'tool.conf', DROP)
     from deploy_canonical_frontend import deploy
-    deploy(saved['frontend'])
+    if (ROOT/'ui/dist').resolve() != Path(saved['frontend']).resolve():
+        deploy(saved['frontend'])
     run('systemctl', 'daemon-reload')
     run('systemctl', 'restart', 'ai4s-reactor-tool')
     healthy(1601)
