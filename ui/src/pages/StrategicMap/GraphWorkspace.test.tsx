@@ -22,5 +22,9 @@ describe("StrategicMap GraphWorkspace", () => {
     expect(html).toContain("重置图谱");
     expect(html).toContain("图谱对话");
     expect(html).toContain("再分析");
+    expect(html).toContain("图谱概况");
+    expect(html).toContain("节点");
+    expect(html).toContain("关系");
+    expect(html).not.toMatch(/NODES|EDGES|STATISTICS|AVERAGE NODE DEGREE|AGGREGATES/);
   });
 });

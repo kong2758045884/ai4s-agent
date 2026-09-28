@@ -852,27 +852,27 @@ export default function GraphWorkspace({
           type="button"
           onClick={() => setViewMode("nodes")}
           aria-pressed={viewMode === "nodes"}
-          className={`flex h-10 items-center gap-2 rounded-full px-5 text-[11px] font-bold tracking-[0.18em] ${
+          className={`flex h-10 items-center gap-2 rounded-full px-5 text-[11px] font-bold tracking-[0.08em] ${
             viewMode === "nodes"
               ? "bg-[#f1f5f9] text-[#1d4ed8]"
               : "text-[#8c94a8]"
           }`}
         >
           <ListFilter className="size-4" />
-          NODES
+          节点
         </button>
         <button
           type="button"
           onClick={() => setViewMode("edges")}
           aria-pressed={viewMode === "edges"}
-          className={`flex h-10 items-center gap-2 rounded-full px-5 text-[11px] font-bold tracking-[0.18em] ${
+          className={`flex h-10 items-center gap-2 rounded-full px-5 text-[11px] font-bold tracking-[0.08em] ${
             viewMode === "edges"
               ? "bg-[#f1f5f9] text-[#1d4ed8]"
               : "text-[#8c94a8]"
           }`}
         >
           <Network className="size-4" />
-          EDGES
+          关系
         </button>
       </div>
 
