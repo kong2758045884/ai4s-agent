@@ -362,6 +362,9 @@ def patch_assessment(task_id: str, body: PatchAssessment, owner: str = Depends(c
             for follow in body.followUps:
                 if follow.teamId not in refs or not set(follow.claimIds) <= refs[follow.teamId]:
                     problem(422, "INVALID_FOLLOWUP_EVIDENCE", "跟进对象和依据必须来自本研判保存的团队与引文")
+                if follow.status == "done" and (not follow.method.strip() or not follow.owner.strip() or
+                                                not follow.result.strip() or not follow.claimIds):
+                    problem(422, "INCOMPLETE_FOLLOWUP", "完成跟进需记录验证方法、负责人、结果及所依据的成果引文")
         for scope in (body.taskScope, body.domainScope):
             if scope:
                 _validate_scope(scope)
@@ -553,3 +556,64 @@ def assessment_audit(task_id: str, owner: str = Depends(current_visitor)):
     with closing(_connect()) as conn:
         _owned(conn, task_id, owner)
         return _reply([dict(r) for r in conn.execute("SELECT action,revision,created_at AS createdAt FROM strategic_assessment_audit WHERE assessment_id=? ORDER BY revision,id", (task_id,))])
+
+
+@router.get("/assessments/{task_id}/follow-up-history")
+def follow_up_history(task_id: str, before_revision: int | None = Query(None, ge=1),
+                      owner: str = Depends(current_visitor)):
+    """Project private follow-up changes from immutable edit audits, newest first."""
+    with closing(_connect()) as conn:
+        _owned(conn, task_id, owner)
+        query = """SELECT revision,created_at,payload_json FROM strategic_assessment_audit
+            WHERE assessment_id=? AND action='edited'"""
+        args: list = [task_id]
+        if before_revision is not None:
+            query += " AND revision<?"
+            args.append(before_revision)
+        rows = conn.execute(query + " ORDER BY revision DESC,id DESC", args)
+        events = []
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            old = {v["id"]: v for v in payload.get("before", {}).get("followUps", [])}
+            new = {v["id"]: v for v in payload.get("after", {}).get("followUps", [])}
+            changes = []
+            for follow_id in sorted(old.keys() | new.keys()):
+                before, after = old.get(follow_id), new.get(follow_id)
+                if before == after:
+                    continue
+                changes.append({"followUpId": follow_id,
+                    "kind": "added" if before is None else "removed" if after is None else "updated",
+                    "changedFields": sorted(k for k in (before or {}).keys() | (after or {}).keys()
+                                            if (before or {}).get(k) != (after or {}).get(k)),
+                    "before": before, "after": after})
+            if changes:
+                events.append({"revision": row["revision"], "createdAt": row["created_at"],
+                               "runId": payload.get("after", {}).get("activeRunId") or payload.get("before", {}).get("activeRunId"),
+                               "changes": changes})
+            if len(events) > 20:
+                break
+        more = len(events) > 20
+        events = events[:20]
+        wanted = {(snapshot["teamId"], claim_id) for event in events for change in event["changes"]
+                  for snapshot in (change["after"] or change["before"],)
+                  for claim_id in snapshot.get("claimIds", [])}
+        evidence, fallback = {}, {}
+        if wanted:
+            for saved in conn.execute("SELECT id,result_json FROM strategic_assessment_run WHERE assessment_id=? ORDER BY created_at DESC,id DESC", (task_id,)):
+                run = json.loads(saved["result_json"])
+                for item in run.get("items", []):
+                    for citation in item.get("citations", []):
+                        key = item["teamId"], citation["id"]
+                        if key in wanted:
+                            source = {"claimId": citation["id"], "runId": saved["id"],
+                                "inputVersion": run.get("inputVersion"), "text": citation["text"],
+                                "quote": citation["quote"], "url": citation["url"]}
+                            evidence[(saved["id"], key[0], key[1])] = source
+                            fallback.setdefault(key, source)
+        for event in events:
+            for change in event["changes"]:
+                snapshot = change["after"] or change["before"]
+                change["evidence"] = [evidence.get((event["runId"], snapshot["teamId"], claim_id))
+                    or fallback.get((snapshot["teamId"], claim_id)) or {"claimId": claim_id, "missing": True}
+                    for claim_id in snapshot.get("claimIds", [])]
+        return _reply({"events": events, "nextBeforeRevision": events[-1]["revision"] if more else None})

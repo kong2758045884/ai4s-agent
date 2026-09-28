@@ -10,6 +10,7 @@ import { primaryButton as primary, secondaryButton as button } from "./controls"
 import CombinationCoverage from "./CombinationCoverage";
 import DomainQuickSearch from "./DomainQuickSearch";
 import { shortageStages, suggestedRole } from "./assessmentPresentation";
+import FollowUpTimeline from "./FollowUpTimeline";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -340,6 +341,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           <div className="mt-3 space-y-2">{record.state.followUps.map(f => <div className="rounded-lg bg-slate-50 p-3 text-sm" key={f.id}><p>{f.question}</p><p className="mt-1 text-xs text-slate-500">{f.method} · {f.owner || "负责人未指定"} · {f.dueDate || "日期未定"} · {({ open: "未开始", in_progress: "进行中", done: "已完成", cancelled: "取消" })[f.status]}</p>
             <button className={`${button} mt-2`} onClick={() => { setFollowDraft(f); followDialog.current?.showModal(); }}>更新跟进</button></div>)}</div>
           <label className="mt-4 block text-sm">内部备注<textarea className={`${input} mt-2`} rows={3} maxLength={10000} value={notes} onChange={e => setNotes(e.target.value)} /></label><button className={`${button} mt-2`} disabled={busy} onClick={() => void patchState({ internalNotes: notes })}><Save className="size-4" />保存备注</button>
+          <FollowUpTimeline taskId={record.taskId} revision={record.revision} onOpenRun={id => onContextChange(record.taskId, id)} />
         </section>}
       </>}
     </>}
@@ -361,10 +363,12 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         const current = recordRef.current!; const next = await assessmentApi.patch(current.taskId, current.revision, { followUps: [...current.state.followUps.filter(f => f.id !== followDraft.id), followDraft] });
         adopt(next); followDialog.current?.close();
       }); }}>
+        <p className="rounded-lg bg-blue-50 p-3 text-xs leading-5 text-blue-900">验证对象：{run?.items.find(item => item.teamId === followDraft.teamId)?.teamName || followDraft.teamId} · 关联成果 {followDraft.claimIds.length} 条。历史成果仍以保存的研判版本为准。</p>
         {([['question', '待确认问题'], ['method', '验证方法'], ['owner', '跟进负责人'], ['result', '反馈或验证结果']] as const).map(([key, label]) => <label key={key} className="block text-sm">{label}<textarea rows={key === "question" || key === "result" ? 2 : 1} required={key === "question"} className={`${input} mt-1`} value={followDraft[key]} onChange={e => setFollowDraft({ ...followDraft, [key]: e.target.value })} /></label>)}
         <label className="block text-sm">计划日期<input type="date" className={`${input} mt-1`} value={followDraft.dueDate || ""} onChange={e => setFollowDraft({ ...followDraft, dueDate: e.target.value || null })} /></label>
         <label className="block text-sm">状态<select className={`${input} mt-1`} value={followDraft.status} onChange={e => setFollowDraft({ ...followDraft, status: e.target.value as FollowUp["status"] })}><option value="open">未开始</option><option value="in_progress">进行中</option><option value="done">已完成</option><option value="cancelled">取消</option></select></label>
-        <button className={primary} disabled={busy} type="submit"><Check className="size-4" />保存跟进</button>
+        {followDraft.status === "done" && <p className="text-xs leading-5 text-slate-500">标记已完成前，请填写验证方式、负责人和结果，并保留至少一条成果依据。</p>}
+        <button className={primary} disabled={busy || followDraft.status === "done" && (!followDraft.method.trim() || !followDraft.owner.trim() || !followDraft.result.trim() || !followDraft.claimIds.length)} type="submit"><Check className="size-4" />保存跟进</button>
       </form>}
     </dialog>
   </main>;

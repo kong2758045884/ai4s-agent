@@ -20,6 +20,11 @@ export type AssessmentRun = Omit<RecommendationRun, "items"> & { taskId: string;
     directions: { name: string; teamCount: number; teamIds: string[] }[];
     units: { teamId: string; teamName: string; institutionName: string; outcomeCount: number; recentOutcomeCount: number; undatedOutcomeCount: number; reason: string; citations: RecommendationCitation[] }[] } };
 export type FollowUp = { id: string; teamId: string; claimIds: string[]; question: string; method: string; owner: string; dueDate: string | null; result: string; status: "open" | "in_progress" | "done" | "cancelled" };
+export type FollowUpHistory = { events: { revision: number; createdAt: string; runId: string | null;
+  changes: { followUpId: string; kind: "added" | "updated" | "removed"; changedFields: string[];
+    before: FollowUp | null; after: FollowUp | null;
+    evidence: { claimId: string; runId?: string; inputVersion?: number; text?: string; quote?: string; url?: string; missing?: boolean }[] }[] }[];
+  nextBeforeRevision: number | null };
 export type Assessment = { taskId: string; title: string; mode: "task" | "domain"; revision: number; createdAt: string; updatedAt: string;
   runs: { runId: string; inputVersion: number; inputVersionId: string; createdAt: string }[]; run?: AssessmentRun;
   state: { taskDraft: string; domainDraft: string; activeRunId: string | null; comparedTeamIds: string[];
@@ -82,6 +87,7 @@ export const assessmentApi = {
   run: (id: string, runId: string) => request<AssessmentRun>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`),
   graph: (id: string, runId: string, signal?: AbortSignal) => request<StrategicGraphData>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/graph`, { signal }),
   export: (id: string, runId: string) => request<Record<string, unknown>>(`/assessments/${encodeURIComponent(id)}/export?run_id=${encodeURIComponent(runId)}`),
+  followUpHistory: (id: string, beforeRevision?: number, signal?: AbortSignal) => request<FollowUpHistory>(`/assessments/${encodeURIComponent(id)}/follow-up-history${beforeRevision ? `?before_revision=${beforeRevision}` : ""}`, { signal }),
   investigations: (id: string, runId: string, signal?: AbortSignal) => request<InvestigationOverview>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/investigations`, { signal }),
   investigate: (id: string, runId: string, options: InvestigationOptions, idempotencyKey: string) => post<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/investigations`, { options, requestId: idempotencyKey }),
   investigation: (id: string, jobId: string, signal?: AbortSignal) => request<AssessmentInvestigation>(`/assessments/${encodeURIComponent(id)}/investigations/${encodeURIComponent(jobId)}`, { signal }),

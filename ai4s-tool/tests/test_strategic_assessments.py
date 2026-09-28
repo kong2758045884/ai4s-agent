@@ -137,6 +137,56 @@ def test_combination_requires_current_comparison_and_its_team_outcome(app_client
     assert cleared.json()["data"]["state"]["combination"] == []
 
 
+def test_private_follow_up_history_links_frozen_evidence_and_requires_completed_result(app_client):
+    client, _, user, _ = app_client
+    record = confirm(client, create(client)).json()["data"]
+    path = f"/strategic-map/assessments/{record['taskId']}"
+    follow = {"id": "f1", "teamId": "t1", "claimIds": ["c1"], "question": "能否复现实验", "status": "open"}
+    added = client.patch(path, json={"requestId": "follow-add", "expectedRevision": record["revision"],
+        "followUps": [follow], "internalNotes": "只在内部审计保留的备注"}).json()["data"]
+    invalid = client.patch(path, json={"requestId": "follow-done-invalid", "expectedRevision": added["revision"],
+        "followUps": [{**follow, "status": "done", "result": "已收到材料"}]})
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "INCOMPLETE_FOLLOWUP"
+    finished = client.patch(path, json={"requestId": "follow-done", "expectedRevision": added["revision"],
+        "followUps": [{**follow, "status": "done", "method": "核对论文原文", "owner": "审核甲", "result": "已收到材料"}]}).json()["data"]
+    history = client.get(path + "/follow-up-history").json()["data"]
+    assert len(history["events"]) == 2 and history["nextBeforeRevision"] is None
+    latest = history["events"][0]
+    assert latest["runId"] == record["run"]["runId"]
+    assert latest["changes"][0]["kind"] == "updated"
+    assert {"status", "owner", "result", "method"} <= set(latest["changes"][0]["changedFields"])
+    assert latest["changes"][0]["evidence"][0]["claimId"] == "c1"
+    assert latest["changes"][0]["evidence"][0]["runId"] == record["run"]["runId"]
+    assert "只在内部审计保留的备注" not in json.dumps(history, ensure_ascii=False)
+    older = client.get(path + f"/follow-up-history?before_revision={latest['revision']}").json()["data"]
+    assert len(older["events"]) == 1 and older["events"][0]["changes"][0]["kind"] == "added"
+    removed = client.patch(path, json={"requestId": "follow-remove", "expectedRevision": finished["revision"],
+        "followUps": []}).json()["data"]
+    assert removed["state"]["followUps"] == []
+    assert client.get(path + "/follow-up-history").json()["data"]["events"][0]["changes"][0]["kind"] == "removed"
+    user[0] = "visitor-b"
+    assert client.get(path + "/follow-up-history").status_code == 404
+
+
+def test_follow_up_history_cursor_keeps_all_revisions_without_duplicates(app_client):
+    client, _, _, _ = app_client
+    record = confirm(client, create(client)).json()["data"]
+    path = f"/strategic-map/assessments/{record['taskId']}"
+    for index in range(25):
+        response = client.patch(path, json={"requestId": f"follow-step-{index}", "expectedRevision": record["revision"],
+            "followUps": [{"id": "f1", "teamId": "t1", "claimIds": ["c1"],
+                           "question": "能否复现实验", "result": f"第 {index} 次核对", "status": "in_progress"}]})
+        assert response.status_code == 200, response.text
+        record = response.json()["data"]
+    first = client.get(path + "/follow-up-history").json()["data"]
+    assert len(first["events"]) == 20 and first["nextBeforeRevision"] is not None
+    second = client.get(path + f"/follow-up-history?before_revision={first['nextBeforeRevision']}").json()["data"]
+    assert len(second["events"]) == 5 and second["nextBeforeRevision"] is None
+    revisions = [event["revision"] for event in first["events"] + second["events"]]
+    assert len(set(revisions)) == 25 and revisions == sorted(revisions, reverse=True)
+
+
 def test_source_metadata_is_frozen_with_the_claim_not_replaced_on_history_read(app_client):
     client, _, _, version = app_client
     team = tasks._candidate_evidence()[0][0]
