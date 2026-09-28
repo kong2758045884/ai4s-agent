@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Globe, LoaderCircle, X } from "lucide-react";
+import { Globe, LoaderCircle, Search, X } from "lucide-react";
 import { assessmentApi, requestId, type AssessmentRun, type AssessmentInvestigation as Job, type InvestigationOverview, type InvestigationOptions } from "@/services/strategicAssessments";
 
 import { primaryButton, secondaryButton as button } from "./controls";
+import EvidenceSearch from "./EvidenceSearch";
 const stateNames: Record<Job["state"], string> = { queued: "等待开始", running: "执行中", completed: "已完成", partial: "部分完成", failed: "失败", interrupted: "服务重启后中断", cancelled: "已取消" };
 const active = (job: Job | null) => job?.state === "queued" || job?.state === "running";
 
-export default function AssessmentInvestigation({ run, historical, onOpenRun }: { run: AssessmentRun; historical: boolean; onOpenRun: (id: string) => void }) {
+export default function AssessmentInvestigation({ run, historical, onOpenRun, onOpenTeam }: { run: AssessmentRun; historical: boolean; onOpenRun: (id: string) => void; onOpenTeam: (id: string) => void }) {
   const [overview, setOverview] = useState<InvestigationOverview | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [options, setOptions] = useState<InvestigationOptions>({ teamIds: [], criterionIds: [], publishedAfter: null });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
+  const [showLocalSearch, setShowLocalSearch] = useState(true);
   const dialog = useRef<HTMLDialogElement>(null);
   const idempotencyKey = useRef(requestId());
   const context = `${run.taskId}:${run.runId}`;
@@ -50,10 +52,19 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun }: 
     catch (reason) { if (current.current === context) setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { if (current.current === context) setBusy(false); }
   }
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6" aria-label="联网补充资料">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">缺少成果或任务依据？</h3><p className="mt-1 text-xs leading-5 text-slate-500">先选团队和问题，再联网补证。现有名单保留，新证据通过复核后产生更新版本。</p></div>
-      <button className={button} disabled={historical || !overview?.configured || !overview?.canStart || active(job) || busy} onClick={() => { idempotencyKey.current = requestId(); dialog.current?.showModal(); }}><Globe className="size-4" />联网补充资料</button></div>
-    <p className="mt-2 text-xs leading-5 text-slate-500">{overview?.configurationNotice || (error ? "未能读取调查配置" : "正在读取调查配置…")}{historical && " · 历史版本只读"}</p>
+  const missing = (run.criteria || []).filter(criterion => criterion.necessity === "required" &&
+    run.items.some(item => item.criteriaMatrix.some(row => row.criterionId === criterion.id && row.status !== "supported")));
+  const searchQuery = missing[0]?.text || run.taskText || "";
+  const singleDomain = run.scope.domainIds.length === 1 ? run.scope.domainIds[0] : "";
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6" aria-label="补充调查">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">缺少成果或任务依据？</h3><p className="mt-1 text-xs leading-5 text-slate-500">先核对已入库的团队与成果资料；可用的联网调查另行启动，现有推荐名单始终保留。</p></div>
+      <div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => setShowLocalSearch(value => !value)}><Search className="size-4" />{showLocalSearch ? "收起库内检索" : "检索库内资料"}</button>
+      {overview?.configured && <button className={button} disabled={historical || !overview.canStart || active(job) || busy} onClick={() => { idempotencyKey.current = requestId(); dialog.current?.showModal(); }}><Globe className="size-4" />联网补充资料</button>}</div></div>
+    <p className="mt-2 text-xs leading-5 text-slate-500">{overview?.configured ? overview.configurationNotice : overview ? "当前仅能检索已入库资料；不会启动外网采集，也不会据此自动改写推荐。" : "正在确认联网配置；库内检索已可使用。"}{historical && " · 历史版本只读"}</p>
+    {showLocalSearch && <div className="mt-4 space-y-3">
+      <p className="text-xs leading-5 text-slate-600">从本次任务{missing.length ? `的 ${missing.length} 项待补必要条件` : "和证据缺口"}预填关键词与「成果依据」资料类型；可修改关键词、领域、来源状态和发表时间。检索结果仅供核对，尚未成为本次研判的新证据。</p>
+      <EvidenceSearch key={run.runId} domainId={singleDomain} subdomainId={singleDomain ? run.scope.subdomainId || "" : ""} domainName={singleDomain ? run.scope.domainNames?.[0] || "当前领域" : "全部领域"} subdomainName={singleDomain ? run.scope.subdomainName || "" : ""} onOpenTeam={onOpenTeam} initialQuery={searchQuery} initialEntityType="team_claim" />
+    </div>}
     {error && <div role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}<button className={`${button} ml-2`} onClick={() => setReload(n => n + 1)}>重新加载</button></div>}
     {job && <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4 text-sm" aria-live="polite">
       <p className="flex items-center gap-2">{active(job) && <LoaderCircle className="size-4 animate-spin" />}<strong>{stateNames[job.state]}</strong> · {job.stage} · {job.progress.done}/{job.progress.total} 个团队</p>
@@ -68,7 +79,7 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun }: 
       <details><summary className="min-h-11 cursor-pointer leading-[44px]">调用与未发布明细</summary><p className="text-xs leading-5">检索 {job.calls.search || 0} 次 · 抓取 {job.calls.fetch || 0} 次 · 模型 {job.calls.llm || 0} 次；{job.costNotice}</p>
         {job.failures.map((f, i) => <p className="mt-2 text-xs" key={`${f.teamId}-${i}`}>{overview?.teams.find(t => t.teamId === f.teamId)?.teamName || f.teamId}：{f.reason}</p>)}</details>
     </div>}
-    <dialog ref={dialog} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(640px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
+    {overview?.configured && <dialog ref={dialog} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(640px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
       <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">明确本次联网调查范围</h2><button className={button} aria-label="关闭联网调查" onClick={() => dialog.current?.close()}><X className="size-4" /></button></div>
       <p className="mt-3 text-xs leading-5 text-slate-500">{overview?.scopeNotice} 此操作可能产生搜索及模型费用，每日预算未设上限。</p>
       <form className="mt-4 space-y-4" onSubmit={e => { e.preventDefault(); void mutate(() => assessmentApi.investigate(run.taskId, run.runId, options, idempotencyKey.current)); }}>
@@ -78,6 +89,6 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun }: 
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <button className={primaryButton} disabled={busy || !options.teamIds.length || !options.criterionIds.length}>明确启动联网补证</button>
       </form>
-    </dialog>
+    </dialog>}
   </section>;
 }

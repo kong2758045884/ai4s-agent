@@ -2,17 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ExternalLink, FileText, LoaderCircle, Search } from "lucide-react";
 import { recommendationApi, type IntelligenceSearchOptions, type IntelligenceSearchResult } from "@/services/strategicRecommendations";
 
-type Props = { domainId: string; subdomainId: string; domainName: string; subdomainName: string; onOpenTeam: (id: string) => void };
+type Props = { domainId: string; subdomainId: string; domainName: string; subdomainName: string; onOpenTeam: (id: string) => void;
+  initialQuery?: string; initialEntityType?: "all" | "team_profile" | "team_claim" };
 type EntityType = NonNullable<IntelligenceSearchOptions["entityType"]>;
 type SourceStatus = NonNullable<IntelligenceSearchOptions["sourceStatus"]>;
 const types: { value: EntityType; label: string }[] = [
   { value: "all", label: "全部资料" }, { value: "team_profile", label: "团队档案" }, { value: "team_claim", label: "成果依据" },
 ];
 
-export default function EvidenceSearch({ domainId, subdomainId, domainName, subdomainName, onOpenTeam }: Props) {
-  const [query, setQuery] = useState("");
+export default function EvidenceSearch({ domainId, subdomainId, domainName, subdomainName, onOpenTeam, initialQuery = "", initialEntityType = "all" }: Props) {
+  const [query, setQuery] = useState(initialQuery.slice(0, 100));
   const [scope, setScope] = useState("current");
-  const [entityType, setEntityType] = useState<EntityType>("all");
+  const [entityType, setEntityType] = useState<EntityType>(initialEntityType);
   const [sourceStatus, setSourceStatus] = useState<SourceStatus>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
