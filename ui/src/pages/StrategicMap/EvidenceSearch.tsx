@@ -58,7 +58,7 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
     return () => { requestSequence.current++; activeRequest.current?.abort(); };
   }, [domainId, subdomainId]);
 
-  const load = async (requestedPage = 1) => {
+  const load = async (requestedPage = 1, keepSnapshot = false) => {
     if (query.trim().length < 2) return;
     if (dateFrom && dateTo && dateFrom > dateTo) { setError("开始日期不能晚于结束日期。"); return; }
     active.current?.abort();
@@ -72,11 +72,11 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
         sourceStatus,
         dateFrom,
         dateTo,
-        snapshotId: requestedPage > 1 ? snapshot.current : "",
+        snapshotId: keepSnapshot ? snapshot.current : "",
         signal: controller.signal,
       });
       if (controller.signal.aborted || sequence.current !== id) return;
-      if (requestedPage > 1 && snapshot.current && snapshot.current !== data.snapshotId) {
+      if (keepSnapshot && snapshot.current && snapshot.current !== data.snapshotId) {
         invalidate(); setError("资料已更新，请重新检索以查看完整结果。"); return;
       }
       snapshot.current = data.snapshotId; setSnapshotAt(data.snapshotAt);
@@ -142,7 +142,7 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
       </form>
     </div>
     <div className="p-4 sm:p-5">
-      {error && <div role="alert" className="rounded-xl border border-[#f0c6c0] bg-[#fff8f6] p-3 text-sm text-[#9a4538]">{error}<button type="button" onClick={() => void load(page)} className="ml-2 font-semibold underline">重新检索</button></div>}
+      {error && <div role="alert" className="rounded-xl border border-[#f0c6c0] bg-[#fff8f6] p-3 text-sm text-[#9a4538]">{error}<button type="button" onClick={() => void load(1)} className="ml-2 font-semibold underline">重新检索</button></div>}
       {total === null && !error && <div className="flex items-center gap-3 py-2 text-sm text-[#6b8395]"><FileText className="size-5 text-[#89a9c1]" aria-hidden="true" />输入至少两个字，按下“检索”查看有来源的资料。</div>}
       {total !== null && <div role="status" className="mb-3 text-xs font-medium text-[#58758b]"><p>找到 {total} 条资料{total > 0 ? " · 第 " + ((page - 1) * 20 + 1) + "–" + Math.min(page * 20, total) + " 条" : "；试试其他关键词、资料类型或全部领域"}</p>{snapshotAt && total > 20 && <p className="mt-1 font-normal text-[#7890a0]">这组结果保存于 {new Date(snapshotAt * 1000).toLocaleString("zh-CN")}；翻页时总数保持一致。查看新增资料请重新检索。</p>}</div>}
       <div className="space-y-2" aria-busy={busy}>{items.map(item => <article key={item.type + ":" + item.id} className="rounded-xl border border-[#e0eaf1] bg-white p-3.5 transition hover:border-[#a8cde7] hover:shadow-[0_5px_18px_-13px_rgba(23,104,162,0.65)]">
@@ -162,9 +162,9 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
         {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-8 items-center gap-1 text-xs font-semibold text-[#1768a2] hover:underline">打开原文 <ExternalLink className="size-3.5" aria-hidden="true" /></a>}
       </article>)}</div>
       {total !== null && total > 20 && <nav aria-label="证据分页" className="mt-4 flex items-center justify-between gap-3 border-t border-[#edf2f6] pt-4 text-sm">
-        <button type="button" disabled={busy || page === 1} onClick={() => void load(page - 1)} className="min-h-10 rounded-lg border border-[#cbdeeb] px-3 font-medium text-[#1768a2] hover:bg-[#eef7fc] disabled:cursor-not-allowed disabled:text-[#94a8b7]">上一页</button>
+        <button type="button" disabled={busy || page === 1} onClick={() => void load(page - 1, true)} className="min-h-10 rounded-lg border border-[#cbdeeb] px-3 font-medium text-[#1768a2] hover:bg-[#eef7fc] disabled:cursor-not-allowed disabled:text-[#94a8b7]">上一页</button>
         <span className="text-xs text-[#647f92]">{page} / {Math.ceil(total / 20)}</span>
-        <button type="button" disabled={busy || page * 20 >= total} onClick={() => void load(page + 1)} className="min-h-10 rounded-lg border border-[#cbdeeb] px-3 font-medium text-[#1768a2] hover:bg-[#eef7fc] disabled:cursor-not-allowed disabled:text-[#94a8b7]">下一页</button>
+        <button type="button" disabled={busy || page * 20 >= total} onClick={() => void load(page + 1, true)} className="min-h-10 rounded-lg border border-[#cbdeeb] px-3 font-medium text-[#1768a2] hover:bg-[#eef7fc] disabled:cursor-not-allowed disabled:text-[#94a8b7]">下一页</button>
       </nav>}
     </div>
   </section>;

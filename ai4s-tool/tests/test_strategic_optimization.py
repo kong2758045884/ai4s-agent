@@ -145,6 +145,10 @@ def test_search_filters_profiles_sources_dates_and_preserves_saved_snapshot(stor
                                          snapshot_id=all_items['snapshotId'])
     assert old_page['total'] == 3 and old_page['items'] == []
     assert old_page['dataVersion'] == 'v1' and old_page['snapshotId'] == all_items['snapshotId']
+    back_to_first = tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all',
+                                              snapshot_id=all_items['snapshotId'])
+    assert back_to_first['items'] == all_items['items']
+    assert back_to_first['snapshotId'] == all_items['snapshotId']
     assert tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all')['total'] == 4
     with pytest.raises(HTTPException) as changed:
         tasks.intelligence_search(q='蛋白', page=2, size=10, entity_type='all',
