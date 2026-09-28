@@ -11,6 +11,7 @@ import CombinationCoverage from "./CombinationCoverage";
 import DomainQuickSearch from "./DomainQuickSearch";
 import { shortageStages, suggestedRole } from "./assessmentPresentation";
 import FollowUpTimeline from "./FollowUpTimeline";
+import VersionComparison from "./VersionComparison";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -293,6 +294,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         {record && record.runs.length > 1 && <label className="block text-sm">查看保存版本<select className={`${input} mt-1`} value={run.runId} onChange={e => onContextChange(record.taskId, e.target.value)}>
           {record.runs.map(r => <option key={r.runId} value={r.runId}>条件 v{r.inputVersion} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
         {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}{run.changes.coverageChanged ? " · 范围或证据覆盖发生变化" : ""}</div>}
+        <VersionComparison run={run.runId === record?.state.activeRunId ? { ...run, selection: { comparedTeamIds: record.state.comparedTeamIds, combination: record.state.combination } } : run} onOpenRun={id => onContextChange(run.taskId, id)} />
         {!run.observation && <div id="assessment-investigation"><AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} /></div>}
         {run.observation ? <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["收录科研单元", run.observation.totalUnits], ["已有成果证据", run.observation.outcomeBackedUnits], ["身份资料已收录，成果尚缺", run.observation.identityOnlyUnits]].map(([label, value]) => <div className={panel} key={label}><strong className="text-3xl">{value}</strong><p className="mt-2 text-sm text-slate-500">{label}</p></div>)}</div>
