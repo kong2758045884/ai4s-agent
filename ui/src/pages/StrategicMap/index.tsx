@@ -1610,7 +1610,7 @@ export default function StrategicMap() {
                   <EvidenceSearch domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
                 </div>}
                 {ASSESSMENT_ENABLED && <div className="mb-3">
-                  <PilotRoster domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
+                  <PilotRoster domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} canReview={access.canReview} subdomains={activeDomain.subdomains} onDataUpdated={refreshMapAfterGraph} />
                 </div>}
                 {!loading && ASSESSMENT_ENABLED && <details className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <summary className="min-h-11 cursor-pointer text-sm font-medium text-blue-700">当前范围的来源与资料缺口</summary>

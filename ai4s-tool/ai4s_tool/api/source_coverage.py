@@ -69,6 +69,8 @@ def pilot_roster(teams, claims, version, *, target=20):
             "domainId": team.get("domainId"), "subdomainId": team.get("subdomainId"),
             "subdomainName": team.get("subdomainName") or "",
             "identitySourceUrl": source_url,
+            "classificationSources": [{"claimId": claim[0], "title": claim[4], "url": claim[6]}
+                                      for claim in evidence if claim[3] != "outcome"],
             "claimCount": len(evidence), "outcomeCount": len(outcomes),
             "humanReviewedClaimCount": human_reviewed,
         })

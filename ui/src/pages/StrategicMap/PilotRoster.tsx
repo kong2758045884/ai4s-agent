@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, ListFilter, LoaderCircle, Search } from "lucide-react";
 import { normalizeToolBaseUrlForBrowser } from "@/utils/fileUrl";
+import ClassificationReviewPanel from "./ClassificationReviewPanel";
 
 type RosterItem = {
   teamId: string; teamName: string; institutionName: string; subdomainId: string | null;
   teamAliases?: string[]; institutionAliases?: string[];
+  classificationSources?: { claimId: string; title: string; url: string }[];
   subdomainName: string; identitySourceUrl: string | null; claimCount: number;
   outcomeCount: number; humanReviewedClaimCount: number;
 };
@@ -14,8 +16,10 @@ type Roster = {
 };
 type Filter = "all" | "outcome" | "missing" | "unclassified";
 
-export default function PilotRoster({ domainId, subdomainId, domainName, subdomainName, onOpenTeam }: {
+export default function PilotRoster({ domainId, subdomainId, domainName, subdomainName, onOpenTeam,
+  canReview = false, subdomains = [], onDataUpdated }: {
   domainId: string; subdomainId: string; domainName: string; subdomainName: string; onOpenTeam: (id: string) => void;
+  canReview?: boolean; subdomains?: { id: string; name: string }[]; onDataUpdated?: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Roster | null>(null);
@@ -23,6 +27,7 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
   const [attempt, setAttempt] = useState(0);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [reviewTeamId, setReviewTeamId] = useState("");
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -78,6 +83,8 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
             <span className={item.outcomeCount ? "rounded-lg bg-[#e8f6ed] px-2 py-1 text-xs font-semibold text-[#28714c]" : "rounded-lg bg-[#fff4df] px-2 py-1 text-xs font-semibold text-[#8c621f]"}>{item.outcomeCount ? `${item.outcomeCount} 条成果依据` : "成果待补"}</span></div>
           {!!((item.teamAliases || []).length || (item.institutionAliases || []).length) && <p className="mt-1 break-words text-[11px] leading-5 text-[#608071]">{(item.teamAliases || []).length ? `团队曾用名：${(item.teamAliases || []).join("、")}` : ""}{(item.teamAliases || []).length && (item.institutionAliases || []).length ? " · " : ""}{(item.institutionAliases || []).length ? `机构关联名称：${(item.institutionAliases || []).join("、")}` : ""}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6d8176]"><span>公开引文 {item.claimCount} 条</span><span>人工审核 {item.humanReviewedClaimCount} 条</span>{item.identitySourceUrl && <a href={item.identitySourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 font-semibold text-[#176e50] hover:underline">身份来源 <ExternalLink className="size-3" aria-hidden="true" /></a>}</div>
+          {canReview && !!item.classificationSources?.length && <button type="button" onClick={() => setReviewTeamId(current => current === item.teamId ? "" : item.teamId)} aria-expanded={reviewTeamId === item.teamId} className="mt-2 min-h-9 rounded-lg border border-[#c4ddcb] bg-[#f3faf5] px-3 text-xs font-semibold text-[#237149] hover:bg-[#e7f5eb]">{reviewTeamId === item.teamId ? "收起分类复核" : "复核细分领域"}</button>}
+          {canReview && reviewTeamId === item.teamId && !!item.classificationSources?.length && <ClassificationReviewPanel key={item.teamId} team={{ ...item, classificationSources: item.classificationSources }} subdomains={subdomains} sourceVersion={data.dataVersion} onClose={() => setReviewTeamId("")} onSaved={async () => { setAttempt(value => value + 1); await onDataUpdated?.(); }} />}
         </article>)}{!items.length && <p className="rounded-xl border border-dashed border-[#c9ded1] p-5 text-center text-sm text-[#688071]">当前筛选没有团队；可调整关键词或状态。</p>}</div>
         <p className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-[#6b8173]"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />清单仅说明已收录资料的覆盖程度；团队归属、成果适用性与 20 支试点结论仍须人工逐支复核。</p>
       </>}

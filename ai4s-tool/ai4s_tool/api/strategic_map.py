@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, create_engine, text as sql_text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, UniqueConstraint, create_engine, text as sql_text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from ai4s_tool.util.log_util import logger
@@ -189,6 +189,27 @@ class StrategicPersonRow(_Base):
     deleted = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, nullable=False, default=_now)
     updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+
+class StrategicClassificationReviewRow(_Base):
+    """Reviewer decisions on a published team's existing taxonomy scope."""
+
+    __tablename__ = "strategic_team_classification_review"
+    __table_args__ = (UniqueConstraint("actor_id", "request_id", name="uq_classification_actor_request"),
+                      UniqueConstraint("team_id", "revision", name="uq_classification_team_revision"))
+    id = Column(String(64), primary_key=True)
+    team_id = Column(String(64), nullable=False, index=True)
+    revision = Column(Integer, nullable=False)
+    before_subdomain_id = Column(String(64), nullable=True)
+    after_subdomain_id = Column(String(64), nullable=True)
+    evidence_claim_id = Column(String(64), nullable=False)
+    evidence_url = Column(String(1000), nullable=False)
+    reason = Column(Text, nullable=False)
+    actor_id = Column(String(128), nullable=False)
+    request_id = Column(String(128), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    revert_of = Column(String(64), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
 
 
 class StrategicSyncMetaRow(_Base):
@@ -363,6 +384,23 @@ class TeamStatusPayload(BaseModel):
     internal_review: str | None = Field(default=None, max_length=500)
     recent_update: str | None = Field(default=None, max_length=64)
     next_action: str | None = Field(default=None, max_length=500)
+
+
+class ClassificationReviewPayload(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    requestId: str = Field(min_length=8, max_length=128)
+    expectedRevision: int = Field(ge=0)
+    subdomainId: str | None = Field(default=None, max_length=64)
+    evidenceClaimId: str = Field(min_length=1, max_length=64)
+    sourceVersion: str = Field(min_length=8, max_length=64)
+    reason: str = Field(min_length=10, max_length=2000)
+
+
+class ClassificationRevertPayload(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    requestId: str = Field(min_length=8, max_length=128)
+    expectedRevision: int = Field(ge=1)
+    reason: str = Field(min_length=10, max_length=2000)
 
 
 def _new_id(prefix: str) -> str:
@@ -4098,6 +4136,120 @@ def get_team_detail(team_id: str) -> dict[str, Any]:
                 "parentId": subdomain.parent_id,
             } if subdomain else None,
         })
+
+
+def _classification_state(session: Session, team: StrategicTeamRow) -> dict[str, Any]:
+    rows = session.query(StrategicClassificationReviewRow).filter_by(team_id=team.id).order_by(
+        StrategicClassificationReviewRow.revision.desc()).limit(50).all()
+    return {"teamId": team.id, "subdomainId": team.subdomain_id,
+            "revision": rows[0].revision if rows else 0,
+            "history": [{"reviewId": row.id, "revision": row.revision,
+                         "beforeSubdomainId": row.before_subdomain_id,
+                         "afterSubdomainId": row.after_subdomain_id,
+                         "evidenceClaimId": row.evidence_claim_id, "evidenceUrl": row.evidence_url,
+                         "reason": row.reason, "actorId": row.actor_id,
+                         "revertOf": row.revert_of,
+                         "createdAt": row.created_at.isoformat() if row.created_at else ""}
+                        for row in rows]}
+
+
+@router.get("/teams/{team_id}/classification-reviews")
+def classification_reviews(team_id: str) -> dict[str, Any]:
+    with _SESSION_FACTORY() as session:
+        team = session.query(StrategicTeamRow).filter_by(id=team_id, deleted=False).first()
+        if not team:
+            raise HTTPException(404, "团队不存在")
+        return _response(_classification_state(session, team))
+
+
+def _write_classification_review(team_id: str, body: ClassificationReviewPayload | ClassificationRevertPayload,
+                                 *, revert_id: str | None = None) -> dict[str, Any]:
+    from .strategic_access import ACTOR
+    from .team_research_store import append_history
+    from .task_recommendations import _catalogue_evidence
+
+    actor = ACTOR.get()
+    if not actor:
+        raise HTTPException(403, "缺少可记录的审核身份")
+    request_hash = hashlib.sha256(json.dumps({"teamId": team_id, "revertId": revert_id,
+        **body.model_dump()}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    with _SESSION_FACTORY() as session:
+        replay = session.query(StrategicClassificationReviewRow).filter_by(actor_id=actor,
+            request_id=body.requestId).first()
+        if replay:
+            if replay.request_hash != request_hash:
+                raise HTTPException(409, "同一提交编号不能用于不同的分类审核")
+            team = session.query(StrategicTeamRow).filter_by(id=team_id, deleted=False).first()
+            if not team:
+                raise HTTPException(404, "团队不存在")
+            return _response(_classification_state(session, team))
+    source_claim = None
+    if not revert_id:
+        published, claims, version = _catalogue_evidence()
+        if version != body.sourceVersion:
+            raise HTTPException(409, "资料版本已更新，请刷新团队清单后复核")
+        if team_id not in {team["id"] for team in published}:
+            raise HTTPException(409, "当前团队未进入已发布目录")
+        source_claim = next((claim for claim in claims if claim[0] == body.evidenceClaimId
+                             and claim[1] == team_id and claim[3] != "outcome"), None)
+        if not source_claim:
+            raise HTTPException(409, "请选择当前团队已保存的身份或方向原文")
+    with _SESSION_FACTORY() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        replay = session.query(StrategicClassificationReviewRow).filter_by(actor_id=actor,
+            request_id=body.requestId).first()
+        if replay:
+            if replay.request_hash != request_hash:
+                raise HTTPException(409, "同一提交编号不能用于不同的分类审核")
+            team = session.query(StrategicTeamRow).filter_by(id=team_id, deleted=False).first()
+            return _response(_classification_state(session, team))
+        team = session.query(StrategicTeamRow).filter_by(id=team_id, deleted=False).first()
+        if not team:
+            raise HTTPException(404, "团队不存在")
+        latest = session.query(StrategicClassificationReviewRow).filter_by(team_id=team_id).order_by(
+            StrategicClassificationReviewRow.revision.desc()).first()
+        revision = latest.revision if latest else 0
+        if revision != body.expectedRevision:
+            raise HTTPException(409, "其他审核人员已更新分类，请刷新后重试")
+        if revert_id:
+            if not latest or latest.id != revert_id or latest.after_subdomain_id != team.subdomain_id:
+                raise HTTPException(409, "只能撤销当前最新且尚未变化的分类审核")
+            target = latest.before_subdomain_id
+            evidence_id, evidence_url = latest.evidence_claim_id, latest.evidence_url
+        else:
+            target = body.subdomainId or None
+            if target:
+                subdomain = session.query(StrategicDomainRow).filter_by(id=target,
+                    parent_id=team.domain_id, deleted=False).first()
+                if not subdomain:
+                    raise HTTPException(422, "所选细分领域不属于该团队的大类")
+            evidence_id, evidence_url = source_claim[0], source_claim[6]
+        if target == team.subdomain_id:
+            raise HTTPException(422, "目标分类与当前分类相同")
+        before = team.subdomain_id
+        review = StrategicClassificationReviewRow(id=_new_id("classification_review"), team_id=team_id,
+            revision=revision + 1, before_subdomain_id=before, after_subdomain_id=target,
+            evidence_claim_id=evidence_id, evidence_url=evidence_url,
+            reason=body.reason, actor_id=actor, request_id=body.requestId,
+            request_hash=request_hash, revert_of=revert_id, created_at=_now())
+        session.add(review)
+        append_history(session, team.id, "manual", {"fields": ["subdomain_id"], "actorId": actor,
+            "before": {"subdomain_id": before}, "changes": {"subdomain_id": target},
+            "evidenceClaimId": evidence_id, "reason": body.reason, "classificationReviewId": review.id})
+        team.subdomain_id = target
+        team.updated_at = _now()
+        session.commit()
+        return _response(_classification_state(session, team))
+
+
+@router.post("/teams/{team_id}/classification-reviews")
+def submit_classification_review(team_id: str, body: ClassificationReviewPayload) -> dict[str, Any]:
+    return _write_classification_review(team_id, body)
+
+
+@router.post("/teams/{team_id}/classification-reviews/{review_id}/revert")
+def revert_classification_review(team_id: str, review_id: str, body: ClassificationRevertPayload) -> dict[str, Any]:
+    return _write_classification_review(team_id, body, revert_id=review_id)
 
 
 @router.put("/teams/{team_id}")

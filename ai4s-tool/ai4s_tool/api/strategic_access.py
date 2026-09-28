@@ -79,7 +79,7 @@ async def maintenance_guard(request: Request):
     if request.method in {"GET", "HEAD"}:
         if request.query_params.get("refresh", "").lower() in {"1", "true", "yes", "on"}:
             raise HTTPException(405, "读取接口不启动采集；请使用有权限的显式更新操作")
-        if name not in {"reviews", "audits"}:
+        if name not in {"reviews", "audits", "classification_reviews"}:
             yield
             return
         permission = "review:write"
@@ -87,7 +87,8 @@ async def maintenance_guard(request: Request):
         yield
         return
     else:
-        permission = "team:write" if name == "update_team_status" else \
+        permission = "review:write" if name in {"submit_classification_review", "revert_classification_review"} else \
+            "team:write" if name == "update_team_status" else \
             "review:write" if "/impact-triage/" in request.url.path else \
             "collection:run" if name in {"start_domain_refresh", "start_nationwide_refresh", "sync_domain", "start_graph_scan",
                                          "expand_recommendation", "retry_expansion", "graph_chat"} else "maintenance:run"
