@@ -79,6 +79,7 @@ import RecommendationWorkspace from "./RecommendationWorkspace";
 import AssessmentWorkbench from "./AssessmentWorkbench";
 import { readInternalTeam, useStrategicAccess, type InternalTeam } from "@/services/strategicAccess";
 import EvidenceSearch from "./EvidenceSearch";
+import PilotRoster from "./PilotRoster";
 import SourceCoverage from "./SourceCoverage";
 import TeamJudgementEditor, { capabilityLevelLabel, capabilitySourceLabel } from "./TeamJudgementEditor";
 import ImpactTriage from "@/pages/ImpactTriage";
@@ -1607,6 +1608,9 @@ export default function StrategicMap() {
                 ) : null}
                 {ASSESSMENT_ENABLED && <div className="mb-3">
                   <EvidenceSearch domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
+                </div>}
+                {ASSESSMENT_ENABLED && <div className="mb-3">
+                  <PilotRoster domainId={activeDomain.id} subdomainId={activeSubdomainId} domainName={activeDomain.name} subdomainName={activeSubdomain?.name || ""} onOpenTeam={openTeamDetail} />
                 </div>}
                 {!loading && ASSESSMENT_ENABLED && <details className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <summary className="min-h-11 cursor-pointer text-sm font-medium text-blue-700">当前范围的来源与资料缺口</summary>

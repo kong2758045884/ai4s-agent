@@ -684,6 +684,16 @@ def source_coverage(domain_id: str | None = None, subdomain_id: str | None = Non
     return summarize(selected, claims, version)
 
 
+@router.get("/intelligence/pilot-roster")
+def intelligence_pilot_roster(domain_id: str | None = None, subdomain_id: str | None = None):
+    from .source_coverage import pilot_roster
+    _validate_scope(domain_id, subdomain_id)
+    teams, claims, version = _catalogue_evidence()
+    selected = [team for team in teams if (not domain_id or team["domainId"] == domain_id)
+                and (not subdomain_id or team.get("subdomainId") == subdomain_id)]
+    return pilot_roster(selected, claims, version)
+
+
 @router.get("/intelligence/verified-daily/{day}")
 def verified_daily(day: date) -> dict[str, Any]:
     source = intelligence_daily(day)
