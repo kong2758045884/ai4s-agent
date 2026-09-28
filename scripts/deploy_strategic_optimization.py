@@ -7,6 +7,7 @@ be separately undone with the guarded batch journals.
 """
 import argparse
 import gzip
+import hashlib
 from http.cookiejar import CookieJar
 import json
 import os
@@ -79,6 +80,23 @@ def backup(source, target):
     return target
 
 
+def compress_verified_backup(source):
+    """Keep a checked compressed backup without retaining a duplicate raw copy."""
+    target = Path(str(source) + '.gz')
+    assert source.is_file() and not target.exists()
+    with source.open('rb') as raw, gzip.open(target, 'wb', compresslevel=3) as zipped:
+        shutil.copyfileobj(raw, zipped)
+    def digest(stream):
+        value = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            value.update(chunk)
+        return value.digest()
+    with source.open('rb') as raw, gzip.open(target, 'rb') as zipped:
+        assert digest(raw) == digest(zipped), f'Compressed backup differs: {target}'
+    source.unlink()
+    return target
+
+
 def migrate(release, db, directory):
     directory.mkdir(exist_ok=True)
     run(PYTHON, release/'tool/scripts/migrate_strategic_optimization.py', '--db', db, '--report', directory/'migration.json', cwd=release/'tool')
@@ -134,6 +152,8 @@ def stage(release):
             process.terminate()
             try: process.wait(timeout=20)
             except subprocess.TimeoutExpired: process.kill(); process.wait()
+    compress_verified_backup(team)
+    compress_verified_backup(impact)
 
 
 def private_assessment_gate(port):
@@ -226,8 +246,7 @@ def activate(release):
     try:
         for key in ['STRATEGIC_MAP_DB_PATH', 'AI4S_IMPACT_DB_PATH']:
             src = Path(env[key]); target = backup(src, journal/src.name)
-            with target.open('rb') as source, gzip.open(str(target)+'.gz', 'wb', compresslevel=3) as zipped:
-                shutil.copyfileobj(source, zipped)
+            compress_verified_backup(target)
         migrate(release, Path(env['STRATEGIC_MAP_DB_PATH']), journal)
         run(PYTHON, release/'tool/scripts/migrate_strategic_optimization.py', '--db', env['AI4S_IMPACT_DB_PATH'],
             '--access-audit-only', '--report', journal/'impact-access-migration.json', cwd=release/'tool')

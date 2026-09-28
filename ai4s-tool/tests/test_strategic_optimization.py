@@ -1,8 +1,10 @@
 import json
 import sqlite3
 from contextlib import closing
+from datetime import date
 
 import pytest
+from fastapi import HTTPException
 
 from ai4s_tool.api import strategic_changes as changes, strategic_outcomes as outcomes
 from ai4s_tool.api import strategic_investigations as investigations, task_recommendations as tasks
@@ -97,6 +99,47 @@ def test_search_all_59_rows_pagination_and_subdomain_isolation(storage, monkeypa
         found.extend(row['id'] for row in result['items'])
     assert len(found) == len(set(found)) == 59
     assert tasks.intelligence_search(q='天气', domain_id='life', subdomain_id='other', page=1, size=20, verified_only=True)['total'] == 0
+
+
+def test_search_filters_profiles_sources_dates_and_rejects_changed_snapshot(storage, monkeypatch):
+    state = evidence(monkeypatch)
+    team = state['teams'][0]
+    team.update(aliases=['蛋白结构组'], researchDirections=['蛋白质设计'],
+                catalogueBasis='official_directory',
+                claimProvenance={
+                    'official': {'sourceType': 'official_institution',
+                                 'humanReview': {'status': 'reviewed', 'decision': 'supported'}},
+                    'paper': {'sourceType': 'publication_or_webpage',
+                              'humanReview': {'status': 'not_recorded'}},
+                })
+    claims = [
+        ('official', 't', 'r', 'outcome', '蛋白质结构成果', '蛋白质结构原文',
+         'https://example.edu.cn/official', '2026-05-01'),
+        ('paper', 't', 'r', 'outcome', '蛋白质论文', '蛋白质论文原文',
+         'https://example.org/paper', '2026-06-01'),
+    ]
+    current = {'version': 'v1'}
+    monkeypatch.setattr(tasks, '_catalogue_evidence', lambda: ([team], claims, current['version']))
+
+    all_items = tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all')
+    assert [(item['type'], item['id']) for item in all_items['items']] == [
+        ('team_profile', 't'), ('team_claim', 'official'), ('team_claim', 'paper')]
+    assert all_items['items'][0]['matchReason'] == '登记别名'
+    assert all_items['items'][1]['humanReviewStatus'] == 'reviewed'
+    assert all_items['snapshotId'] and all_items['pageSize'] == 20
+
+    official = tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='team_claim',
+                                         source_status='official', date_from=date(2026, 5, 1),
+                                         date_to=date(2026, 5, 31))
+    assert [item['id'] for item in official['items']] == ['official']
+    reviewed = tasks.intelligence_search(q='蛋白', page=1, size=20, entity_type='all',
+                                         source_status='human_reviewed')
+    assert [item['id'] for item in reviewed['items']] == ['official']
+    with pytest.raises(HTTPException) as changed:
+        current['version'] = 'v2'
+        tasks.intelligence_search(q='蛋白', page=2, size=20, entity_type='all',
+                                  snapshot_id=all_items['snapshotId'])
+    assert changed.value.status_code == 409
 
 
 def test_explicit_investigation_duplicate_retry_restart_and_failed_results_retained(storage, monkeypatch):

@@ -15,7 +15,7 @@ import threading
 import uuid
 from contextlib import closing
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -483,8 +483,14 @@ def retry_expansion(run_id: str) -> dict[str, Any]:
 def intelligence_search(q: str = Query(min_length=2, max_length=100),
                         domain_id: str | None = None, page: int = Query(1, ge=1),
                         size: int = Query(20, ge=1, le=50), verified_only: bool = True,
-                        subdomain_id: str | None = None) -> dict[str, Any]:
+                        subdomain_id: str | None = None,
+                        entity_type: Literal["team_claim", "team_profile", "all"] = "team_claim",
+                        source_status: Literal["all", "official", "human_reviewed"] = "all",
+                        date_from: date | None = None, date_to: date | None = None,
+                        snapshot_id: str | None = None) -> dict[str, Any]:
     _validate_scope(domain_id, subdomain_id)
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(422, "开始日期不能晚于结束日期")
     query = q.strip()
     if len(query) < 2:
         raise HTTPException(422, "请输入至少两个字的检索词")
@@ -493,25 +499,77 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
         # Use the current reviewed evidence set, including on the first search
         # and after withdrawal; a stale persisted index must not republish facts.
         teams, claims, version = _catalogue_evidence()
+        snapshot = hashlib.sha256(json.dumps({
+            "version": version, "query": query, "domainId": domain_id,
+            "subdomainId": subdomain_id, "entityType": entity_type,
+            "sourceStatus": source_status, "dateFrom": str(date_from or ""),
+            "dateTo": str(date_to or ""),
+        }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:24]
+        if snapshot_id and snapshot_id != snapshot:
+            raise HTTPException(409, "资料已更新，请重新检索后翻页")
         scoped = {team["id"]: team for team in teams
                   if (not domain_id or team["domainId"] == domain_id)
                   and (not subdomain_id or team.get("subdomainId") == subdomain_id)}
         results = []
-        for claim in claims:
-            team = scoped.get(claim[1])
-            if not team:
-                continue
-            title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
-            haystack = f"{title} {claim[4]} {claim[5]}"
-            if not strategic_text.search_match(query, haystack):
-                continue
-            results.append({"type": "team_claim", "id": claim[0], "teamId": claim[1],
-                "title": title, "snippet": strategic_text.snippet(query, claim[5]), "url": claim[6],
-                "domainId": team["domainId"], "verificationStatus": "verified",
-                "verificationMethod": "官网来源校验" if team.get("catalogueBasis") == "official_directory" else "AI 复核与引文校验"})
-        results.sort(key=lambda row: (row["title"], row["id"]))
+        if entity_type in {"all", "team_profile"} and source_status != "human_reviewed" and not (date_from or date_to):
+            for team in scoped.values():
+                title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
+                directions = " ".join(str(value) for value in team.get("researchDirections") or [])
+                aliases = " ".join(str(value) for value in team.get("aliases") or [])
+                description = team.get("description") or team.get("focus") or ""
+                haystack = f"{title} {directions} {aliases} {description}"
+                if not strategic_text.search_match(query, haystack):
+                    continue
+                official = team.get("catalogueBasis") == "official_directory"
+                if source_status == "official" and not official:
+                    continue
+                reason = next((label for value, label in (
+                    (team.get("teamName", ""), "团队名称"),
+                    (team.get("institutionName", ""), "所属机构"),
+                    (aliases, "登记别名"), (directions, "研究方向"),
+                ) if value and strategic_text.search_match(query, value)), "团队档案")
+                results.append({"type": "team_profile", "id": team["id"], "teamId": team["id"],
+                    "title": title, "snippet": strategic_text.snippet(query, description or directions or title),
+                    "url": next((url for url in team.get("sourceUrls") or [] if _valid_url(url)), None),
+                    "domainId": team["domainId"], "matchReason": reason,
+                    "sourceStatus": "official" if official else "source_checked",
+                    "reviewNotice": "科研单元身份有来源；具体成果请查看逐条依据"})
+        if entity_type in {"all", "team_claim"}:
+            for claim in claims:
+                team = scoped.get(claim[1])
+                if not team:
+                    continue
+                title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
+                haystack = f"{title} {claim[4]} {claim[5]}"
+                if not strategic_text.search_match(query, haystack):
+                    continue
+                provenance = team.get("claimProvenance", {}).get(claim[0], {})
+                human = provenance.get("humanReview") or {}
+                reviewed = human.get("status") == "reviewed" and human.get("decision") in {"supported", "conditional"}
+                official = provenance.get("sourceType") == "official_institution"
+                if source_status == "official" and not official or source_status == "human_reviewed" and not reviewed:
+                    continue
+                published = str(claim[7] or provenance.get("publishedAt") or "")[:10]
+                if (date_from or date_to) and (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", published)
+                      or date_from and published < date_from.isoformat()
+                      or date_to and published > date_to.isoformat()):
+                    continue
+                reason = next((label for value, label in (
+                    (team.get("teamName", ""), "团队名称"),
+                    (team.get("institutionName", ""), "所属机构"),
+                    (claim[4], "成果或能力描述"),
+                ) if value and strategic_text.search_match(query, value)), "原文引文")
+                results.append({"type": "team_claim", "id": claim[0], "teamId": claim[1],
+                    "title": title, "snippet": strategic_text.snippet(query, claim[5]), "url": claim[6],
+                    "domainId": team["domainId"], "date": published,
+                    "matchReason": reason, "sourceStatus": "official" if official else "source_checked",
+                    "humanReviewStatus": "reviewed" if reviewed else "not_recorded",
+                    "verificationStatus": "verified",
+                    "verificationMethod": "来源与引文校验；已有人审" if reviewed else "来源与引文校验；未有人审"})
+        results.sort(key=lambda row: (row["title"], 0 if row["type"] == "team_profile" else 1, row["id"]))
         return {"items": results[(page - 1) * size:page * size], "total": len(results),
-                "page": page, "size": size, "query": query, "dataVersion": version}
+                "page": page, "size": size, "pageSize": size, "query": query,
+                "dataVersion": version, "snapshotId": snapshot}
     results: list[dict[str, Any]] = []
     with closing(_db()) as conn:
         profile_rows = conn.execute("""SELECT t.id,t.institution_name,t.team_name,t.domain_id,

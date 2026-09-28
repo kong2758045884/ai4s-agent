@@ -93,8 +93,21 @@ export type IntelligenceSearchResult = {
   url: string | null;
   domainId: string | null;
   date?: string;
+  matchReason?: string;
+  sourceStatus?: "official" | "source_checked";
+  humanReviewStatus?: "reviewed" | "not_recorded";
   reviewNotice?: string;
   verificationMethod?: string;
+};
+
+export type IntelligenceSearchOptions = {
+  subdomainId?: string;
+  entityType?: "all" | "team_profile" | "team_claim";
+  sourceStatus?: "all" | "official" | "human_reviewed";
+  dateFrom?: string;
+  dateTo?: string;
+  snapshotId?: string;
+  signal?: AbortSignal;
 };
 
 export type IntelligenceDaily = {
@@ -143,7 +156,7 @@ export const recommendationApi = {
     }),
   get: (runId: string) => request<RecommendationRun>(`/task-recommendations/${encodeURIComponent(runId)}`),
   expand: (runId: string, retry = false) => request<RecommendationRun>(`/task-recommendations/${encodeURIComponent(runId)}/expand${retry ? "/retry" : ""}`, { method: "POST" }),
-  search: (q: string, domainId: string, page = 1, options?: { subdomainId?: string; signal?: AbortSignal }) => {
+  search: (q: string, domainId: string, page = 1, options?: IntelligenceSearchOptions) => {
     const params = new URLSearchParams({
       q,
       page: String(page),
@@ -152,7 +165,12 @@ export const recommendationApi = {
     });
     if (domainId) params.set("domain_id", domainId);
     if (domainId && options?.subdomainId) params.set("subdomain_id", options.subdomainId);
-    return request<{ items: IntelligenceSearchResult[]; total: number; page: number; size: number; dataVersion: string }>(`/intelligence/search?${params}`, { signal: options?.signal });
+    if (options?.entityType) params.set("entity_type", options.entityType);
+    if (options?.sourceStatus && options.sourceStatus !== "all") params.set("source_status", options.sourceStatus);
+    if (options?.dateFrom) params.set("date_from", options.dateFrom);
+    if (options?.dateTo) params.set("date_to", options.dateTo);
+    if (options?.snapshotId) params.set("snapshot_id", options.snapshotId);
+    return request<{ items: IntelligenceSearchResult[]; total: number; page: number; size: number; pageSize: number; dataVersion: string; snapshotId: string }>(`/intelligence/search?${params}`, { signal: options?.signal });
   },
   daily: (day: string) => request<IntelligenceDaily>(`/intelligence/daily/${encodeURIComponent(day)}`),
   verifiedDaily: (day: string) => request<{
