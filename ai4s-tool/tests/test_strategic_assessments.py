@@ -79,7 +79,7 @@ def test_private_save_resume_compare_and_export_do_not_leak(app_client):
     response = client.patch(f"/strategic-map/assessments/{record['taskId']}", json={
         "requestId": "patch-001", "expectedRevision": record["revision"], "comparedTeamIds": ["t1"],
         "internalNotes": "只限内部讨论的备注", "combination": [{"teamId": "t1", "role": "蛋白质分析", "rationale": "c1成果", "claimIds": ["c1"]}],
-        "followUps": [{"id": "f1", "teamId": "t1", "claimIds": ["c1"], "question": "能否提供实验数据", "owner": "内部负责人"}]})
+        "followUps": [{"id": "f1", "teamId": "t1", "claimIds": ["c1"], "question": "能否提供实验数据", "method": "核对原文", "owner": "内部负责人", "dueDate": "2026-10-15"}]})
     assert response.status_code == 200, response.text
     restored = client.get(f"/strategic-map/assessments/{record['taskId']}").json()["data"]
     assert restored["state"]["comparedTeamIds"] == ["t1"]
@@ -141,7 +141,8 @@ def test_private_follow_up_history_links_frozen_evidence_and_requires_completed_
     client, _, user, _ = app_client
     record = confirm(client, create(client)).json()["data"]
     path = f"/strategic-map/assessments/{record['taskId']}"
-    follow = {"id": "f1", "teamId": "t1", "claimIds": ["c1"], "question": "能否复现实验", "status": "open"}
+    follow = {"id": "f1", "teamId": "t1", "claimIds": ["c1"], "question": "能否复现实验", "method": "核对论文原文",
+              "owner": "审核甲", "dueDate": "2026-10-15", "status": "open"}
     added = client.patch(path, json={"requestId": "follow-add", "expectedRevision": record["revision"],
         "followUps": [follow], "internalNotes": "只在内部审计保留的备注"}).json()["data"]
     invalid = client.patch(path, json={"requestId": "follow-done-invalid", "expectedRevision": added["revision"],
@@ -149,13 +150,14 @@ def test_private_follow_up_history_links_frozen_evidence_and_requires_completed_
     assert invalid.status_code == 422
     assert invalid.json()["detail"]["code"] == "INCOMPLETE_FOLLOWUP"
     finished = client.patch(path, json={"requestId": "follow-done", "expectedRevision": added["revision"],
-        "followUps": [{**follow, "status": "done", "method": "核对论文原文", "owner": "审核甲", "result": "已收到材料"}]}).json()["data"]
+        "followUps": [{**follow, "status": "done", "judgment": "limited", "result": "已收到材料"}]}).json()["data"]
     history = client.get(path + "/follow-up-history").json()["data"]
     assert len(history["events"]) == 2 and history["nextBeforeRevision"] is None
     latest = history["events"][0]
     assert latest["runId"] == record["run"]["runId"]
     assert latest["changes"][0]["kind"] == "updated"
-    assert {"status", "owner", "result", "method"} <= set(latest["changes"][0]["changedFields"])
+    assert {"status", "judgment", "result"} <= set(latest["changes"][0]["changedFields"])
+    assert latest["changes"][0]["after"]["judgment"] == "limited"
     assert latest["changes"][0]["evidence"][0]["claimId"] == "c1"
     assert latest["changes"][0]["evidence"][0]["runId"] == record["run"]["runId"]
     assert "只在内部审计保留的备注" not in json.dumps(history, ensure_ascii=False)
@@ -169,6 +171,57 @@ def test_private_follow_up_history_links_frozen_evidence_and_requires_completed_
     assert client.get(path + "/follow-up-history").status_code == 404
 
 
+def test_follow_up_plan_requires_responsible_person_date_and_completed_judgment(app_client):
+    client, db, _, _ = app_client
+    record = confirm(client, create(client)).json()["data"]
+    path = f"/strategic-map/assessments/{record['taskId']}"
+    planned = {"id": "f1", "teamId": "t1", "claimIds": [], "question": "核对适用边界", "method": "原文和团队核对",
+               "owner": "项目负责人", "dueDate": "2026-10-15", "status": "open"}
+    invalid = [
+        {**planned, "method": " "}, {**planned, "owner": " "}, {**planned, "dueDate": None},
+        {**planned, "question": " "}, {**planned, "status": "done", "result": "确认适用", "claimIds": ["c1"]},
+    ]
+    for index, follow in enumerate(invalid):
+        response = client.patch(path, json={"requestId": f"invalid-follow-{index}", "expectedRevision": record["revision"],
+            "followUps": [follow]})
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"]["code"] == "INCOMPLETE_FOLLOWUP"
+    with db() as conn:
+        run_id = record["run"]["runId"]
+        row = conn.execute("SELECT result_json FROM strategic_assessment_run WHERE id=?", (run_id,)).fetchone()
+        frozen = json.loads(row[0]); intro = {**frozen["items"][0]["citations"][0], "id": "intro", "kind": "description"}
+        frozen["items"][0]["citations"].append(intro)
+        conn.execute("UPDATE strategic_assessment_run SET result_json=? WHERE id=?", (json.dumps(frozen), run_id))
+        conn.commit()
+    wrong_source = client.patch(path, json={"requestId": "follow-wrong-kind", "expectedRevision": record["revision"],
+        "followUps": [{**planned, "claimIds": ["intro"], "result": "原文核对完成", "judgment": "supported", "status": "done"}]})
+    assert wrong_source.status_code == 422
+    assert wrong_source.json()["detail"]["code"] == "INVALID_FOLLOWUP_EVIDENCE"
+    saved = client.patch(path, json={"requestId": "planned-follow", "expectedRevision": record["revision"],
+        "followUps": [planned]}).json()["data"]
+    done = client.patch(path, json={"requestId": "done-follow", "expectedRevision": saved["revision"],
+        "followUps": [{**planned, "claimIds": ["c1"], "result": "原文支持但仅适于特定条件", "judgment": "limited", "status": "done"}]})
+    assert done.status_code == 200, done.text
+    assert done.json()["data"]["state"]["followUps"][0]["judgment"] == "limited"
+
+    # Existing incomplete records remain readable and can be carried unchanged, but edits must meet the new rules.
+    with db() as conn:
+        row = conn.execute("SELECT state_json FROM strategic_assessment WHERE id=?", (record["taskId"],)).fetchone()
+        state = json.loads(row[0]); state["followUps"] = [{"id": "old", "teamId": "t1", "claimIds": ["c1"],
+            "question": "旧版待办", "method": "", "owner": "", "result": "", "status": "open"}]
+        conn.execute("UPDATE strategic_assessment SET state_json=? WHERE id=?", (json.dumps(state), record["taskId"]))
+        conn.commit()
+    current = client.get(path).json()["data"]
+    old = current["state"]["followUps"][0]
+    kept = client.patch(path, json={"requestId": "keep-old-follow", "expectedRevision": current["revision"],
+        "followUps": [old], "internalNotes": "另有说明"})
+    assert kept.status_code == 200, kept.text
+    changed = client.patch(path, json={"requestId": "edit-old-follow", "expectedRevision": kept.json()["data"]["revision"],
+        "followUps": [{**old, "question": "更改旧待办"}]})
+    assert changed.status_code == 422
+    assert changed.json()["detail"]["code"] == "INCOMPLETE_FOLLOWUP"
+
+
 def test_follow_up_history_cursor_keeps_all_revisions_without_duplicates(app_client):
     client, _, _, _ = app_client
     record = confirm(client, create(client)).json()["data"]
@@ -176,7 +229,8 @@ def test_follow_up_history_cursor_keeps_all_revisions_without_duplicates(app_cli
     for index in range(25):
         response = client.patch(path, json={"requestId": f"follow-step-{index}", "expectedRevision": record["revision"],
             "followUps": [{"id": "f1", "teamId": "t1", "claimIds": ["c1"],
-                           "question": "能否复现实验", "result": f"第 {index} 次核对", "status": "in_progress"}]})
+                           "question": "能否复现实验", "method": "核对原文", "owner": "审核甲", "dueDate": "2026-10-15",
+                           "result": f"第 {index} 次核对", "status": "in_progress"}]})
         assert response.status_code == 200, response.text
         record = response.json()["data"]
     first = client.get(path + "/follow-up-history").json()["data"]

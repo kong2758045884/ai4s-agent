@@ -158,6 +158,7 @@ class FollowUp(BaseModel):
     dueDate: date | None = None
     result: str = Field(default="", max_length=2000)
     status: Literal["open", "in_progress", "done", "cancelled"] = "open"
+    judgment: Literal["supported", "limited", "contradicted", "unchanged"] | None = None
 
 
 class Role(BaseModel):
@@ -354,17 +355,30 @@ def patch_assessment(task_id: str, body: PatchAssessment, owner: str = Depends(c
         if body.followUps is not None:
             if len({f.id for f in body.followUps}) != len(body.followUps):
                 problem(422, "DUPLICATE_FOLLOWUP", "跟进编号不能重复")
+            previous_followups = {value["id"]: value for value in state.get("followUps", [])}
             # Existing follow-ups may refer to historical evidence; new ones need a saved snapshot.
             refs: dict[str, set[str]] = {}
+            outcome_refs: dict[str, set[str]] = {}
             for saved in conn.execute("SELECT result_json FROM strategic_assessment_run WHERE assessment_id=?", (task_id,)):
                 for item in json.loads(saved[0]).get("items", []):
                     refs.setdefault(item["teamId"], set()).update(c["id"] for c in item["citations"])
+                    outcome_refs.setdefault(item["teamId"], set()).update(
+                        c["id"] for c in item["citations"] if c["kind"] == "outcome")
             for follow in body.followUps:
                 if follow.teamId not in refs or not set(follow.claimIds) <= refs[follow.teamId]:
                     problem(422, "INVALID_FOLLOWUP_EVIDENCE", "跟进对象和依据必须来自本研判保存的团队与引文")
-                if follow.status == "done" and (not follow.method.strip() or not follow.owner.strip() or
-                                                not follow.result.strip() or not follow.claimIds):
-                    problem(422, "INCOMPLETE_FOLLOWUP", "完成跟进需记录验证方法、负责人、结果及所依据的成果引文")
+                # Allow untouched records created before these requirements; edits must complete the plan.
+                unchanged_legacy = previous_followups.get(follow.id) == follow.model_dump(mode="json", exclude_none=True)
+                if not follow.question.strip():
+                    problem(422, "INCOMPLETE_FOLLOWUP", "跟进须写明具体问题")
+                if follow.status != "cancelled" and not unchanged_legacy and (
+                    not follow.method.strip() or not follow.owner.strip() or follow.dueDate is None):
+                    problem(422, "INCOMPLETE_FOLLOWUP", "跟进须填写验证方法、负责人和计划日期")
+                if follow.status == "done" and not unchanged_legacy and (
+                    not follow.result.strip() or not follow.claimIds or follow.judgment is None):
+                    problem(422, "INCOMPLETE_FOLLOWUP", "完成跟进须记录结果、所依据的成果引文及对原判断的影响")
+                if follow.status == "done" and not unchanged_legacy and not set(follow.claimIds) <= outcome_refs[follow.teamId]:
+                    problem(422, "INVALID_FOLLOWUP_EVIDENCE", "完成判断只能引用该团队已保存的成果依据")
         for scope in (body.taskScope, body.domainScope):
             if scope:
                 _validate_scope(scope)

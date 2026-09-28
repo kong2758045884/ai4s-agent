@@ -184,12 +184,13 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
     newRequest.current = requestId(); confirmRequest.current = requestId(); onContextChange("", "");
   }
   function openEvidence(citation: RecommendationCitation, team: string, requirement?: string, support?: string) { setEvidence({ citation, team, requirement, support }); evidenceDialog.current?.showModal(); }
-  function openFollowUp(teamId: string, claimIds: string[]) {
-    setFollowDraft({ id: requestId(), teamId, claimIds, question: "", method: "原文核对并联系团队确认", owner: "", dueDate: null, result: "", status: "open" });
+  function openFollowUp(teamId: string) {
+    setFollowDraft({ id: requestId(), teamId, claimIds: [], question: "", method: "原文核对并联系团队确认", owner: "", dueDate: null, result: "", status: "open", judgment: null });
     followDialog.current?.showModal();
   }
   const comparedIds = historical ? run?.selection?.comparedTeamIds || [] : record?.state.comparedTeamIds || [];
   const compared = run?.items.filter(item => comparedIds.includes(item.teamId)) || [];
+  const followCitations = run?.items.find(item => item.teamId === followDraft?.teamId)?.citations.filter(c => c.kind === "outcome" && c.id) || [];
 
   function scopePicker(value: AssessmentScope, change: (v: AssessmentScope) => void, allowAuto: boolean) {
     return <fieldset className="min-w-0 space-y-3"><legend className="mb-2 text-sm font-medium">{allowAuto ? "检索范围" : "观察领域"}</legend>
@@ -324,7 +325,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
             <p className="mt-3 text-xs leading-5 text-slate-500">尚缺信息：可投入人员、交付周期与合作资源需团队确认。AI 或来源检查不等于专家人工审定。</p>
             <details className="mt-3 rounded-lg bg-slate-50 p-3"><summary className="min-h-8 cursor-pointer text-xs font-medium">查看独立评分与版本</summary><p className="mt-2 text-xs leading-6">任务匹配 {item.taskMatchScore} · 团队原分 {item.teamScore ?? "暂无"} · {item.institutionImpact}<br />任务版本 {item.matchVersion}；任务分按证据60%、方向25%、成果覆盖15%计算，未与机构或团队分相加。</p></details>
             <div className="mt-4 flex flex-wrap gap-2"><button className={button} onClick={() => onOpenTeam(item.teamId)}>团队档案<ArrowRight className="size-4" /></button><button className={button} onClick={() => onOpenRelations(item.teamId)}><Network className="size-4" />相关关系</button>
-              <button className={button} disabled={historical} onClick={() => openFollowUp(item.teamId, item.citations.map(c => c.id!).filter(Boolean))}>记录跟进</button></div>
+              <button className={button} disabled={historical} onClick={() => openFollowUp(item.teamId)}>记录跟进</button></div>
           </article>; })}</div>
           {compared.length >= 2 && <section className={panel} aria-label="团队逐项比较"><h3 className="text-lg font-semibold">按同一任务条件比较</h3><p className="mt-1 text-xs leading-5 text-slate-500">全部依据来自当前保存的推荐快照；缺少依据不等于能力为零。</p>
             <div className="mt-4 space-y-3">{run.criteria?.map(criterion => <details className="rounded-xl border border-slate-200 p-3" open key={criterion.id}><summary className="min-h-11 cursor-pointer text-sm font-semibold">{criterion.text}</summary>
@@ -341,7 +342,8 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         </>}
         {record && <section className={panel}><h3 className="font-semibold">跟进与内部记录</h3><p className="mt-1 text-xs text-slate-500">只对当前访客可见；公开证据导出不包含这些内容。</p>
           <div className="mt-3 space-y-2">{record.state.followUps.map(f => <div className="rounded-lg bg-slate-50 p-3 text-sm" key={f.id}><p>{f.question}</p><p className="mt-1 text-xs text-slate-500">{f.method} · {f.owner || "负责人未指定"} · {f.dueDate || "日期未定"} · {({ open: "未开始", in_progress: "进行中", done: "已完成", cancelled: "取消" })[f.status]}</p>
-            <button className={`${button} mt-2`} onClick={() => { setFollowDraft(f); followDialog.current?.showModal(); }}>更新跟进</button></div>)}</div>
+            <p className="mt-1 text-xs text-slate-600">对原判断的影响：{({ supported: "进一步支持", limited: "需缩小适用范围", contradicted: "存在反证，待重评", unchanged: "未改变" })[f.judgment!] || "待核验"}</p>
+            <button className={`${button} mt-2`} disabled={historical} onClick={() => { setFollowDraft(f); followDialog.current?.showModal(); }}>更新跟进</button></div>)}</div>
           <label className="mt-4 block text-sm">内部备注<textarea className={`${input} mt-2`} rows={3} maxLength={10000} value={notes} onChange={e => setNotes(e.target.value)} /></label><button className={`${button} mt-2`} disabled={busy} onClick={() => void patchState({ internalNotes: notes })}><Save className="size-4" />保存备注</button>
           <FollowUpTimeline taskId={record.taskId} revision={record.revision} onOpenRun={id => onContextChange(record.taskId, id)} />
         </section>}
@@ -366,11 +368,13 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
         adopt(next); followDialog.current?.close();
       }); }}>
         <p className="rounded-lg bg-blue-50 p-3 text-xs leading-5 text-blue-900">验证对象：{run?.items.find(item => item.teamId === followDraft.teamId)?.teamName || followDraft.teamId} · 关联成果 {followDraft.claimIds.length} 条。历史成果仍以保存的研判版本为准。</p>
-        {([['question', '待确认问题'], ['method', '验证方法'], ['owner', '跟进负责人'], ['result', '反馈或验证结果']] as const).map(([key, label]) => <label key={key} className="block text-sm">{label}<textarea rows={key === "question" || key === "result" ? 2 : 1} required={key === "question"} className={`${input} mt-1`} value={followDraft[key]} onChange={e => setFollowDraft({ ...followDraft, [key]: e.target.value })} /></label>)}
-        <label className="block text-sm">计划日期<input type="date" className={`${input} mt-1`} value={followDraft.dueDate || ""} onChange={e => setFollowDraft({ ...followDraft, dueDate: e.target.value || null })} /></label>
-        <label className="block text-sm">状态<select className={`${input} mt-1`} value={followDraft.status} onChange={e => setFollowDraft({ ...followDraft, status: e.target.value as FollowUp["status"] })}><option value="open">未开始</option><option value="in_progress">进行中</option><option value="done">已完成</option><option value="cancelled">取消</option></select></label>
-        {followDraft.status === "done" && <p className="text-xs leading-5 text-slate-500">标记已完成前，请填写验证方式、负责人和结果，并保留至少一条成果依据。</p>}
-        <button className={primary} disabled={busy || followDraft.status === "done" && (!followDraft.method.trim() || !followDraft.owner.trim() || !followDraft.result.trim() || !followDraft.claimIds.length)} type="submit"><Check className="size-4" />保存跟进</button>
+        {([['question', '待确认问题'], ['method', '验证方法'], ['owner', '跟进负责人'], ['result', '反馈或验证结果']] as const).map(([key, label]) => <label key={key} className="block text-sm">{label}<textarea rows={key === "question" || key === "result" ? 2 : 1} required={key === "question" || followDraft.status !== "cancelled" && (key === "method" || key === "owner") || key === "result" && followDraft.status === "done"} className={`${input} mt-1`} value={followDraft[key]} onChange={e => setFollowDraft({ ...followDraft, [key]: e.target.value })} /></label>)}
+        <label className="block text-sm">计划日期<input type="date" required={followDraft.status !== "cancelled"} className={`${input} mt-1`} value={followDraft.dueDate || ""} onChange={e => setFollowDraft({ ...followDraft, dueDate: e.target.value || null })} /></label>
+        <fieldset className="rounded-xl border border-slate-200 p-3"><legend className="text-sm font-medium">关联本次保存的成果依据</legend><div className="mt-2 space-y-2">{followCitations.length ? followCitations.map(c => <label key={c.id} className="flex min-w-0 items-start gap-2 rounded-lg bg-slate-50 p-2 text-xs"><input type="checkbox" className="mt-0.5 shrink-0" checked={followDraft.claimIds.includes(c.id!)} onChange={e => setFollowDraft({ ...followDraft, claimIds: e.target.checked ? [...new Set([...followDraft.claimIds, c.id!])] : followDraft.claimIds.filter(id => id !== c.id) })} /><span className="min-w-0 break-words"><strong className="text-blue-700">证据 {c.id!.slice(0, 12)}…</strong><span className="mt-1 block line-clamp-2">{c.text}</span></span></label>) : <p className="text-xs text-slate-500">本版没有可勾选的成果引文；历史已关联依据仍会保留。</p>}</div></fieldset>
+        <label className="block text-sm">状态<select className={`${input} mt-1`} value={followDraft.status} onChange={e => { const status = e.target.value as FollowUp["status"]; setFollowDraft({ ...followDraft, status, judgment: status === "done" ? followDraft.judgment : null }); }}><option value="open">未开始</option><option value="in_progress">进行中</option><option value="done">已完成</option><option value="cancelled">取消</option></select></label>
+        {followDraft.status === "done" && <label className="block text-sm">这次核验对原判断的影响<select required className={`${input} mt-1`} value={followDraft.judgment || ""} onChange={e => setFollowDraft({ ...followDraft, judgment: e.target.value as FollowUp["judgment"] || null })}><option value="">请选择，不自动改写原推荐</option><option value="supported">进一步支持</option><option value="limited">需缩小适用范围</option><option value="contradicted">存在反证，待重评</option><option value="unchanged">未改变</option></select></label>}
+        {followDraft.status === "done" && <p className="text-xs leading-5 text-slate-500">完成记录须有核验结果、明确勾选的成果依据和判断影响。此项为人工登记；若需改变推荐，请生成新研判版本。</p>}
+        <button className={primary} disabled={busy || !followDraft.question.trim() || followDraft.status !== "cancelled" && (!followDraft.method.trim() || !followDraft.owner.trim() || !followDraft.dueDate) || followDraft.status === "done" && (!followDraft.result.trim() || !followDraft.claimIds.length || !followDraft.judgment)} type="submit"><Check className="size-4" />保存跟进</button>
       </form>}
     </dialog>
   </main>;
