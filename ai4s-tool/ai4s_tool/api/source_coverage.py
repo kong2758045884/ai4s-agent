@@ -64,6 +64,8 @@ def pilot_roster(teams, claims, version, *, target=20):
         items.append({
             "teamId": team["id"], "teamName": team.get("teamName") or "",
             "institutionName": team.get("institutionName") or "",
+            "teamAliases": team.get("teamAliases") or [],
+            "institutionAliases": team.get("institutionAliases") or [],
             "domainId": team.get("domainId"), "subdomainId": team.get("subdomainId"),
             "subdomainName": team.get("subdomainName") or "",
             "identitySourceUrl": source_url,

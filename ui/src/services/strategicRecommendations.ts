@@ -94,6 +94,7 @@ export type IntelligenceSearchResult = {
   domainId: string | null;
   date?: string;
   matchReason?: string;
+  matchedAlias?: string | null;
   sourceStatus?: "official" | "source_checked";
   humanReviewStatus?: "reviewed" | "not_recorded";
   reviewNotice?: string;

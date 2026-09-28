@@ -52,6 +52,7 @@ def test_pilot_roster_uses_published_scope_and_does_not_invent_outcomes():
     by_id = {item["teamId"]: item for item in roster["items"]}
     assert by_id["a"]["identitySourceUrl"] == "https://a.edu.cn/team"
     assert by_id["b"]["outcomeCount"] == 0
+    assert by_id["a"]["teamAliases"] == []
     scoped = pilot_roster(teams[:1], claims, "v1")
     assert scoped["totalUnits"] == 1 and scoped["unclassifiedUnits"] == 0
 

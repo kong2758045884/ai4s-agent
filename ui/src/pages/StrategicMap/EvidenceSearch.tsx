@@ -121,6 +121,7 @@ export default function EvidenceSearch({ domainId, subdomainId, domainName, subd
           {item.sourceStatus && <span className="rounded-md bg-[#f1f5fa] px-2 py-0.5 text-[#496d85]">{item.sourceStatus === "official" ? "机构官网来源" : "来源已校验"}</span>}
           <span className="rounded-md bg-[#f2f5f7] px-2 py-0.5 text-[#526b7b]">{item.humanReviewStatus === "reviewed" ? "已有人审" : "未有人审"}</span>
           {item.matchReason && <span className="text-[#678195]">命中：{item.matchReason}</span>}
+          {item.matchedAlias && <span className="max-w-full break-words rounded-md border border-[#cfe3f1] bg-[#f1f8fd] px-2 py-0.5 font-medium text-[#276b96]">关联名称：{item.matchedAlias}</span>}
           {item.date && <span className="text-[#7890a0]">{item.date}</span>}
         </div>
         <button type="button" onClick={() => item.teamId && onOpenTeam(item.teamId)} className="mt-2 inline-flex min-h-8 max-w-full items-center gap-1 text-left text-sm font-semibold text-[#15364e] hover:text-[#1768a2] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1768a2]">

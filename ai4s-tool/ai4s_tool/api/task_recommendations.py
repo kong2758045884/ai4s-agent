@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import threading
+import unicodedata
 import uuid
 from contextlib import closing
 from datetime import date, datetime, timezone
@@ -507,6 +508,18 @@ def retry_expansion(run_id: str) -> dict[str, Any]:
     return recommendation(run_id)
 
 
+def _literal_alias(query: str, aliases: list[str]) -> str | None:
+    """Prefer the name actually typed over canonical matches after normalization."""
+    needle = unicodedata.normalize("NFKC", query).casefold().strip()
+    if not needle:
+        return None
+    for alias in aliases:
+        literal = unicodedata.normalize("NFKC", alias).casefold().strip()
+        if literal and (needle in literal or literal in needle):
+            return alias
+    return None
+
+
 @router.get("/intelligence/search")
 def intelligence_search(q: str = Query(min_length=2, max_length=100),
                         domain_id: str | None = None, page: int = Query(1, ge=1),
@@ -545,6 +558,8 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                 directions = " ".join(str(value) for value in team.get("researchDirections") or [])
                 team_aliases = " ".join(str(value) for value in team.get("teamAliases") or [])
                 institution_aliases = " ".join(str(value) for value in team.get("institutionAliases") or [])
+                matched_team_alias = _literal_alias(query, team.get("teamAliases") or [])
+                matched_institution_alias = _literal_alias(query, team.get("institutionAliases") or [])
                 description = team.get("description") or team.get("focus") or ""
                 haystack = f"{title} {directions} {team_aliases} {institution_aliases} {description}"
                 if not strategic_text.search_match(query, haystack):
@@ -552,15 +567,16 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                 official = team.get("catalogueBasis") == "official_directory"
                 if source_status == "official" and not official:
                     continue
-                reason = next((label for value, label in (
+                reason = ("团队曾用名" if matched_team_alias else "机构别名" if matched_institution_alias else next((label for value, label in (
                     (team.get("teamName", ""), "团队名称"),
                     (team.get("institutionName", ""), "所属机构"),
                     (team_aliases, "团队曾用名"), (institution_aliases, "机构别名"), (directions, "研究方向"),
-                ) if value and strategic_text.search_match(query, value)), "团队档案")
+                ) if value and strategic_text.search_match(query, value)), "团队档案"))
                 results.append({"type": "team_profile", "id": team["id"], "teamId": team["id"],
                     "title": title, "snippet": strategic_text.snippet(query, description or directions or title),
                     "url": next((url for url in team.get("sourceUrls") or [] if _valid_url(url)), None),
                     "domainId": team["domainId"], "matchReason": reason,
+                    "matchedAlias": matched_team_alias or matched_institution_alias,
                     "sourceStatus": "official" if official else "source_checked",
                     "reviewNotice": "科研单元身份有来源；具体成果请查看逐条依据"})
         if entity_type in {"all", "team_claim"}:
@@ -571,6 +587,8 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                 title = f"{team.get('institutionName', '')} · {team.get('teamName', '')}"
                 team_aliases = " ".join(str(value) for value in team.get("teamAliases") or [])
                 institution_aliases = " ".join(str(value) for value in team.get("institutionAliases") or [])
+                matched_team_alias = _literal_alias(query, team.get("teamAliases") or [])
+                matched_institution_alias = _literal_alias(query, team.get("institutionAliases") or [])
                 haystack = f"{title} {team_aliases} {institution_aliases} {claim[4]} {claim[5]}"
                 if not strategic_text.search_match(query, haystack):
                     continue
@@ -585,16 +603,17 @@ def intelligence_search(q: str = Query(min_length=2, max_length=100),
                       or date_from and published < date_from.isoformat()
                       or date_to and published > date_to.isoformat()):
                     continue
-                reason = next((label for value, label in (
+                reason = ("团队曾用名" if matched_team_alias else "机构别名" if matched_institution_alias else next((label for value, label in (
                     (team.get("teamName", ""), "团队名称"),
                     (team.get("institutionName", ""), "所属机构"),
                     (team_aliases, "团队曾用名"), (institution_aliases, "机构别名"),
                     (claim[4], "成果或能力描述"),
-                ) if value and strategic_text.search_match(query, value)), "原文引文")
+                ) if value and strategic_text.search_match(query, value)), "原文引文"))
                 results.append({"type": "team_claim", "id": claim[0], "teamId": claim[1],
                     "title": title, "snippet": strategic_text.snippet(query, claim[5]), "url": claim[6],
                     "domainId": team["domainId"], "date": published,
-                    "matchReason": reason, "sourceStatus": "official" if official else "source_checked",
+                    "matchReason": reason, "matchedAlias": matched_team_alias or matched_institution_alias,
+                    "sourceStatus": "official" if official else "source_checked",
                     "humanReviewStatus": "reviewed" if reviewed else "not_recorded",
                     "verificationStatus": "verified",
                     "verificationMethod": "来源与引文校验；已有人审" if reviewed else "来源与引文校验；未有人审"})

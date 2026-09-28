@@ -166,6 +166,12 @@ def test_aliases_require_evidenced_rename_and_keep_canonical_team_id(monkeypatch
         found = tasks.intelligence_search(q=query, entity_type='all', page=1, size=20)
         assert found['total'] == 2
         assert {item['teamId'] for item in found['items']} == {'team-1'}
+        if query == '旧名称':
+            assert all(item['matchReason'] == '团队曾用名' and item['matchedAlias'] == '旧名称' for item in found['items'])
+        if query == '哈工大':
+            assert all(item['matchReason'] == '机构别名' and item['matchedAlias'] == '哈工大' for item in found['items'])
+    canonical = tasks.intelligence_search(q='哈尔滨工业大学', entity_type='all', page=1, size=20)
+    assert all(item['matchReason'] == '所属机构' and item['matchedAlias'] is None for item in canonical['items'])
     assert tasks.intelligence_search(q='未证明同一主体', entity_type='all', page=1, size=20)['total'] == 0
 
 

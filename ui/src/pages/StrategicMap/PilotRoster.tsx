@@ -4,6 +4,7 @@ import { normalizeToolBaseUrlForBrowser } from "@/utils/fileUrl";
 
 type RosterItem = {
   teamId: string; teamName: string; institutionName: string; subdomainId: string | null;
+  teamAliases?: string[]; institutionAliases?: string[];
   subdomainName: string; identitySourceUrl: string | null; claimCount: number;
   outcomeCount: number; humanReviewedClaimCount: number;
 };
@@ -34,7 +35,7 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
     return () => controller.abort();
   }, [open, domainId, subdomainId, attempt]);
   const items = useMemo(() => data?.items.filter(item => {
-    const matches = `${item.teamName} ${item.institutionName} ${item.subdomainName}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+    const matches = `${item.teamName} ${item.institutionName} ${item.subdomainName} ${(item.teamAliases || []).join(" ")} ${(item.institutionAliases || []).join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
     return matches && (filter === "all" || filter === "outcome" && item.outcomeCount > 0
       || filter === "missing" && item.outcomeCount === 0 || filter === "unclassified" && !item.subdomainId);
   }) || [], [data, query, filter]);
@@ -75,6 +76,7 @@ export default function PilotRoster({ domainId, subdomainId, domainName, subdoma
         <div className="mt-2 max-h-[520px] space-y-2 overflow-y-auto pr-1">{items.map(item => <article key={item.teamId} className="rounded-xl border border-[#e1ebe4] bg-white p-3.5">
           <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0 flex-1"><button type="button" onClick={() => onOpenTeam(item.teamId)} className="inline-flex min-h-9 max-w-full items-center gap-1 text-left text-sm font-semibold text-[#174f3b] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#18765a]"><span className="break-words">{item.teamName}</span><ArrowRight className="size-3.5 shrink-0" aria-hidden="true" /></button><p className="text-xs leading-5 text-[#698071]">{item.institutionName} · {item.subdomainName || "细分领域待确认"}</p></div>
             <span className={item.outcomeCount ? "rounded-lg bg-[#e8f6ed] px-2 py-1 text-xs font-semibold text-[#28714c]" : "rounded-lg bg-[#fff4df] px-2 py-1 text-xs font-semibold text-[#8c621f]"}>{item.outcomeCount ? `${item.outcomeCount} 条成果依据` : "成果待补"}</span></div>
+          {!!((item.teamAliases || []).length || (item.institutionAliases || []).length) && <p className="mt-1 break-words text-[11px] leading-5 text-[#608071]">{(item.teamAliases || []).length ? `团队曾用名：${(item.teamAliases || []).join("、")}` : ""}{(item.teamAliases || []).length && (item.institutionAliases || []).length ? " · " : ""}{(item.institutionAliases || []).length ? `机构关联名称：${(item.institutionAliases || []).join("、")}` : ""}</p>}
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#6d8176]"><span>公开引文 {item.claimCount} 条</span><span>人工审核 {item.humanReviewedClaimCount} 条</span>{item.identitySourceUrl && <a href={item.identitySourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 font-semibold text-[#176e50] hover:underline">身份来源 <ExternalLink className="size-3" aria-hidden="true" /></a>}</div>
         </article>)}{!items.length && <p className="rounded-xl border border-dashed border-[#c9ded1] p-5 text-center text-sm text-[#688071]">当前筛选没有团队；可调整关键词或状态。</p>}</div>
         <p className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-[#6b8173]"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />清单仅说明已收录资料的覆盖程度；团队归属、成果适用性与 20 支试点结论仍须人工逐支复核。</p>
