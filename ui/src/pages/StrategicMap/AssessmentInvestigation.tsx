@@ -56,10 +56,11 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun, on
     run.items.some(item => item.criteriaMatrix?.some(row => row.criterionId === criterion.id && row.status !== "supported")));
   const searchQuery = missing[0]?.text || run.taskText || "";
   const singleDomain = run.scope.domainIds.length === 1 ? run.scope.domainIds[0] : "";
+  const canCollect = !!overview?.configured && !!overview?.canStart && !historical;
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6" aria-label="补充调查">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">缺少成果或任务依据？</h3><p className="mt-1 text-xs leading-5 text-slate-500">先核对已入库的团队与成果资料；可用的联网调查另行启动，现有推荐名单始终保留。</p></div>
       <div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => setShowLocalSearch(value => !value)}><Search className="size-4" />{showLocalSearch ? "收起库内检索" : "检索库内资料"}</button>
-      {overview?.configured && <button className={button} disabled={historical || !overview.canStart || active(job) || busy} onClick={() => { idempotencyKey.current = requestId(); dialog.current?.showModal(); }}><Globe className="size-4" />联网补充资料</button>}</div></div>
+      {canCollect && <button className={button} disabled={active(job) || busy} onClick={() => { idempotencyKey.current = requestId(); dialog.current?.showModal(); }}><Globe className="size-4" />联网补充资料</button>}</div></div>
     <p className="mt-2 text-xs leading-5 text-slate-500">{overview?.configured ? overview.configurationNotice : overview ? "当前仅能检索已入库资料；不会启动外网采集，也不会据此自动改写推荐。" : "正在确认联网配置；库内检索已可使用。"}{historical && " · 历史版本只读"}</p>
     {showLocalSearch && <div className="mt-4 space-y-3">
       <p className="text-xs leading-5 text-slate-600">从本次任务{missing.length ? `的 ${missing.length} 项待补必要条件` : "和证据缺口"}预填关键词与「成果依据」资料类型；可修改关键词、领域、来源状态和发表时间。检索结果仅供核对，尚未成为本次研判的新证据。</p>
@@ -79,7 +80,7 @@ export default function AssessmentInvestigation({ run, historical, onOpenRun, on
       <details><summary className="min-h-11 cursor-pointer leading-[44px]">调用与未发布明细</summary><p className="text-xs leading-5">检索 {job.calls.search || 0} 次 · 抓取 {job.calls.fetch || 0} 次 · 模型 {job.calls.llm || 0} 次；{job.costNotice}</p>
         {job.failures.map((f, i) => <p className="mt-2 text-xs" key={`${f.teamId}-${i}`}>{overview?.teams.find(t => t.teamId === f.teamId)?.teamName || f.teamId}：{f.reason}</p>)}</details>
     </div>}
-    {overview?.configured && <dialog ref={dialog} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(640px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
+    {canCollect && <dialog ref={dialog} className="fixed inset-0 m-auto max-h-[85dvh] w-[min(640px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-900/30">
       <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">明确本次联网调查范围</h2><button className={button} aria-label="关闭联网调查" onClick={() => dialog.current?.close()}><X className="size-4" /></button></div>
       <p className="mt-3 text-xs leading-5 text-slate-500">{overview?.scopeNotice} 此操作可能产生搜索及模型费用，每日预算未设上限。</p>
       <form className="mt-4 space-y-4" onSubmit={e => { e.preventDefault(); void mutate(() => assessmentApi.investigate(run.taskId, run.runId, options, idempotencyKey.current)); }}>
