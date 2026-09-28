@@ -125,6 +125,17 @@ def preflight():
     return {'previousServiceStart': stamp, 'historicalOrphanJobs': rows}
 
 
+def require_backup_space(database_paths, available_bytes):
+    """Reserve room for raw SQLite copies, compressed copies and safe restart."""
+    database_bytes = sum(Path(path).stat().st_size for path in database_paths)
+    required = database_bytes + max(128 * 1024 * 1024, database_bytes // 3)
+    if available_bytes < required:
+        raise RuntimeError(f'Insufficient deployment disk before stopping service: '
+                           f'{available_bytes // (1024 * 1024)} MiB free, '
+                           f'{required // (1024 * 1024)} MiB required for backups and restart')
+    return required
+
+
 def stage(release):
     env = environment()
     directory = release/'preview'; directory.mkdir(exist_ok=False, mode=0o700)
@@ -238,11 +249,13 @@ def rollback(release):
 def activate(release):
     assert json.loads((release/'stage.json').read_text())['passed']
     state = preflight()
+    env = environment()
+    require_backup_space([env['STRATEGIC_MAP_DB_PATH'], env['AI4S_IMPACT_DB_PATH']],
+                         shutil.disk_usage(ROOT).free)
     journal = release/'live-journal'; journal.mkdir(exist_ok=False, mode=0o700)
     state['frontend'] = str((ROOT/'ui/dist').resolve())
     save(journal/'state.json', state)
     shutil.copy2(DROP, journal/'tool.conf')
-    env = environment()
     run('systemctl', 'stop', 'ai4s-reactor-tool')
     try:
         for key in ['STRATEGIC_MAP_DB_PATH', 'AI4S_IMPACT_DB_PATH']:
