@@ -51,7 +51,7 @@ export type RecommendationItem = {
 
 export type RecommendationRun = {
   parsedTask?: { version: string; goals: string[]; required: string[]; excluded: string[]; unresolved: string[]; mode: string; notice: string };
-  changes?: { added: string[]; removed: string[]; updated: string[]; reason: string };
+  changes?: { added: string[]; removed: string[]; updated: string[]; coverageChanged?: boolean; reason: string };
   previousRunId?: string;
   updatedRunId?: string;
   runId: string;

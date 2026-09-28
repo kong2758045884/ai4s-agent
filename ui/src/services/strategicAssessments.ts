@@ -11,6 +11,7 @@ export type MatrixRow = { criterionId: string; text: string; necessity: string; 
 export type AssessmentItem = RecommendationItem & { criteriaMatrix: MatrixRow[] };
 export type AssessmentRun = Omit<RecommendationRun, "items"> & { taskId: string; inputVersionId: string; inputVersion: number;
   relationshipGraph?: StrategicGraphData;
+  coverage?: { scopeTeamCount: number; outcomeBackedTeamCount: number; conditionMatchedTeamCount: number };
   scope: AssessmentScope; mode?: "task" | "domain"; criteria?: Criterion[]; items: AssessmentItem[];
   selection?: { comparedTeamIds: string[]; combination: { teamId: string; role: string; rationale: string }[] };
   unresolvedConditions?: { criterionId: string; text: string; reason: string }[];

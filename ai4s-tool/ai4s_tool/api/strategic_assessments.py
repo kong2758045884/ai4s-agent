@@ -413,6 +413,7 @@ def confirm_assessment(task_id: str, body: ConfirmAssessment, owner: str = Depen
     # Unknown mandatory constraints cannot be presented as satisfied.
     if blockers:
         run.update(items=[], matchedTeamCount=0, shortfall=body.limit)
+    run["coverage"] = _coverage(domain_ids, subdomain, run)
     run.update(taskText=body.taskText, taskId=task_id, domainIds=domain_ids, criteria=criteria,
                unresolvedConditions=blockers, evidenceVersion=body.evidenceVersion,
                scope=_scope_snapshot({"mode": "selected" if domain_ids else "auto", "domainIds": domain_ids,
@@ -457,6 +458,17 @@ def confirm_assessment(task_id: str, body: ConfirmAssessment, owner: str = Depen
         return result
 
 
+def _coverage(domain_ids, subdomain, run):
+    """Snapshot the three non-additive stages used to explain a shortfall."""
+    catalogue_teams = tasks._catalogue_evidence()[0]
+    scope_count = sum(1 for team in catalogue_teams
+        if (not domain_ids or team["domainId"] in domain_ids)
+        and (not subdomain or team.get("subdomainId") == subdomain))
+    return {"scopeTeamCount": scope_count,
+        "outcomeBackedTeamCount": run["eligibleTeamCount"],
+        "conditionMatchedTeamCount": run["matchedTeamCount"]}
+
+
 def _matrix(criteria, item):
     from .strategic_text import _concepts, normalize
     rows = []
@@ -482,6 +494,7 @@ def _diff(before, after):
     same = all(before.get(k) == after.get(k) for k in ("taskText", "scope", "criteria", "requestedLimit", "matchVersion"))
     return {"added": sorted(new.keys() - old.keys()), "removed": sorted(old.keys() - new.keys()),
             "updated": sorted(k for k in old.keys() & new.keys() if old[k] != new[k]),
+            "coverageChanged": before.get("coverage") != after.get("coverage"),
             "sameConditions": same, "reason": "证据版本更新" if same else "用户修改研判条件；不作为科研变化",
             "beforeRunId": before["runId"], "afterRunId": after["runId"]}
 

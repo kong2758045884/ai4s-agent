@@ -72,6 +72,7 @@ def refresh(task_id, parent_run_id, *, change_ids=None, reason="核验后的团�
         confirmed_criteria=previous["parsedTask"], domain_ids=scope["domainIds"])
     if previous.get("unresolvedConditions"):
         result.update(items=[], matchedTeamCount=0, shortfall=previous["requestedLimit"])
+    result["coverage"] = store._coverage(scope["domainIds"], scope.get("subdomainId"), result)
     result.update({k: previous[k] for k in ("taskText", "taskId", "scope", "domainIds", "criteria", "inputVersionId", "inputVersion", "matchVersion", "unresolvedConditions") if k in previous})
     result.update(evidenceVersion=source_version, previousRunId=parent_run_id)
     for item in result["items"]:
@@ -81,7 +82,7 @@ def refresh(task_id, parent_run_id, *, change_ids=None, reason="核验后的团�
     diff["reason"] = reason
     diff["triggerChangeIds"] = sorted(change_ids or [])
     result["changes"] = diff
-    changed = bool(diff["added"] or diff["removed"] or diff["updated"])
+    changed = bool(diff["added"] or diff["removed"] or diff["updated"] or diff["coverageChanged"])
     with closing(store._connect()) as conn, conn:
         init(conn)
         conn.execute("BEGIN IMMEDIATE")

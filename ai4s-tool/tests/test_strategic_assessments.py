@@ -72,6 +72,8 @@ def test_private_save_resume_compare_and_export_do_not_leak(app_client):
     record = response.json()["data"]
     run = record["run"]
     assert run["requestedLimit"] == 5 and run["shortfall"] == 4
+    assert run["coverage"] == {"scopeTeamCount": 1, "outcomeBackedTeamCount": 1,
+                               "conditionMatchedTeamCount": 1}
     assert run["domainIds"] == ["life"]
     assert run["items"][0]["criteriaMatrix"][0]["claimIds"] == ["c1"]
     response = client.patch(f"/strategic-map/assessments/{record['taskId']}", json={
@@ -134,7 +136,20 @@ def test_long_constraints_original_spans_block_unproven_conditions(app_client):
     run = confirm(client, record, p).json()["data"]["run"]
     assert run["items"] == []
     assert len(run["unresolvedConditions"]) == 2
+    assert run["coverage"]["conditionMatchedTeamCount"] == 0
     assert "可投入" not in json.dumps(run["criteria"], ensure_ascii=False)
+
+
+def test_shortfall_keeps_scope_outcome_and_condition_stages_separate(app_client, monkeypatch):
+    client, _, _, version = app_client
+    backed, claims, _ = tasks._candidate_evidence()
+    identity_only = {**backed[0], "id": "t2", "teamName": "待补成果研究组"}
+    monkeypatch.setattr(tasks, "_catalogue_evidence", lambda: (backed + [identity_only], claims, version[0]))
+    run = confirm(client, create(client), limit=5).json()["data"]["run"]
+    assert run["shortfall"] == 4
+    assert run["coverage"] == {"scopeTeamCount": 2, "outcomeBackedTeamCount": 1,
+                               "conditionMatchedTeamCount": 1}
+    assert [item["teamId"] for item in run["items"]] == ["t1"]
 
 
 def test_scope_conflict_explicit_resolution_and_subdomain_guard(app_client):

@@ -9,6 +9,7 @@ import ClaimReviewEditor from "./ClaimReviewEditor";
 import { primaryButton as primary, secondaryButton as button } from "./controls";
 import CombinationCoverage from "./CombinationCoverage";
 import DomainQuickSearch from "./DomainQuickSearch";
+import { shortageStages, suggestedRole } from "./assessmentPresentation";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; taskId: string; runId: string;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
@@ -284,8 +285,8 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           })}><Download className="size-4" />导出证据快照</button></div></div>
         {record && record.runs.length > 1 && <label className="block text-sm">查看保存版本<select className={`${input} mt-1`} value={run.runId} onChange={e => onContextChange(record.taskId, e.target.value)}>
           {record.runs.map(r => <option key={r.runId} value={r.runId}>条件 v{r.inputVersion} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
-        {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}</div>}
-        {!run.observation && <AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} />}
+        {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}{run.changes.coverageChanged ? " · 范围或证据覆盖发生变化" : ""}</div>}
+        {!run.observation && <div id="assessment-investigation"><AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} /></div>}
         {run.observation ? <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["收录科研单元", run.observation.totalUnits], ["已有成果证据", run.observation.outcomeBackedUnits], ["身份资料已收录，成果尚缺", run.observation.identityOnlyUnits]].map(([label, value]) => <div className={panel} key={label}><strong className="text-3xl">{value}</strong><p className="mt-2 text-sm text-slate-500">{label}</p></div>)}</div>
           <section className={panel}><h3 className="font-semibold">研究方向分布</h3><p className="mt-1 text-xs leading-5 text-slate-500">同一团队可能涉及多个方向，总数始终按唯一团队编号去重。</p><div className="mt-3 flex flex-wrap gap-2">{run.observation.directions.map(d => <span key={d.name} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">{d.name} · {d.teamCount}</span>)}</div></section>
@@ -296,31 +297,33 @@ export default function AssessmentWorkbench({ domains, catalogueReady, taskId, r
           <button className={primary} onClick={() => { setTaskScope(run.scope); setMode("task"); setStep("input"); }}>沿用观察范围，转为任务选队<ArrowRight className="size-4" /></button>
         </> : <>
           <section className={`${panel} flex flex-wrap items-center gap-5`}><p><strong className="text-3xl">{run.items.length}</strong><span className="ml-2 text-sm">支有据候选 / 目标 {run.requestedLimit} 支</span></p><p className="text-xs text-slate-500">范围内 {run.eligibleTeamCount} 支已有团队级成果证据</p></section>
-          {run.shortfall > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-sm leading-6"><p>当前证据只能支持 {run.items.length} 支，缺口 {run.shortfall} 支。未放宽必要条件。</p>
+          {run.shortfall > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-sm leading-6"><h3 className="font-semibold text-amber-950">推荐数量与缺口</h3><p className="mt-1">当前可推荐 {run.items.length} 支，距目标差 {run.shortfall} 支；没有放宽必要条件或补入无依据团队。</p>
+            {shortageStages(run).length > 0 && <ul className="mt-3 grid gap-2 sm:grid-cols-3">{shortageStages(run).map(stage => <li key={stage.title} className="rounded-lg border border-amber-200 bg-white p-3"><strong className="text-amber-950">{stage.title}</strong><p className="mt-1 text-xs leading-5 text-slate-600">{stage.detail}</p></li>)}</ul>}
             {run.unresolvedConditions?.map(c => <p key={c.criterionId}>• {c.text}：{c.reason}</p>)}
-            {!run.unresolvedConditions?.length && <p>{run.eligibleTeamCount === 0 ? "当前范围尚无具备团队成果依据的科研单元。" : "其余已有成果未同时覆盖已确认的任务要素。"}</p>}
-            <button className={`${button} mt-2`} onClick={() => setStep("input")}>修改条件或扩大范围</button></section>}
-          <div className="grid gap-4 xl:grid-cols-2">{run.items.map((item, index) => <article className={panel} key={item.teamId}>
+            {!run.coverage && <p className="mt-2 text-slate-600">此历史版本未保存分层统计，请结合原条件和证据逐项核对。</p>}
+            <div className="mt-3 flex flex-wrap gap-2"><button className={button} onClick={() => setStep("input")}>修改条件或扩大范围</button><button className={button} onClick={() => document.getElementById("assessment-investigation")?.scrollIntoView({ behavior: "smooth", block: "start" })}>查看补充调查</button></div></section>}
+          <div className="grid gap-4 xl:grid-cols-2">{run.items.map((item, index) => { const role = suggestedRole(item, run.criteria || []); return <article className={panel} key={item.teamId}>
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-medium text-blue-700">候选 {index + 1}</p><h3 className="mt-1 text-lg font-semibold">{item.teamName}</h3><p className="mt-1 text-sm text-slate-500">{item.institutionName}</p></div>
               <label className="flex min-h-11 shrink-0 items-center gap-2 text-xs"><input type="checkbox" checked={comparedIds.includes(item.teamId)}
                 disabled={busy || historical || !record?.state.comparedTeamIds.includes(item.teamId) && (record?.state.comparedTeamIds.length || 0) >= 3}
                 onChange={() => void patchState({ comparedTeamIds: record!.state.comparedTeamIds.includes(item.teamId) ? record!.state.comparedTeamIds.filter(id => id !== item.teamId) : [...record!.state.comparedTeamIds, item.teamId] })} />比较</label></div>
-            <h4 className="mt-4 text-sm font-semibold">可讨论承担的工作</h4><p className="mt-1 text-sm leading-6">{item.supportedTasks?.join("、") || "按原文成果确认任务适用范围"}</p>
-            <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-500">{item.capability}</p>
+            <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-3"><h4 className="text-sm font-semibold text-blue-950">建议承担环节</h4><p className="mt-1 text-sm leading-6">{role?.text || "暂无可由团队级成果直接支持的具体分工，需进一步核验"}</p>
+              {role && <div className="mt-2 flex flex-wrap gap-2">{role.claimIds.map(id => { const c = item.citations.find(value => value.id === id); return c && <button key={id} className="min-h-11 rounded-lg border border-blue-200 bg-white px-3 py-2 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, role.text, "成果引文支持建议环节；具体分工待团队确认")}>证据 {id} · {c.text}</button>; })}</div>}</div>
+            {item.capability && <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-500">档案能力描述：{item.capability}</p>}
             <div className="mt-4 space-y-2">{item.criteriaMatrix.map(row => <div key={row.criterionId} className="rounded-lg border border-slate-100 p-3 text-sm"><p><span className={row.status === "supported" ? "text-emerald-700" : "text-slate-500"}>{statuses[row.status]}</span> · {row.text}</p>
-              {row.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, row.text, statuses[row.status])}><BookOpenText className="mr-1 inline size-3.5" />{c.text}</button> : null; })}</div>)}</div>
+              {row.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, row.text, statuses[row.status])}><BookOpenText className="mr-1 inline size-3.5" />证据 {id} · {c.text}</button> : null; })}</div>)}</div>
             <p className="mt-3 text-xs leading-5 text-slate-500">尚缺信息：可投入人员、交付周期与合作资源需团队确认。AI 或来源检查不等于专家人工审定。</p>
             <details className="mt-3 rounded-lg bg-slate-50 p-3"><summary className="min-h-8 cursor-pointer text-xs font-medium">查看独立评分与版本</summary><p className="mt-2 text-xs leading-6">任务匹配 {item.taskMatchScore} · 团队原分 {item.teamScore ?? "暂无"} · {item.institutionImpact}<br />任务版本 {item.matchVersion}；任务分按证据60%、方向25%、成果覆盖15%计算，未与机构或团队分相加。</p></details>
             <div className="mt-4 flex flex-wrap gap-2"><button className={button} onClick={() => onOpenTeam(item.teamId)}>团队档案<ArrowRight className="size-4" /></button><button className={button} onClick={() => onOpenRelations(item.teamId)}><Network className="size-4" />相关关系</button>
               <button className={button} disabled={historical} onClick={() => openFollowUp(item.teamId, item.citations.map(c => c.id!).filter(Boolean))}>记录跟进</button></div>
-          </article>)}</div>
+          </article>; })}</div>
           {compared.length >= 2 && <section className={panel} aria-label="团队逐项比较"><h3 className="text-lg font-semibold">按同一任务条件比较</h3><p className="mt-1 text-xs leading-5 text-slate-500">全部依据来自当前保存的推荐快照；缺少依据不等于能力为零。</p>
             <div className="mt-4 space-y-3">{run.criteria?.map(criterion => <details className="rounded-xl border border-slate-200 p-3" open key={criterion.id}><summary className="min-h-11 cursor-pointer text-sm font-semibold">{criterion.text}</summary>
               <div className="grid gap-3 md:grid-cols-3">{compared.map(item => { const row = item.criteriaMatrix.find(c => c.criterionId === criterion.id); return <div className="rounded-lg bg-slate-50 p-3" key={item.teamId}><h4 className="text-sm font-semibold">{item.teamName}</h4><p className="mt-2 text-xs">{row ? statuses[row.status] : "依据不足"}</p>
                 {row?.claimIds.map(id => { const c = item.citations.find(c => c.id === id); return c ? <button key={id} className="mt-1 min-h-11 text-left text-xs text-blue-700" onClick={() => openEvidence(c, item.teamName, criterion.text, statuses[row.status])}>{c.text} ↗</button> : null; })}</div>; })}</div></details>)}</div>
             <h4 className="mt-5 font-semibold">讨论候选分工</h4><p className="mt-1 text-xs text-slate-500">这是待沟通方案；尚未确认资源、协作接口和协调成本，不代表已经分派任务。</p>
             <CombinationCoverage criteria={run.criteria || []} teams={compared} />
-            <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 建议角色<input disabled={historical} className={`${input} mt-1`} value={role?.role || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: e.target.value, rationale: role?.rationale || "" }])} /></label>
+            <div className="mt-3 space-y-3">{compared.map(item => { const role = roles.find(r => r.teamId === item.teamId); return <div key={item.teamId} className="grid gap-2 rounded-lg bg-slate-50 p-3 sm:grid-cols-2"><label className="text-xs">{item.teamName} · 建议角色<input disabled={historical} className={`${input} mt-1`} placeholder={suggestedRole(item, run.criteria || [])?.text || "请基于证据填写待讨论角色"} value={role?.role || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: e.target.value, rationale: role?.rationale || "" }])} /></label>
               <label className="text-xs">分工依据和协作缺口<input disabled={historical} className={`${input} mt-1`} value={role?.rationale || ""} onChange={e => setRoles(values => [...values.filter(v => v.teamId !== item.teamId), { teamId: item.teamId, role: role?.role || "", rationale: e.target.value }])} /></label></div>; })}</div>
             <button className={`${primary} mt-3`} disabled={busy || historical || compared.some(i => !roles.find(r => r.teamId === i.teamId)?.role.trim())} onClick={() => void patchState({ combination: roles.filter(r => compared.some(i => i.teamId === r.teamId)) })}><Save className="size-4" />保存候选组合</button>
           </section>}
