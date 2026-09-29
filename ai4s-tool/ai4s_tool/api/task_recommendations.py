@@ -781,6 +781,28 @@ def verified_teams() -> dict[str, Any]:
             "claimCount": len(claims), "projectionVersion": VERSION}
 
 
+@router.get("/intelligence/teams/{team_id}/claims")
+def published_team_claims(team_id: str) -> dict[str, Any]:
+    """Read the current public claims for one published team without creating a search snapshot."""
+    teams, claims, version = _catalogue_evidence()
+    team = next((item for item in teams if item["id"] == team_id), None)
+    if team is None:
+        raise HTTPException(404, "该团队尚未发布")
+    provenance = team.get("claimProvenance") or {}
+    items = []
+    for claim in claims:
+        if claim[1] != team_id:
+            continue
+        items.append({
+            "id": claim[0], "teamId": team_id, "kind": claim[3],
+            "title": claim[4], "quote": claim[5], "url": claim[6],
+            "publishedAt": claim[7], "provenance": provenance.get(claim[0]) or {},
+        })
+    items.sort(key=lambda item: (item["publishedAt"] or "", item["id"]), reverse=True)
+    items.sort(key=lambda item: item["kind"] != "outcome")
+    return {"teamId": team_id, "dataVersion": version, "items": items}
+
+
 @router.get("/intelligence/source-coverage")
 def source_coverage(domain_id: str | None = None, subdomain_id: str | None = None):
     from .source_coverage import summarize

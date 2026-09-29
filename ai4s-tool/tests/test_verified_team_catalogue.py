@@ -1,5 +1,7 @@
 import sqlite3
 import hashlib
+import pytest
+from fastapi import HTTPException
 
 from ai4s_tool.api import verified_team_catalogue as catalogue
 from ai4s_tool.api import task_recommendations as task
@@ -46,6 +48,23 @@ def test_manual_core_direction_is_preserved_in_public_catalogue():
     value['coreDirectionSource'] = 'research'
     public, _ = catalogue.project(value, [directory()])
     assert public['coreDirection'] == '、'.join(public['researchDirections'])
+
+
+def test_team_claim_detail_reads_only_current_published_team(monkeypatch):
+    public = {**team(), "claimProvenance": {"c1": {"sourceType": "official_institution"}}}
+    claims = [
+        ("c1", "t", "run", "outcome", "成果一", "原文一", "https://example.org/one", "2025-01-01"),
+        ("c2", "t", "run", "outcome", "成果二", "原文一", "https://example.org/two", "2024-01-01"),
+        ("foreign", "other", "run", "outcome", "其他团队", "原文", "https://example.org/other", ""),
+    ]
+    monkeypatch.setattr(task, "_catalogue_evidence", lambda: ([public], claims, "v3"))
+    result = task.published_team_claims("t")
+    assert result["dataVersion"] == "v3"
+    assert {item["id"] for item in result["items"]} == {"c1", "c2"}
+    assert next(item for item in result["items"] if item["id"] == "c1")["provenance"]["sourceType"] == "official_institution"
+    with pytest.raises(HTTPException) as error:
+        task.published_team_claims("other")
+    assert error.value.status_code == 404
 
 
 def test_directory_cannot_publish_tampered_foreign_or_parent_identity():

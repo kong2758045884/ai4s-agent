@@ -102,6 +102,24 @@ export type IntelligenceSearchResult = {
   verificationMethod?: string;
 };
 
+export type PublishedTeamClaim = {
+  id: string;
+  teamId: string;
+  kind: string;
+  title: string;
+  quote: string;
+  url: string;
+  publishedAt: string;
+  provenance?: {
+    sourceTitle?: string;
+    fetchedAt?: string;
+    sourceCheck?: { status?: string; checkedAt?: string };
+    modelReview?: { status?: string };
+    humanReview?: { status?: string; decision?: string };
+    linkCheck?: { status?: string; checkedAt?: string };
+  };
+};
+
 export type IntelligenceSearchOptions = {
   subdomainId?: string;
   entityType?: "all" | "team_profile" | "team_claim";
@@ -146,6 +164,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const recommendationApi = {
   verifiedTeams: (signal?: AbortSignal) => request<{ teamIds: string[]; teams?: Record<string, unknown>[]; dataVersion: string; claimCount: number }>("/intelligence/verified-teams", { signal }),
+  teamClaims: (teamId: string, signal?: AbortSignal) => request<{ teamId: string; dataVersion: string; items: PublishedTeamClaim[] }>(`/intelligence/teams/${encodeURIComponent(teamId)}/claims`, { signal }),
   create: (taskText: string, domainId: string, subdomainId: string, limit: number) =>
     request<RecommendationRun>("/task-recommendations", {
       method: "POST",
