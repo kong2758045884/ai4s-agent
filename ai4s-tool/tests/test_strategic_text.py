@@ -52,3 +52,13 @@ def test_profile_description_cannot_complete_missing_outcome_capability():
     assert score > 0
     assert [c["id"] for c in citations] == ["o1"]
     assert criteria == [{"requirement": "量子计算", "matched": True, "citations": ["o1"]}]
+
+
+def test_lightweight_refractory_variants_keep_specificity_and_broad_search():
+    medium = "轻质难熔中熵合金高温强化研究"
+    high = "轻质难熔高熵合金局部化学有序强韧化"
+    assert text.search_match("轻质难熔合金", medium)
+    assert text.search_match("轻质难熔合金", high)
+    assert not text.search_match("轻质难熔高熵合金", medium)
+    assert text.normalize(text.normalize(medium)) == text.normalize(medium)
+    assert "虚拟细胞" in text._concepts("虚拟细胞")

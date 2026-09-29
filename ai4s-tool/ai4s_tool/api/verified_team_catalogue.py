@@ -58,37 +58,57 @@ def project(payload, observations):
         if status == "official_directory":
             from .official_team_directory import DIRECTORIES, _signature
             record = observation.get("record") or {}
+            report = record.get("identity_basis") == "official_named_team_research_report"
             source = next((s for s in DIRECTORIES if s["institution"] == record.get("institution_name")
                            and s["url"] in record.get("source_urls", [])
                            and record.get("domain") in s["domains"]), None)
-            if not source or observation.get("signature") != _signature(record):
+            if observation.get("signature") != _signature(record) or (not source and not report):
                 continue
             institution, team = record.get("institution_name", ""), record.get("team_name", "")
             basis = citations(record.get("citations"))
-            def trusted(c):
-                host = urlsplit(c["url"]).hostname
-                return host == urlsplit(source["url"]).hostname or host in source.get("evidence_hosts", ())
-            if not basis or not all(trusted(c) for c in basis):
-                continue
-            description = record.get("description", "")
-            directions = record.get("directions", [])
-            # Only explicitly parsed achievement sections become outcomes;
-            # a general profile mentioning 'models' is not an achievement.
-            outcome_index = {
-                "official_named_group_card": 2,
-                "official_named_lab_current_roster": 1,
-                "official_research_department_with_current_head_and_results": 2,
-            }.get(record.get("identity_basis"))
-            fields = [("outcome" if i == outcome_index else "description", c["quote"], [c])
-                      for i, c in enumerate(basis)]
-            if record.get("identity_basis") == "official_research_unit_with_scoped_facts":
-                fields = [("description", basis[0]["quote"], [basis[0]])]
-                for value in record.get("facts", []):
-                    refs = citations(value.get("citations"))
-                    if value.get("kind") not in {"description", "direction", "outcome"} or not refs:
-                        continue
-                    if all(trusted(c) and c in basis for c in refs):
-                        fields.append((value["kind"], value["text"], refs))
+            if report:
+                page = record.get("source_page") or {}
+                text = page.get("text") or ""
+                url = page.get("url") or ""
+                from .official_team_directory import compact
+                if (not _official(url) or url not in record.get("source_urls", [])
+                        or len(text) < 200 or compact(institution) not in compact(text)
+                        or len(basis) < 2 or compact(team) not in compact(basis[0]["quote"])):
+                    continue
+                if any(c["url"] != url or c.get("content_hash") != hashlib.sha256(text.encode()).hexdigest()
+                       or compact(c["quote"]) not in compact(text) for c in basis):
+                    continue
+                description = record.get("description", "")
+                directions = record.get("directions", [])
+                # Identity and research result remain separately cited; the
+                # result enters formal recommendations only via the reviewed
+                # strategic_team_outcome record, never from a news headline.
+                fields = [("description", c["quote"], [c]) for c in basis]
+            else:
+                def trusted(c):
+                    host = urlsplit(c["url"]).hostname
+                    return host == urlsplit(source["url"]).hostname or host in source.get("evidence_hosts", ())
+                if not basis or not all(trusted(c) for c in basis):
+                    continue
+                description = record.get("description", "")
+                directions = record.get("directions", [])
+                # Only explicitly parsed achievement sections become outcomes;
+                # a general profile mentioning 'models' is not an achievement.
+                outcome_index = {
+                    "official_named_group_card": 2,
+                    "official_named_lab_current_roster": 1,
+                    "official_research_department_with_current_head_and_results": 2,
+                }.get(record.get("identity_basis"))
+                fields = [("outcome" if i == outcome_index else "description", c["quote"], [c])
+                          for i, c in enumerate(basis)]
+                if record.get("identity_basis") == "official_research_unit_with_scoped_facts":
+                    fields = [("description", basis[0]["quote"], [basis[0]])]
+                    for value in record.get("facts", []):
+                        refs = citations(value.get("citations"))
+                        if value.get("kind") not in {"description", "direction", "outcome"} or not refs:
+                            continue
+                        if all(trusted(c) and c in basis for c in refs):
+                            fields.append((value["kind"], value["text"], refs))
         else:
             reviewed = (observation.get("run") or {}).get("reviewed") or {}
             # Explicit withdrawal takes precedence over older observations.

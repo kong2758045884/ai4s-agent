@@ -468,11 +468,11 @@ def sync(session, domain, subdomain=None, *, fetch=fetch_directory_page, records
         if "location" not in protected and not row.location:
             row.location = "中国（官方科研单位名录）"
         row.is_domestic = True
-        row.source = "官方课题组目录"
+        row.source = record.get("source_label", "官方课题组目录")
         row.source_urls = list(dict.fromkeys([*(row.source_urls or []), *record["source_urls"]]))
         row.evidence_urls = list(dict.fromkeys([*(row.evidence_urls or []), *record["source_urls"]]))
         row.evidence_summary = "\n".join(cite["quote"] for cite in record["citations"])
-        row.report_title = f"{record['institution_name']}官方课题组资料"
+        row.report_title = record.get("report_title", f"{record['institution_name']}官方课题组资料")
         row.team_confidence = 0.95
         row.verification_status = "verified"
         deleted_names = {

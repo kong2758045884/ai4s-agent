@@ -59,6 +59,10 @@ def from_observation(entry, cite):
     payload = entry["payload"]
     run = payload.get("run") or {}
     page = next((p for p in run.get("pages", []) if p.get("url") == cite["url"]), {})
+    if not page and (payload.get("record") or {}).get("identity_basis") == "official_named_team_research_report":
+        candidate = payload["record"].get("source_page") or {}
+        if candidate.get("url") == cite["url"]:
+            page = candidate
     directory = entry["status"] == "official_directory"
     result = _base(cite["url"], cite["quote"], run_id=entry["id"],
         title=page.get("title") or cite.get("title", ""), text=page.get("text", ""),
@@ -81,8 +85,12 @@ def from_observation(entry, cite):
 
 
 def from_outcome(row):
+    import json
+
+    ownership = json.loads(row["ownership_json"]) if "ownership_json" in row.keys() and row["ownership_json"] else {}
     result = _base(row["url"], row["quote"], run_id=row["batch_id"],
-        published_at=row["published_at"], fetched_at=row["fetched_at"], checked_at=row["created_at"],
+        title=ownership.get("sourceTitle", ""), published_at=row["published_at"],
+        fetched_at=row["fetched_at"], checked_at=row["created_at"],
         text=row["source_text"], method=row["review_method"])
     result["ownershipCheck"] = {"status": "recorded", "teamId": row["team_id"], "method": row["review_method"]}
     return result

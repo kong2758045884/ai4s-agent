@@ -14,6 +14,8 @@ import FollowUpTimeline from "./FollowUpTimeline";
 import VersionComparison from "./VersionComparison";
 
 type Props = { domains: StrategicDomain[]; catalogueReady: boolean; catalogueError: boolean; taskId: string; runId: string;
+  initialMode?: "task" | "domain"; initialDomainId?: string; initialSubdomainId?: string;
+  onModeChange?: (mode: "task" | "domain") => void; onScopeChange?: (domainId: string, subdomainId: string) => void;
   onContextChange: (taskId: string, runId: string) => void; onOpenTeam: (id: string) => void;
   onOpenRelations: (teamId: string) => void };
 const AUTO: AssessmentScope = { mode: "auto", domainIds: [], domesticOnly: true };
@@ -27,7 +29,12 @@ const readableError = (reason: unknown, fallback: string) => {
   return !message || /Network Error|Failed to fetch|Unexpected end of JSON input|Load failed/i.test(message) ? fallback : message;
 };
 
-export default function AssessmentWorkbench({ domains, catalogueReady, catalogueError, taskId, runId, onContextChange, onOpenTeam, onOpenRelations }: Props) {
+export default function AssessmentWorkbench({ domains, catalogueReady, catalogueError, taskId, runId,
+  initialMode = "task", initialDomainId = "", initialSubdomainId = "", onModeChange, onScopeChange,
+  onContextChange, onOpenTeam, onOpenRelations }: Props) {
+  const initialScope: AssessmentScope = initialDomainId
+    ? { mode: "selected", domainIds: [initialDomainId], subdomainId: initialSubdomainId || null, domesticOnly: true }
+    : { ...AUTO, mode: "selected" };
   const [record, setRecord] = useState<Assessment | null>(null);
   const recordRef = useRef<Assessment | null>(null);
   const [run, setRun] = useState<AssessmentRun | null>(null);
@@ -35,11 +42,11 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
   const [listTotal, setListTotal] = useState(0);
   const [listPage, setListPage] = useState(1);
   const [tab, setTab] = useState<"new" | "mine">("new");
-  const [mode, setMode] = useState<"task" | "domain">("task");
+  const [mode, setMode] = useState<"task" | "domain">(initialMode);
   const [taskDraft, setTaskDraft] = useState("");
   const [domainDraft, setDomainDraft] = useState("");
-  const [taskScope, setTaskScope] = useState<AssessmentScope>(AUTO);
-  const [domainScope, setDomainScope] = useState<AssessmentScope>({ ...AUTO, mode: "selected" });
+  const [taskScope, setTaskScope] = useState<AssessmentScope>(initialDomainId ? initialScope : AUTO);
+  const [domainScope, setDomainScope] = useState<AssessmentScope>(initialScope);
   const [limit, setLimit] = useState(5);
   const [windowDays, setWindowDays] = useState(90);
   const [interpretation, setInterpretation] = useState<Interpretation | null>(null);
@@ -72,7 +79,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
     if (hydrate) {
       const nextTaskScope = next.state.taskScope || (next.run?.mode !== "domain" ? next.run?.scope : undefined) || AUTO;
       const nextDomainScope = next.state.domainScope || (next.run?.mode === "domain" ? next.run.scope : undefined) || { ...AUTO, mode: "selected" as const };
-      setTaskDraft(next.state.taskDraft); setDomainDraft(next.state.domainDraft); setMode(next.mode);
+      setTaskDraft(next.state.taskDraft); setDomainDraft(next.state.domainDraft); setMode(next.mode); onModeChange?.(next.mode);
       setTaskScope(nextTaskScope); setDomainScope(nextDomainScope); setLimit(next.state.requestedLimit || next.run?.requestedLimit || 5);
       setWindowDays(next.state.windowDays || next.run?.observation?.windowDays || 90);
       lastSavedDraft.current = JSON.stringify({ taskDraft: next.state.taskDraft, domainDraft: next.state.domainDraft,
@@ -182,7 +189,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
   function fresh() {
     if (busy) return;
     sequence.current++; recordRef.current = null; setRecord(null); setRun(null); setTaskDraft(""); setDomainDraft("");
-    setMode("task"); setTaskScope(AUTO); setDomainScope({ ...AUTO, mode: "selected" }); setStep("input"); setTab("new");
+    setMode(initialMode); onModeChange?.(initialMode); setTaskScope(initialDomainId ? initialScope : AUTO); setDomainScope(initialScope); setStep("input"); setTab("new");
     setInterpretation(null); setLimit(5); setWindowDays(90); setError(""); setSaveStatus("尚未保存"); loadedContext.current = ":";
     lastSavedDraft.current = ""; failedDraft.current = "";
     newRequest.current = requestId(); confirmRequest.current = requestId(); onContextChange("", "");
@@ -200,7 +207,10 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
     return <fieldset className="min-w-0 space-y-3"><legend className="mb-2 text-sm font-medium">{allowAuto ? "检索范围" : "观察领域"}</legend>
       {allowAuto && <select className={input} aria-label="范围选择方式" value={value.mode} onChange={e => change({ ...value, mode: e.target.value as AssessmentScope["mode"], domainIds: [], subdomainId: null })}>
         <option value="auto">根据任务建议领域，生成前确认</option><option value="selected">手动选择领域（可多选）</option></select>}
-      {(value.mode === "selected" || !allowAuto) && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{domains.map(domain => <label key={domain.id} className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+      {!allowAuto && <select className={`${input} sm:hidden`} aria-label="观察领域" value={value.domainIds[0] || ""} onChange={e => change({ ...value, mode: "selected", domainIds: e.target.value ? [e.target.value] : [], subdomainId: null })}>
+        <option value="">选择领域</option>{domains.map(domain => <option key={domain.id} value={domain.id}>{domain.name}</option>)}
+      </select>}
+      {(value.mode === "selected" || !allowAuto) && <div className={`${allowAuto ? "grid" : "hidden sm:grid"} gap-2 sm:grid-cols-2 lg:grid-cols-3`}>{domains.map(domain => <label key={domain.id} className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
         <input type={allowAuto ? "checkbox" : "radio"} name={allowAuto ? "task-domains" : "observe-domain"} checked={value.domainIds.includes(domain.id)} onChange={() => change({ ...value, mode: "selected", subdomainId: null,
           domainIds: allowAuto ? value.domainIds.includes(domain.id) ? value.domainIds.filter(id => id !== domain.id) : [...value.domainIds, domain.id] : [domain.id] })} />{domain.name}</label>)}</div>}
       {value.domainIds.length === 1 && <select className={input} aria-label="研判子领域" value={value.subdomainId || ""} onChange={e => change({ ...value, subdomainId: e.target.value || null })}>
@@ -236,14 +246,17 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
       <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <h2 className="text-xl font-semibold text-slate-950">{mode === "task" ? "按任务找团队" : "按领域看力量"}</h2>
         <div className="mt-3 flex rounded-xl bg-slate-100 p-1" aria-label="研判模式">{([{ id: "task", name: "任务选队" }, { id: "domain", name: "领域观察" }] as const).map(item => <button key={item.id} aria-pressed={mode === item.id}
-          className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold ${mode === item.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`} onClick={() => setMode(item.id)}>{item.name}</button>)}</div>
+          className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold ${mode === item.id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`} onClick={() => { setMode(item.id); onModeChange?.(item.id); }}>{item.name}</button>)}</div>
         <div className="mt-4 space-y-3 sm:space-y-4">
           {mode === "task" && <label className="block text-sm font-medium">描述要完成的科研任务<textarea className={`${input} mt-2 min-h-20 resize-y sm:min-h-28`} rows={3} maxLength={2000}
             aria-label="研判任务输入" value={taskDraft} onChange={e => setTaskDraft(e.target.value)}
             placeholder="写明研究目标、必要能力、已有成果要求和限制条件" /></label>}
           {mode === "domain" && catalogueReady && <DomainQuickSearch domains={domains} selectedDomainId={domainScope.domainIds[0] || ""}
-            onSelect={match => { setDomainScope({ ...domainScope, mode: "selected", domainIds: [match.domainId], subdomainId: match.subdomainId }); confirmRequest.current = requestId(); }} />}
-          {catalogueReady && scopePicker(mode === "task" ? taskScope : domainScope, mode === "task" ? setTaskScope : setDomainScope, mode === "task")}
+            onSelect={match => { setDomainScope({ ...domainScope, mode: "selected", domainIds: [match.domainId], subdomainId: match.subdomainId }); onScopeChange?.(match.domainId, match.subdomainId || ""); confirmRequest.current = requestId(); }} />}
+          {catalogueReady && scopePicker(mode === "task" ? taskScope : domainScope, next => {
+            if (mode === "task") setTaskScope(next); else setDomainScope(next);
+            if (next.domainIds.length === 1) onScopeChange?.(next.domainIds[0], next.subdomainId || "");
+          }, mode === "task")}
           {mode === "domain" && <label className="block text-sm font-medium">观察重点（选填）<textarea className={`${input} mt-2 min-h-20 resize-y`} rows={2} maxLength={500}
             aria-label="领域观察草稿" value={domainDraft} onChange={e => setDomainDraft(e.target.value)} placeholder="例如：关注该领域的能力分布和近期成果" /></label>}
           <div className="flex flex-wrap items-end gap-3"><label className="text-sm">{mode === "task" ? "推荐数量（1–20）" : "关注数量（1–20）"}<input className={`${input} mt-1 max-w-28`} type="number" min={1} max={20} value={limit} onChange={e => setLimit(Math.max(1, Math.min(20, Number(e.target.value) || 1)))} /></label>
@@ -297,8 +310,6 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
           })}><Download className="size-4" />导出证据快照</button></div></div>
         {record && record.runs.length > 1 && <label className="block text-sm">查看保存版本<select className={`${input} mt-1`} value={run.runId} onChange={e => onContextChange(record.taskId, e.target.value)}>
           {record.runs.map(r => <option key={r.runId} value={r.runId}>条件 v{r.inputVersion} · {new Date(r.createdAt).toLocaleString("zh-CN")}</option>)}</select></label>}
-        {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}{run.changes.coverageChanged ? " · 范围或证据覆盖发生变化" : ""}</div>}
-        <VersionComparison run={run.runId === record?.state.activeRunId ? { ...run, selection: { comparedTeamIds: record.state.comparedTeamIds, combination: record.state.combination } } : run} onOpenRun={id => onContextChange(run.taskId, id)} />
         {run.observation ? <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["收录科研单元", run.observation.totalUnits], ["已有成果证据", run.observation.outcomeBackedUnits], ["身份资料已收录，成果尚缺", run.observation.identityOnlyUnits]].map(([label, value]) => <div className={panel} key={label}><strong className="text-3xl">{value}</strong><p className="mt-2 text-sm text-slate-500">{label}</p></div>)}</div>
           <section className={panel}><h3 className="text-base font-semibold">研究方向分布</h3><p className="mt-1 text-xs leading-5 text-slate-500">同一团队可能涉及多个方向，总数始终按唯一团队编号去重。</p><div className="mt-3 flex flex-wrap gap-2">{run.observation.directions.map(d => <span key={d.name} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">{d.name} · {d.teamCount}</span>)}</div></section>
@@ -306,7 +317,7 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
           {run.observation.units.map(unit => <article className={panel} key={unit.teamId}><h3 className="text-lg font-semibold">{unit.teamName}</h3><p className="mt-1 text-sm text-slate-500">{unit.institutionName}</p><p className="mt-3 text-sm">{unit.reason} · 成果 {unit.outcomeCount} 条 · 近 {run.observation!.windowDays} 天 {unit.recentOutcomeCount} 条</p>
             <div className="my-3 space-y-2">{unit.citations.map(c => <button className="block min-h-11 text-left text-sm text-blue-700" key={c.id} onClick={() => openEvidence(c, unit.teamName)}>{c.text} ↗</button>)}</div>
             <button className={button} onClick={() => onOpenTeam(unit.teamId)}>查看团队档案</button></article>)}
-          <button className={primary} onClick={() => { setTaskScope(run.scope); setMode("task"); setStep("input"); }}>沿用观察范围，转为任务选队<ArrowRight className="size-4" /></button>
+          <button className={primary} onClick={() => { setTaskScope(run.scope); setMode("task"); onModeChange?.("task"); setStep("input"); }}>沿用观察范围，转为任务选队<ArrowRight className="size-4" /></button>
         </> : <>
           <section className={`${panel} flex flex-wrap items-center gap-5`}><p><strong className="text-3xl">{run.items.length}</strong><span className="ml-2 text-sm">支有据候选 / 目标 {run.requestedLimit} 支</span></p><p className="text-sm text-slate-600">范围内 {run.eligibleTeamCount} 支已有团队级成果证据{run.shortfall > 0 && <span className="ml-2 font-medium text-amber-800">· 还缺 {run.shortfall} 支有据候选</span>}</p></section>
           <div className="grid min-w-0 gap-4 xl:grid-cols-2">{run.items.map((item, index) => { const role = suggestedRole(item, run.criteria || []); return <article className={`${panel} min-w-0`} key={item.teamId}>
@@ -344,6 +355,8 @@ export default function AssessmentWorkbench({ domains, catalogueReady, catalogue
             <button className={`${primary} mt-3`} disabled={busy || historical || compared.some(i => { const role = roles.find(r => r.teamId === i.teamId); return !role?.role.trim() || !role.rationale.trim() || !role.claimIds?.length; })} onClick={() => void patchState({ combination: roles.filter(r => compared.some(i => i.teamId === r.teamId)) })}><Save className="size-4" />保存候选组合</button>
           </section>}
         </>}
+        {run.changes && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">{run.changes.reason} · 新增 {run.changes.added.length} · 移除 {run.changes.removed.length} · 内容变化 {run.changes.updated.length}{run.changes.coverageChanged ? " · 范围或证据覆盖发生变化" : ""}</div>}
+        <VersionComparison run={run.runId === record?.state.activeRunId ? { ...run, selection: { comparedTeamIds: record.state.comparedTeamIds, combination: record.state.combination } } : run} onOpenRun={id => onContextChange(run.taskId, id)} />
         {!run.observation && <details id="assessment-investigation" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><summary className="min-h-11 cursor-pointer text-base font-semibold leading-[44px] text-slate-900">补充查证 · 库内检索</summary><div className="mt-3"><AssessmentInvestigation key={run.runId} run={run} historical={historical} onOpenRun={id => onContextChange(run.taskId, id)} onOpenTeam={onOpenTeam} /></div></details>}
         {record && <section className={panel}><h3 className="text-base font-semibold">跟进与内部记录</h3><p className="mt-1 text-xs text-slate-500">只对当前访客可见；公开证据导出不包含这些内容。</p>
           <div className="mt-3 space-y-2">{record.state.followUps.map(f => <div className="rounded-lg bg-slate-50 p-3 text-sm" key={f.id}><p>{f.question}</p><p className="mt-1 text-xs text-slate-500">{f.method} · {f.owner || "负责人未指定"} · {f.dueDate || "日期未定"} · {({ open: "未开始", in_progress: "进行中", done: "已完成", cancelled: "取消" })[f.status]}</p>

@@ -443,6 +443,7 @@ export default function StrategicMap() {
         ? "recommend" : "teams"),
   );
   const [demoOpen, setDemoOpen] = useState(() => new URLSearchParams(location.search).get("smDemo") === "1");
+  const [assessmentInputMode, setAssessmentInputMode] = useState<"task" | "domain">(initialContext.assessmentMode || "task");
   const demoTriggerRef = useRef<HTMLButtonElement>(null);
   const closeDemo = useCallback(() => { setDemoOpen(false); demoTriggerRef.current?.focus(); }, []);
   const navigationType = useNavigationType();
@@ -463,6 +464,7 @@ export default function StrategicMap() {
     if (new URLSearchParams(location.search).get("smDemo") !== "1"
         && requested && (FUSION_ENABLED || requested === "teams" || requested === "graph")) setWorkspaceMode(requested);
     const context = readStrategicMapNavigationContext(location.pathname, location.search);
+    if (context?.mode === "recommend" && !context.assessmentId) setAssessmentInputMode(context.assessmentMode || "task");
     if (context?.mode === "graph" && context.assessmentId) setAssessmentGraphTeamId(context.teamId);
     setAssessmentContext(current => current.taskId === (context?.assessmentId || "") && current.runId === (context?.assessmentRunId || "") ? current : { taskId: context?.assessmentId || "", runId: context?.assessmentRunId || "" });
   }, [location.pathname, location.search, navigationType]);
@@ -588,6 +590,7 @@ export default function StrategicMap() {
       mode: workspaceMode,
       assessmentId: assessmentContext.taskId,
       assessmentRunId: assessmentContext.runId,
+      ...(workspaceMode === "recommend" && assessmentInputMode === "domain" ? { assessmentMode: "domain" as const } : {}),
       recommendAcrossDomains: (workspaceMode === "recommend" || workspaceMode === "intelligence") && recommendAcrossDomains,
       ...selectionRef.current,
       teamId,
@@ -597,7 +600,7 @@ export default function StrategicMap() {
         ? { mobileListScroll: mobileListScrollRef.current }
         : {}),
     }),
-    [captureScrollState, initialContext.route, mobilePanel, workspaceMode, recommendAcrossDomains, assessmentContext, assessmentGraphTeamId],
+    [captureScrollState, initialContext.route, mobilePanel, workspaceMode, recommendAcrossDomains, assessmentContext, assessmentGraphTeamId, assessmentInputMode],
   );
 
   const switchMobilePanel = (panel: "teams" | "profile", reset = false) => {
@@ -1490,6 +1493,11 @@ export default function StrategicMap() {
 
         {workspaceMode === "recommend" ? (
           ASSESSMENT_ENABLED ? <AssessmentWorkbench domains={domains} catalogueReady={catalogueStatus === "ready" && domains.length > 0} catalogueError={catalogueStatus === "error"} taskId={assessmentContext.taskId} runId={assessmentContext.runId}
+            initialMode={assessmentInputMode} initialDomainId={recommendAcrossDomains ? "" : activeDomainId} initialSubdomainId={recommendAcrossDomains ? "" : activeSubdomainId}
+            onModeChange={setAssessmentInputMode}
+            onScopeChange={(domainId, subdomainId) => {
+              if (domainId) { applySelection({ domainId, subdomainId: subdomainId || "", teamId: "" }); setRecommendAcrossDomains(false); }
+            }}
             onContextChange={updateAssessmentContext} onOpenTeam={openTeamDetail}
             onOpenRelations={teamId => {
               setAssessmentGraphTeamId(teamId);

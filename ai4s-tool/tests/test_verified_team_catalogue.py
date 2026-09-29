@@ -1,4 +1,5 @@
 import sqlite3
+import hashlib
 
 from ai4s_tool.api import verified_team_catalogue as catalogue
 from ai4s_tool.api import task_recommendations as task
@@ -72,6 +73,34 @@ def test_description_is_not_automatically_a_team_outcome():
     entry["payload"]["signature"] = _signature(entry["payload"]["record"])
     _, claims = catalogue.project(team(), [entry])
     assert not any(c[3] == "outcome" for c in claims)
+
+
+def test_named_university_report_preserves_identity_without_promoting_news_to_outcome():
+    from ai4s_tool.api.claim_provenance import locate
+
+    url = "https://materials.example.edu.cn/research/news.htm"
+    body = "某大学材料学院甲组取得研究成果。甲组完成了轻质难熔合金性能研究。" + "报道还记录了公开来源、参与单位和研究背景。" * 12
+    quotes = ["甲组取得研究成果", "甲组完成了轻质难熔合金性能研究"]
+    cites = [{"url": url, "quote": quote, "content_hash": hashlib.sha256(body.encode()).hexdigest(),
+              "quote_locator": locate(body, quote)} for quote in quotes]
+    record = {"team_name": "甲组", "institution_name": "某大学材料学院", "domain": "化学与材料",
+              "description": "轻质难熔合金研究；具体任务条件待确认。", "directions": ["轻质难熔合金"],
+              "source_urls": [url], "source_page": {"url": url, "text": body, "title": "材料成果"},
+              "identity_basis": "official_named_team_research_report", "citations": cites}
+    entry = {"id": "report-1", "status": "official_directory",
+             "payload": {"published": True, "signature": _signature(record), "record": record}}
+    member = {**team(), "institutionName": "某大学材料学院", "teamName": "甲组"}
+    public, claims = catalogue.project(member, [entry])
+    assert public["teamName"] == "甲组"
+    assert len(claims) == 2 and all(c[3] == "description" for c in claims)
+    assert all(public["claimProvenance"][c[0]]["sourceContext"] for c in claims)
+    record["source_page"]["text"] = body.replace("轻质难熔合金", "其他方向")
+    entry["payload"]["signature"] = _signature(record)
+    assert catalogue.project(member, [entry]) is None
+    record["source_page"]["text"] = body
+    record["source_page"]["url"] = "https://unreviewed.example.org/news"
+    entry["payload"]["signature"] = _signature(record)
+    assert catalogue.project(member, [entry]) is None
 
 
 def test_triage_events_seed_discovery_without_cross_domain_or_author_pollution(tmp_path, monkeypatch):

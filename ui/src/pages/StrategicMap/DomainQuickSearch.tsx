@@ -13,9 +13,19 @@ export default function DomainQuickSearch({ domains, selectedDomainId, onSelect 
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const results = findDomainMatches(domains, submitted);
+  const recentNames = ["蛋白质结构与设计", "超高温轻质金属材料合成", "虚拟细胞"];
+  const recent = recentNames.flatMap(name => domains.flatMap(domain =>
+    domain.subdomains.filter(child => child.name === name).map(child => ({
+      domainId: domain.id, domainName: domain.name, subdomainId: child.id,
+      subdomainName: child.name, matchedBy: "子领域名称",
+    }))));
   return <section aria-label="观察领域快捷检索" className="rounded-2xl border border-[#d5e5f1] bg-gradient-to-br from-[#eef7ff] to-white p-4">
     <div className="flex items-center gap-2 text-sm font-semibold text-[#173e5f]"><Search className="size-4 text-[#1768a2]" aria-hidden="true" />按名称或常用说法查找领域</div>
-    <p className="mt-1 text-xs leading-5 text-[#607b8d]">例如“蛋白”“量子计算”“算力”；找到后请明确选择观察范围。</p>
+    <p className="mt-1 text-xs leading-5 text-[#607b8d]">可直接选择近期方向，也可输入领域名称检索。</p>
+    {recent.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-[#526f84]">近期方向</span>
+      {recent.map(match => <button key={match.subdomainId} type="button" onClick={() => { onSelect(match); setSubmitted(""); setQuery(match.subdomainName); }}
+        className="min-h-11 rounded-lg border border-[#bfd5e6] bg-white px-3 py-2 text-left text-sm font-medium leading-5 text-[#174b70] hover:border-[#63a5d0] hover:bg-[#f5fbff] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1768a2]"
+        aria-pressed={selectedDomainId === match.domainId && query === match.subdomainName}>{match.subdomainName}</button>)}</div>}
     <form className="mt-3 flex flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); setSubmitted(query.trim()); }}>
       <input aria-label="查找观察领域" value={query} maxLength={80} onChange={event => { setQuery(event.target.value); setSubmitted(""); }}
         placeholder="输入领域、子领域或常用说法" className="min-h-11 min-w-0 flex-1 rounded-xl border border-[#bfd5e6] bg-white px-3 text-sm text-[#15384f] outline-none placeholder:text-[#8199a9] focus-visible:border-[#1768a2] focus-visible:ring-2 focus-visible:ring-[#1768a2]/20" />

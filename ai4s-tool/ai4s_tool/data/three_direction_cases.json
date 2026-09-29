@@ -1,0 +1,85 @@
+{
+  "batchId": "three-directions-20260929-v1",
+  "cases": [
+    {
+      "direction": "超高温轻质金属材料合成",
+      "parent": "化学与材料",
+      "description": "轻质耐高温金属材料的合成、组织调控与性能证据；具体服役温度和评价指标需按任务确认。",
+      "teams": [
+        {
+          "source": "https://mse.hit.edu.cn/2026/0707/c16894a396326/page.htm",
+          "institution": "哈尔滨工业大学材料科学与工程学院",
+          "team": "陈瑞润、秦刚教授团队",
+          "leader": "陈瑞润",
+          "leaderRole": "共同通讯作者",
+          "leaderEvidence": "哈尔滨工业大学材料学院博士生陈峣为第一作者，材料学院陈瑞润教授、秦刚教授为共同通讯作者。",
+          "relatedPeople": [{"name": "秦刚", "role": "共同通讯作者", "evidenceQuote": "哈尔滨工业大学材料学院博士生陈峣为第一作者，材料学院陈瑞润教授、秦刚教授为共同通讯作者。"}],
+          "directionEvidence": "轻质难熔中/高熵合金高温强化",
+          "identityQuote": "陈瑞润、秦刚教授团队在轻质难熔中/高熵合金领域取得重要研究进展",
+          "outcomeTitle": "轻质难熔中熵合金高温强化研究",
+          "outcomeQuote": "所开发的 Nb25 合金实现了 800℃ 下抗拉强度较对比组提升 24% 、断裂应变维持 29.7% 的优秀性能，且全程保持纯 BCC 单相组织",
+          "publishedAt": "2026-07-07",
+          "scopeNote": "公开成果涉及轻质难熔合金高温性能；用户目标的“超高温”具体门槛尚未给定，也无团队资源或合作意愿确认。"
+        },
+        {
+          "source": "https://www.gbu.edu.cn/kyjz_details/983.html",
+          "institution": "大湾区大学物质科学学院",
+          "team": "左小伟课题组",
+          "leader": "左小伟",
+          "leaderRole": "通讯作者",
+          "leaderEvidence": "通讯作者为大湾区大学左小伟副教授，西安交通大学刘畅教授和中山大学刘定心副教授。",
+          "relatedPeople": [],
+          "directionEvidence": "轻质难熔高熵合金强韧化与材料制备",
+          "identityQuote": "左小伟课题组在轻质难熔高熵合金强韧化研究方向取得新进展",
+          "outcomeTitle": "轻质难熔高熵合金局部化学有序强韧化",
+          "outcomeQuote": "本研究综合运用微观结构表征、力学性能测试与原子尺度模拟，在TZNTVx合金体系中首次观察到富Ta-V的局部化学有序（LCO）结构，并证实其可作为富Ta-V C15型Laves相的前驱体。",
+          "publishedAt": "2026-01-30",
+          "scopeNote": "官网列有制备平台和强韧化成果；具体超高温条件、设备可用性及合作意愿需另行确认。"
+        }
+      ]
+    },
+    {
+      "direction": "虚拟细胞",
+      "parent": "生命科学与医学",
+      "description": "细胞状态、扰动响应与多模态数据建模的相关团队和证据；不将单项模型视为完整细胞仿真。",
+      "teams": [
+        {
+          "source": "https://cse.csu.edu.cn/info/1039/11408.htm",
+          "institution": "中南大学计算机学院",
+          "team": "李敏团队",
+          "leader": "李敏",
+          "leaderRole": "共同通讯作者",
+          "leaderEvidence": "中南大学 计算机学院 李敏教授、腾讯生命科学实验室姚建华 研究员 与杨帆 研究员 担任共同通讯作者",
+          "relatedPeople": [],
+          "directionEvidence": "遗传与化学扰动的细胞表型建模",
+          "identityQuote": "中南大学李敏团队联合腾讯在《Cell》发表AI驱动虚拟细胞研究新成果",
+          "outcomeTitle": "UniPert-G2CP 细胞扰动建模框架",
+          "outcomeQuote": "该研究提出统一的细胞扰动建模框架 UniPert-G2CP ，从分子表征到表型建模两个层面连接遗传与化学扰动筛选，为虚拟细胞构建提供新的计算方法。",
+          "publishedAt": "2026-07-26",
+          "scopeNote": "该成果属于细胞扰动预测方法，不等同完整虚拟细胞；细胞对象和评价指标需按任务确认。"
+        },
+        {
+          "source": "https://news.tongji.edu.cn/info/1003/91657.htm",
+          "institution": "同济大学生命科学与技术学院",
+          "team": "刘琦教授交叉团队",
+          "leader": "刘琦",
+          "leaderRole": "通讯作者",
+          "leaderEvidence": "论文第一作者是同济大学生命科学与技术学院刘琦教授课题组的傅沙镠博士和博士生王曙光，通讯作者是刘琦教授。",
+          "relatedPeople": [{"name": "傅沙镠", "role": "论文第一作者", "evidenceQuote": "论文第一作者是同济大学生命科学与技术学院刘琦教授课题组的傅沙镠博士和博士生王曙光，通讯作者是刘琦教授。"}, {"name": "王曙光", "role": "论文第一作者", "evidenceQuote": "论文第一作者是同济大学生命科学与技术学院刘琦教授课题组的傅沙镠博士和博士生王曙光，通讯作者是刘琦教授。"}],
+          "directionEvidence": "单细胞多模态整合与细胞状态建模基础",
+          "identityQuote": "同济大学生命科学与技术学院—上海自主智能无人系统科学中心刘琦教授交叉团队长期致力于组学智能解析及精准医学应用",
+          "outcomeTitle": "SCMMIB 单细胞多模态整合基准评估平台",
+          "outcomeQuote": "近期，刘琦教授团队在《自然方法》（Nature Methods）上发表了题为“Benchmarking single-cell multi-modal data integrations ”的论文，发布了面向单细胞多模态整合的全面基准评估平台SCMMIB",
+          "additionalOutcomes": [
+            {
+              "title": "scMVP 与 UniTCR 单细胞组学算法",
+              "quote": "前期在单细胞组学驱动的虚拟细胞构建AI方法路径，特别是跨组学整合的AI算法层面进行了系统而创新性的探索，曾开发了基于隐空间联合嵌入的单细胞RNA-seq和ATAC-seq整合算法scMVP，以及面向低质资源数据的T细胞转录组和TCR跨模态整合算法UniTCR。"
+            }
+          ],
+          "publishedAt": "2025-07-16",
+          "scopeNote": "多模态整合是虚拟细胞的数据方法基础；该成果不证明已完成细胞行为仿真。"
+        }
+      ]
+    }
+  ]
+}

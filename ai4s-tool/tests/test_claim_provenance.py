@@ -69,6 +69,15 @@ def test_outcome_check_carries_ownership_and_does_not_relabel_claim_as_page_titl
     assert value["humanReview"]["status"] == "not_recorded"
 
 
+def test_outcome_uses_saved_source_page_title_when_available():
+    row = {"url": "https://example.edu.cn/result", "quote": "团队甲发表成果",
+           "source_text": "2026年团队甲发表成果。", "team_id": "t1", "title": "成果摘要",
+           "ownership_json": '{"sourceTitle":"高校原文标题"}', "batch_id": "batch1",
+           "published_at": "2026-09-01", "fetched_at": "2026-09-25",
+           "created_at": "2026-09-26", "review_method": "official-outcome-rule"}
+    assert source.from_outcome(row)["sourceTitle"] == "高校原文标题"
+
+
 def test_directory_provenance_rejects_quote_missing_from_captured_page():
     entry = observation()
     record = entry["payload"]["record"]

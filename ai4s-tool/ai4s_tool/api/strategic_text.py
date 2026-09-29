@@ -9,7 +9,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-VERSION = "task-elements-v4"
+VERSION = "task-elements-v5"
 ALIASES = {
     "中科院": "中国科学院", "中国科大": "中国科学技术大学", "中科大": "中国科学技术大学",
     "哈工大": "哈尔滨工业大学", "北大": "北京大学", "浙大": "浙江大学",
@@ -24,14 +24,15 @@ ALIASES = {
     "预报": "预测", "embodied intelligence": "具身智能", "large language model": "大语言模型",
 }
 CONCEPTS = tuple(sorted(set(ALIASES.values()) | {
-    "蛋白质结构预测", "蛋白质设计", "蛋白质", "药物研发", "药物发现", "药物筛选", "免疫治疗",
+    "蛋白质结构预测", "蛋白质设计", "蛋白质", "结构解析", "药物研发", "药物发现", "药物筛选", "免疫治疗",
     "医学影像", "基因编辑", "肿瘤", "生物计算", "分子动力学", "结构生物学", "单细胞",
     "量子计算", "量子模拟", "量子通信", "量子精密测量", "量子传感", "量子材料", "量子光学",
     "高能物理", "粒子探测", "对撞机", "地球系统", "气候预测", "天气预测", "暴雨预测",
     "深地探测", "地震", "地质", "海洋", "遥感", "碳循环", "智能导钻", "cas-esm",
     "具身智能", "机器人", "智能体", "人工智能", "大模型", "大语言模型", "自然语言处理",
     "计算机视觉", "机器学习", "深度学习", "强化学习", "多模态", "图像超分辨率",
-    "催化", "能源材料", "合金", "电池", "材料设计", "材料计算", "材料", "储能",
+    "催化", "能源材料", "合金", "轻质难熔合金", "电池", "材料设计", "材料计算", "材料", "储能",
+    "虚拟细胞", "细胞扰动", "单细胞多模态整合",
     "科学计算", "科学数据", "知识图谱", "高性能计算", "数值模拟", "仿真", "开放科学",
     "论文", "专利", "开源代码", "开源", "数据集", "实验验证", "临床试验", "系统", "模型",
 }, key=lambda x: (-len(x), x)))
@@ -52,6 +53,11 @@ def normalize(value: str) -> str:
             pattern = r"(?<!西)北大(?!学)"
         text = re.sub(pattern, canonical, text)
     text = text.replace("量子计算与模拟", "量子计算 量子模拟").replace("量子计算和模拟", "量子计算 量子模拟")
+    # Medium/high-entropy variants remain distinguishable, while a broader
+    # lightweight refractory-alloy query can retrieve both cited subtypes.
+    for specific in ("轻质难熔中熵合金", "轻质难熔高熵合金"):
+        text = re.sub(re.escape(specific) + r"(?!\s+轻质难熔合金)",
+                      specific + " 轻质难熔合金", text)
     return re.sub(r"\s+", " ", text).strip()
 
 

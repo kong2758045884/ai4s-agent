@@ -33,6 +33,16 @@ describe("strategic map navigation context", () => {
     const redirected = new URL(canonicalStrategicMapPath("?view=strategic-map&taskId=assessment-a&runId=recommend-v2&smMode=recommend"), "http://localhost");
     expect(readStrategicMapNavigationContext(redirected.pathname, redirected.search)).toMatchObject({ assessmentId: "assessment-a", assessmentRunId: "recommend-v2" });
   });
+  it("keeps a selected domain observation entry across a detail round trip", () => {
+    const entry = { ...context, mode: "recommend" as const, assessmentMode: "domain" as const,
+      domainId: "materials", subdomainId: "lightweight-metal", teamId: "" };
+    const map = new URL(buildStrategicMapPath(entry), "http://localhost");
+    expect(readStrategicMapNavigationContext(map.pathname, map.search)).toMatchObject({
+      assessmentMode: "domain", domainId: "materials", subdomainId: "lightweight-metal",
+    });
+    const detail = new URL(buildStrategicTeamDetailNavigationPath("team-a", entry), "http://localhost");
+    expect(readStrategicTeamDetailSource(detail.search, "team-a").assessmentMode).toBe("domain");
+  });
   it("restores the mobile profile and list position after team detail navigation", () => {
     const mobileContext: StrategicMapNavigationContext = {
       ...context, mobilePanel: "profile", mobileListScroll: 1362,
